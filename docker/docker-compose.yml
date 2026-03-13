@@ -1,0 +1,26 @@
+services:
+  npc-shelf:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: npc-shelf
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - npc-shelf-data:/data
+      - npc-shelf-cache:/cache
+      # Mount your library directories as read-only
+      # - /path/to/your/ebooks:/libraries/ebooks:ro
+      # - /path/to/your/audiobooks:/libraries/audiobooks:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_PATH=/data/npc-shelf.db
+      - COVER_CACHE_PATH=/cache/covers
+      # - JWT_SECRET=change-this-to-a-secure-random-string
+      # - CORS_ORIGIN=https://your-domain.com
+
+volumes:
+  npc-shelf-data:
+  npc-shelf-cache:

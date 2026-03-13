@@ -1,0 +1,26 @@
+services:
+  npc-shelf-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+    container_name: npc-shelf-dev
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../packages:/app/packages
+      - dev-data:/data
+      - dev-cache:/cache
+      # Mount your test library
+      # - /path/to/test/books:/libraries/test:ro
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DATABASE_PATH=/data/npc-shelf-dev.db
+      - COVER_CACHE_PATH=/cache/covers
+      - CORS_ORIGIN=http://localhost:5173
+    command: ["node", "--import", "tsx", "packages/server/src/index.ts"]
+
+volumes:
+  dev-data:
+  dev-cache:
