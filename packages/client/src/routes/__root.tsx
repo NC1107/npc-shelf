@@ -9,6 +9,7 @@ import { BookDetailPage } from './library.$bookId';
 import { SearchPage } from './search';
 import { SettingsPage } from './settings';
 import { SetupPage } from './setup';
+import { ReadPage } from './library.$bookId.read';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -78,10 +79,24 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+const readRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/library/$bookId/read',
+  component: ReadPage,
+});
+
+const listenRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/library/$bookId/listen',
+  component: () => <div className="text-foreground"><h1 className="text-2xl font-bold">Audio Player</h1><p className="text-muted-foreground mt-2">Coming in Phase 6...</p></div>,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   libraryRoute,
   bookDetailRoute,
+  readRoute,
+  listenRoute,
   searchRoute,
   collectionsRoute,
   seriesRoute,

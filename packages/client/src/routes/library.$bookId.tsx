@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, Link } from '@tanstack/react-router';
+import { useParams, Link, useNavigate } from '@tanstack/react-router';
 import {
   BookOpen, ArrowLeft, Download, Send, Play, Edit,
   Headphones, Calendar, Globe, Hash, Building2, FileText,
@@ -23,7 +23,7 @@ const FORMAT_COLORS: Record<string, string> = {
 
 export function BookDetailPage() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
-
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data: book, isLoading } = useQuery({
@@ -185,13 +185,20 @@ export function BookDetailPage() {
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2">
             {hasEbook && (
-              <Button size="lg">
+              <Button
+                size="lg"
+                onClick={() => navigate({ to: '/library/$bookId/read', params: { bookId } })}
+              >
                 <BookOpen className="h-4 w-4" />
                 Read
               </Button>
             )}
             {hasAudio && (
-              <Button size="lg" variant="secondary">
+              <Button
+                size="lg"
+                variant="secondary"
+                onClick={() => navigate({ to: '/library/$bookId/listen', params: { bookId } })}
+              >
                 <Play className="h-4 w-4" />
                 Listen
               </Button>
