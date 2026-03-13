@@ -4,6 +4,48 @@ import { db, schema } from '../db/index.js';
 
 export const booksRouter = Router();
 
+// Library stats
+booksRouter.get('/stats', (_req, res) => {
+  try {
+    const totalBooks = db.select({ count: sql<number>`count(*)` }).from(schema.books).get()!.count;
+    const totalAuthors = db.select({ count: sql<number>`count(*)` }).from(schema.authors).get()!.count;
+
+    // Count ebooks vs audiobooks by checking files
+    const ebookCount = db
+      .all<{ count: number }>(
+        sql`SELECT COUNT(DISTINCT book_id) as count FROM files WHERE format IN ('epub', 'pdf', 'mobi', 'azw3')`,
+      )[0]?.count ?? 0;
+
+    const audiobookCount = db
+      .all<{ count: number }>(
+        sql`SELECT COUNT(DISTINCT book_id) as count FROM files WHERE format IN ('m4b', 'mp3')`,
+      )[0]?.count ?? 0;
+
+    // In-progress books (reading or listening)
+    const userId = _req.user!.userId;
+    const readingCount = db
+      .all<{ count: number }>(
+        sql`SELECT COUNT(*) as count FROM reading_progress WHERE user_id = ${userId} AND progress_percent > 0 AND progress_percent < 1`,
+      )[0]?.count ?? 0;
+
+    const listeningCount = db
+      .all<{ count: number }>(
+        sql`SELECT COUNT(*) as count FROM audio_progress WHERE user_id = ${userId} AND is_finished = 0 AND total_elapsed_seconds > 0`,
+      )[0]?.count ?? 0;
+
+    res.json({
+      totalBooks,
+      totalAuthors,
+      ebookCount,
+      audiobookCount,
+      inProgress: readingCount + listeningCount,
+    });
+  } catch (error) {
+    console.error('[Books] Stats error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // List books (paginated, filterable, searchable)
 booksRouter.get('/', (req, res) => {
   try {
@@ -94,15 +136,65 @@ booksRouter.get('/', (req, res) => {
       : schema.books.title;
     const orderFn = sortOrder === 'desc' ? desc : asc;
 
-    const items = query
+    const rawItems = query
       .orderBy(orderFn(orderColumn))
       .limit(pageSize)
       .offset((page - 1) * pageSize)
       .all();
 
+    // Enrich with authors and formats for BookCard display
+    const items = rawItems.map((book) => {
+      const authorRows = db
+        .select({ name: schema.authors.name })
+        .from(schema.bookAuthors)
+        .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+        .where(eq(schema.bookAuthors.bookId, book.id))
+        .all();
+
+      const formatRows = db
+        .selectDistinct({ format: schema.files.format })
+        .from(schema.files)
+        .where(eq(schema.files.bookId, book.id))
+        .all();
+
+      return {
+        ...book,
+        authors: authorRows.map((a) => ({ author: { name: a.name } })),
+        formats: formatRows.map((f) => f.format),
+      };
+    });
+
     res.json({ items, total, page, pageSize, totalPages });
   } catch (error) {
     console.error('[Books] List error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Filter options (for sidebar)
+booksRouter.get('/filters', (_req, res) => {
+  try {
+    const authors = db
+      .select({ id: schema.authors.id, name: schema.authors.name })
+      .from(schema.authors)
+      .orderBy(asc(schema.authors.sortName))
+      .all();
+
+    const seriesList = db
+      .select({ id: schema.series.id, name: schema.series.name })
+      .from(schema.series)
+      .orderBy(asc(schema.series.name))
+      .all();
+
+    const formats = db
+      .selectDistinct({ format: schema.files.format })
+      .from(schema.files)
+      .all()
+      .map((f) => f.format);
+
+    res.json({ authors, series: seriesList, formats });
+  } catch (error) {
+    console.error('[Books] Filters error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
