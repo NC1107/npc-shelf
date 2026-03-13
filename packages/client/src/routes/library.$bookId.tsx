@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from '@tanstack/react-router';
 import {
-  BookOpen, ArrowLeft, Download, Send, Play, Edit,
+  BookOpen, ArrowLeft, Download, Send, Play, Edit, Check, X,
   Headphones, Calendar, Globe, Hash, Building2, FileText,
   Sparkles, Loader2,
 } from 'lucide-react';
@@ -43,6 +44,39 @@ export function BookDetailPage() {
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ['book', bookId] }), 3000);
     },
   });
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editData, setEditData] = useState<Record<string, any>>({});
+
+  const saveEdit = useMutation({
+    mutationFn: (data: Record<string, any>) => api.put(`/books/${bookId}`, data),
+    onSuccess: () => {
+      setIsEditing(false);
+      setEditData({});
+      queryClient.invalidateQueries({ queryKey: ['book', bookId] });
+    },
+  });
+
+  function startEditing() {
+    if (!book) return;
+    setEditData({
+      title: book.title,
+      subtitle: book.subtitle || '',
+      description: book.description || '',
+      publisher: book.publisher || '',
+      publishDate: book.publishDate || '',
+      language: book.language || '',
+      pageCount: book.pageCount || '',
+      isbn10: book.isbn10 || '',
+      isbn13: book.isbn13 || '',
+    });
+    setIsEditing(true);
+  }
+
+  function cancelEditing() {
+    setIsEditing(false);
+    setEditData({});
+  }
 
   if (isLoading) {
     return (
@@ -127,9 +161,28 @@ export function BookDetailPage() {
         {/* Info */}
         <div className="flex-1 space-y-4">
           <div>
-            <h1 className="text-3xl font-bold leading-tight">{book.title}</h1>
-            {book.subtitle && (
-              <p className="mt-1 text-lg text-muted-foreground">{book.subtitle}</p>
+            {isEditing ? (
+              <div className="space-y-2">
+                <input
+                  className="w-full rounded border bg-background px-3 py-2 text-3xl font-bold"
+                  value={editData.title || ''}
+                  onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+                  placeholder="Title"
+                />
+                <input
+                  className="w-full rounded border bg-background px-3 py-1 text-lg text-muted-foreground"
+                  value={editData.subtitle || ''}
+                  onChange={(e) => setEditData({ ...editData, subtitle: e.target.value })}
+                  placeholder="Subtitle"
+                />
+              </div>
+            ) : (
+              <>
+                <h1 className="text-3xl font-bold leading-tight">{book.title}</h1>
+                {book.subtitle && (
+                  <p className="mt-1 text-lg text-muted-foreground">{book.subtitle}</p>
+                )}
+              </>
             )}
           </div>
 
@@ -238,16 +291,47 @@ export function BookDetailPage() {
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              {book.hardcoverId ? 'Re-match' : 'Match Metadata'}
+              {matchMetadata.isSuccess ? 'Queued!' : matchMetadata.isError ? 'Failed' : book.hardcoverId ? 'Re-match' : 'Match Metadata'}
             </Button>
-            <Button variant="ghost">
-              <Edit className="h-4 w-4" />
-              Edit
-            </Button>
+            {isEditing ? (
+              <>
+                <Button
+                  onClick={() => saveEdit.mutate(editData)}
+                  disabled={saveEdit.isPending}
+                >
+                  {saveEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  Save
+                </Button>
+                <Button variant="ghost" onClick={cancelEditing}>
+                  <X className="h-4 w-4" />
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button variant="ghost" onClick={startEditing}>
+                <Edit className="h-4 w-4" />
+                Edit
+              </Button>
+            )}
           </div>
 
           {/* Description */}
-          {book.description && (
+          {isEditing ? (
+            <>
+              <Separator />
+              <div>
+                <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Description
+                </h2>
+                <textarea
+                  className="w-full rounded border bg-background px-3 py-2 text-sm leading-relaxed min-h-[120px]"
+                  value={editData.description || ''}
+                  onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                  placeholder="Description"
+                />
+              </div>
+            </>
+          ) : book.description ? (
             <>
               <Separator />
               <div>
@@ -259,7 +343,7 @@ export function BookDetailPage() {
                 </div>
               </div>
             </>
-          )}
+          ) : null}
 
           {/* Details grid */}
           <Separator />
@@ -267,29 +351,40 @@ export function BookDetailPage() {
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Details
             </h2>
-            <div className="grid gap-3 text-sm sm:grid-cols-2">
-              {book.publisher && (
-                <DetailItem icon={Building2} label="Publisher" value={book.publisher} />
-              )}
-              {book.publishDate && (
-                <DetailItem icon={Calendar} label="Published" value={book.publishDate} />
-              )}
-              {book.language && (
-                <DetailItem icon={Globe} label="Language" value={book.language.toUpperCase()} />
-              )}
-              {book.pageCount && (
-                <DetailItem icon={FileText} label="Pages" value={String(book.pageCount)} />
-              )}
-              {book.isbn13 && (
-                <DetailItem icon={Hash} label="ISBN-13" value={book.isbn13} />
-              )}
-              {book.isbn10 && (
-                <DetailItem icon={Hash} label="ISBN-10" value={book.isbn10} />
-              )}
-              {book.audioSeconds && book.audioSeconds > 0 && (
-                <DetailItem icon={Headphones} label="Duration" value={formatDuration(book.audioSeconds)} />
-              )}
-            </div>
+            {isEditing ? (
+              <div className="grid gap-3 text-sm sm:grid-cols-2">
+                <EditField label="Publisher" value={editData.publisher || ''} onChange={(v) => setEditData({ ...editData, publisher: v })} />
+                <EditField label="Published" value={editData.publishDate || ''} onChange={(v) => setEditData({ ...editData, publishDate: v })} />
+                <EditField label="Language" value={editData.language || ''} onChange={(v) => setEditData({ ...editData, language: v })} />
+                <EditField label="Pages" value={String(editData.pageCount || '')} onChange={(v) => setEditData({ ...editData, pageCount: v ? parseInt(v) || null : null })} />
+                <EditField label="ISBN-13" value={editData.isbn13 || ''} onChange={(v) => setEditData({ ...editData, isbn13: v })} />
+                <EditField label="ISBN-10" value={editData.isbn10 || ''} onChange={(v) => setEditData({ ...editData, isbn10: v })} />
+              </div>
+            ) : (
+              <div className="grid gap-3 text-sm sm:grid-cols-2">
+                {book.publisher && (
+                  <DetailItem icon={Building2} label="Publisher" value={book.publisher} />
+                )}
+                {book.publishDate && (
+                  <DetailItem icon={Calendar} label="Published" value={book.publishDate} />
+                )}
+                {book.language && (
+                  <DetailItem icon={Globe} label="Language" value={book.language.toUpperCase()} />
+                )}
+                {book.pageCount && (
+                  <DetailItem icon={FileText} label="Pages" value={String(book.pageCount)} />
+                )}
+                {book.isbn13 && (
+                  <DetailItem icon={Hash} label="ISBN-13" value={book.isbn13} />
+                )}
+                {book.isbn10 && (
+                  <DetailItem icon={Hash} label="ISBN-10" value={book.isbn10} />
+                )}
+                {book.audioSeconds && book.audioSeconds > 0 && (
+                  <DetailItem icon={Headphones} label="Duration" value={formatDuration(book.audioSeconds)} />
+                )}
+              </div>
+            )}
           </div>
 
           {/* Tags */}
@@ -312,6 +407,19 @@ export function BookDetailPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EditField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-muted-foreground w-20 shrink-0">{label}:</span>
+      <input
+        className="flex-1 rounded border bg-background px-2 py-1 text-sm"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }

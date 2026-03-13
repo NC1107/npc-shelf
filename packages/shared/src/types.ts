@@ -184,6 +184,9 @@ export interface MetadataSearchResult {
   coverUrl: string | null;
   publishDate: string | null;
   isbn13: string | null;
+  pageCount: number | null;
+  isbn10: string | null;
+  tags: string[] | null;
   series: string | null;
   seriesPosition: number | null;
 }

@@ -203,6 +203,7 @@ booksRouter.get('/filters', (_req, res) => {
 booksRouter.get('/:id', (req, res) => {
   try {
     const bookId = parseInt(req.params.id);
+    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) {
       res.status(404).json({ error: 'Book not found' });
@@ -286,7 +287,12 @@ booksRouter.get('/:id', (req, res) => {
 booksRouter.get('/:id/cover/:size', (req, res) => {
   try {
     const bookId = parseInt(req.params.id);
+    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const size = req.params.size as 'thumb' | 'medium' | 'full';
+    if (!['thumb', 'medium', 'full'].includes(size)) {
+      res.status(400).json({ error: 'Invalid size. Use thumb, medium, or full' });
+      return;
+    }
 
     const book = db.select({ coverPath: schema.books.coverPath }).from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book?.coverPath) {
@@ -297,14 +303,18 @@ booksRouter.get('/:id/cover/:size', (req, res) => {
     const coverDir = process.env.COVER_CACHE_PATH || './cache/covers';
     const coverFile = `${coverDir}/${bookId}_${size}.webp`;
 
-    res.sendFile(coverFile, { root: process.cwd() }, (err) => {
-      if (err) {
-        // Try original cover
-        res.sendFile(book.coverPath!, { root: process.cwd() }, (err2) => {
-          if (err2) res.status(404).json({ error: 'Cover not found' });
-        });
-      }
-    });
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    const fs = require('node:fs');
+    if (fs.existsSync(coverFile)) {
+      res.setHeader('Content-Type', 'image/webp');
+      res.sendFile(coverFile, { root: process.cwd() });
+    } else if (book.coverPath && fs.existsSync(book.coverPath)) {
+      // Fallback to original
+      res.sendFile(book.coverPath, { root: process.cwd() });
+    } else {
+      res.status(404).json({ error: 'Cover not found' });
+    }
   } catch (error) {
     console.error('[Books] Cover error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -315,32 +325,7 @@ booksRouter.get('/:id/cover/:size', (req, res) => {
 booksRouter.get('/:id/file', (req, res) => {
   try {
     const bookId = parseInt(req.params.id);
-    const formatPref = req.query.format as string | undefined;
-
-    let fileQuery = db.select().from(schema.files).where(eq(schema.files.bookId, bookId));
-    const files = fileQuery.all();
-
-    if (files.length === 0) {
-      res.status(404).json({ error: 'No files found' });
-      return;
-    }
-
-    const file = formatPref
-      ? files.find((f) => f.format === formatPref) || files[0]
-      : files[0];
-
-    res.download(file.path, file.filename);
-  } catch (error) {
-    console.error('[Books] Download error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Delete book (from index only, not disk)
-// Download book file
-booksRouter.get('/:id/file', (req, res) => {
-  try {
-    const bookId = parseInt(req.params.id);
+    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const formatPref = req.query.format as string | undefined;
 
     let file;
@@ -366,6 +351,7 @@ booksRouter.get('/:id/file', (req, res) => {
 
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
     res.sendFile(file.path);
   } catch (error) {
     console.error('[Books] File download error:', error);
@@ -373,9 +359,40 @@ booksRouter.get('/:id/file', (req, res) => {
   }
 });
 
+// Update book metadata
+booksRouter.put('/:id', (req, res) => {
+  try {
+    const bookId = parseInt(req.params.id);
+    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
+    if (!book) { res.status(404).json({ error: 'Book not found' }); return; }
+
+    const allowedFields = [
+      'title', 'subtitle', 'description', 'publisher',
+      'publishDate', 'language', 'pageCount', 'isbn10', 'isbn13',
+    ] as const;
+
+    const updates: Record<string, any> = { updatedAt: new Date().toISOString() };
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+
+    db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
+    const updated = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
+    res.json(updated);
+  } catch (error) {
+    console.error('[Books] Update error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete book (from index only, not disk)
 booksRouter.delete('/:id', (req, res) => {
   try {
     const bookId = parseInt(req.params.id);
+    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) {
       res.status(404).json({ error: 'Book not found' });

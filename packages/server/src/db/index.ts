@@ -1,6 +1,8 @@
 import Database, { type Database as DatabaseType } from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 
 import * as usersSchema from './schema/users.js';
@@ -294,4 +296,27 @@ export function initializeDatabase() {
   `);
 
   console.log('[DB] Database initialized successfully');
+}
+
+export function runMigrations() {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const migrationsDir = path.join(__dirname, 'migrations');
+
+  if (!fs.existsSync(migrationsDir)) {
+    console.log('[DB] No migrations directory found, skipping migrations');
+    return;
+  }
+
+  const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'));
+  if (files.length === 0) {
+    console.log('[DB] No migration files found, skipping');
+    return;
+  }
+
+  try {
+    migrate(db, { migrationsFolder: migrationsDir });
+    console.log('[DB] Migrations applied successfully');
+  } catch (err) {
+    console.error('[DB] Migration error:', err);
+  }
 }

@@ -133,6 +133,8 @@ export async function enrichBook(bookId: number): Promise<void> {
   if (!book.description && match.description) updates.description = match.description;
   if (!book.publishDate && match.publishDate) updates.publishDate = match.publishDate;
   if (!book.isbn13 && match.isbn13) updates.isbn13 = match.isbn13;
+  if (!book.pageCount && match.pageCount) updates.pageCount = match.pageCount;
+  if (!book.isbn10 && match.isbn10) updates.isbn10 = match.isbn10;
 
   db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
 
@@ -175,6 +177,20 @@ export async function enrichBook(bookId: number): Promise<void> {
     })
     .onConflictDoNothing()
     .run();
+
+  // Create tags from metadata
+  if (match.tags && match.tags.length > 0) {
+    for (const tagName of match.tags) {
+      let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get();
+      if (!tag) {
+        tag = db.insert(schema.tags).values({ name: tagName, source: 'hardcover' }).returning().get();
+      }
+      db.insert(schema.bookTags)
+        .values({ bookId, tagId: tag.id })
+        .onConflictDoNothing()
+        .run();
+    }
+  }
 }
 
 /**
@@ -227,6 +243,8 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
   if (details.description) updates.description = details.description;
   if (details.publishDate) updates.publishDate = details.publishDate;
   if (details.isbn13) updates.isbn13 = details.isbn13;
+  if (details.pageCount) updates.pageCount = details.pageCount;
+  if (details.isbn10) updates.isbn10 = details.isbn10;
 
   db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
 
@@ -248,4 +266,18 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
     })
     .onConflictDoNothing()
     .run();
+
+  // Create tags from metadata
+  if (details.tags && details.tags.length > 0) {
+    for (const tagName of details.tags) {
+      let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get();
+      if (!tag) {
+        tag = db.insert(schema.tags).values({ name: tagName, source: 'hardcover' }).returning().get();
+      }
+      db.insert(schema.bookTags)
+        .values({ bookId, tagId: tag.id })
+        .onConflictDoNothing()
+        .run();
+    }
+  }
 }

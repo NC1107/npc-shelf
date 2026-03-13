@@ -19,7 +19,7 @@ export const useReaderStore = create<ReaderState>()(
     (set) => ({
       fontSize: 16,
       fontFamily: 'serif',
-      theme: 'light',
+      theme: 'dark',
       lineHeight: 1.6,
       margins: 40,
       setFontSize: (fontSize) => set({ fontSize }),
