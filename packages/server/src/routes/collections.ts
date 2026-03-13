@@ -12,7 +12,15 @@ collectionsRouter.get('/', (req, res) => {
       .select()
       .from(schema.collections)
       .where(eq(schema.collections.userId, userId))
-      .all();
+      .all()
+      .map((c) => {
+        const bookCount = db
+          .select({ count: sql<number>`count(*)` })
+          .from(schema.bookCollections)
+          .where(eq(schema.bookCollections.collectionId, c.id))
+          .get()?.count || 0;
+        return { ...c, bookCount };
+      });
     res.json(collections);
   } catch (error) {
     console.error('[Collections] List error:', error);
@@ -39,6 +47,57 @@ collectionsRouter.post('/', (req, res) => {
     res.status(201).json(collection);
   } catch (error) {
     console.error('[Collections] Create error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get collection with books
+collectionsRouter.get('/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
+    if (!collection) {
+      res.status(404).json({ error: 'Collection not found' });
+      return;
+    }
+
+    const bookIds = db
+      .select({ bookId: schema.bookCollections.bookId })
+      .from(schema.bookCollections)
+      .where(eq(schema.bookCollections.collectionId, id))
+      .all()
+      .map((r) => r.bookId);
+
+    let books: any[] = [];
+    if (bookIds.length > 0) {
+      books = db
+        .select()
+        .from(schema.books)
+        .where(sql`${schema.books.id} IN (${sql.join(bookIds.map(bid => sql`${bid}`), sql`, `)})`)
+        .all()
+        .map((book) => {
+          const authors = db
+            .select({ name: schema.authors.name })
+            .from(schema.bookAuthors)
+            .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+            .where(eq(schema.bookAuthors.bookId, book.id))
+            .all();
+          const formats = db
+            .selectDistinct({ format: schema.files.format })
+            .from(schema.files)
+            .where(eq(schema.files.bookId, book.id))
+            .all();
+          return {
+            ...book,
+            authors: authors.map((a) => ({ author: { name: a.name } })),
+            formats: formats.map((f) => f.format),
+          };
+        });
+    }
+
+    res.json({ ...collection, books });
+  } catch (error) {
+    console.error('[Collections] Get error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

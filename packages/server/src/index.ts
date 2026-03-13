@@ -14,6 +14,7 @@ import { metadataRouter } from './routes/metadata.js';
 import { opdsRouter } from './routes/opds.js';
 import { kindleRouter } from './routes/kindle.js';
 import { collectionsRouter } from './routes/collections.js';
+import { seriesRouter } from './routes/series.js';
 import { settingsRouter } from './routes/settings.js';
 import { searchRouter } from './routes/search.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -83,6 +84,7 @@ app.use('/api/reader', authMiddleware, readerRouter);
 app.use('/api/metadata', authMiddleware, metadataRouter);
 app.use('/api/kindle', authMiddleware, kindleRouter);
 app.use('/api/collections', authMiddleware, collectionsRouter);
+app.use('/api/series', authMiddleware, seriesRouter);
 app.use('/api/settings', authMiddleware, settingsRouter);
 app.use('/api/search', authMiddleware, searchRouter);
 

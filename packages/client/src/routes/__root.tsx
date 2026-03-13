@@ -11,6 +11,10 @@ import { SettingsPage } from './settings';
 import { SetupPage } from './setup';
 import { ReadPage } from './library.$bookId.read';
 import { ListenPage } from './library.$bookId.listen';
+import { CollectionsPage } from './collections';
+import { CollectionDetailPage } from './collections.$collectionId';
+import { SeriesPage } from './series';
+import { SeriesDetailPage } from './series.$seriesId';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -65,13 +69,25 @@ const searchRoute = createRoute({
 const collectionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/collections',
-  component: () => <div className="text-foreground"><h1 className="text-2xl font-bold">Collections</h1><p className="text-muted-foreground mt-2">Coming soon...</p></div>,
+  component: CollectionsPage,
+});
+
+const collectionDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/collections/$collectionId',
+  component: CollectionDetailPage,
 });
 
 const seriesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/series',
-  component: () => <div className="text-foreground"><h1 className="text-2xl font-bold">Series</h1><p className="text-muted-foreground mt-2">Coming soon...</p></div>,
+  component: SeriesPage,
+});
+
+const seriesDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/series/$seriesId',
+  component: SeriesDetailPage,
 });
 
 const settingsRoute = createRoute({
@@ -100,6 +116,8 @@ export const routeTree = rootRoute.addChildren([
   listenRoute,
   searchRoute,
   collectionsRoute,
+  collectionDetailRoute,
   seriesRoute,
+  seriesDetailRoute,
   settingsRoute,
 ]);
