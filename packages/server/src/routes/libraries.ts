@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { activeScanStatuses } from '../services/scanner.js';
 import fs from 'node:fs';
 
 export const librariesRouter = Router();
@@ -121,7 +122,7 @@ librariesRouter.post('/:id/scan', (req, res) => {
   }
 });
 
-// Scan status
+// Scan status — SSE stream for real-time progress, falls back to JSON poll
 librariesRouter.get('/:id/scan/status', (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -131,22 +132,65 @@ librariesRouter.get('/:id/scan/status', (req, res) => {
       return;
     }
 
-    // Check for active scan jobs
-    const activeJob = db
-      .select()
-      .from(schema.jobQueue)
-      .where(eq(schema.jobQueue.jobType, 'scan_library'))
-      .all()
-      .find((j) => {
-        const payload = JSON.parse(j.payload);
-        return payload.libraryId === id && (j.status === 'pending' || j.status === 'processing');
+    const wantsSSE = req.headers.accept?.includes('text/event-stream');
+
+    if (wantsSSE) {
+      // SSE mode — stream progress updates
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
       });
 
-    res.json({
-      libraryId: id,
-      status: activeJob ? (activeJob.status === 'processing' ? 'scanning' : 'pending') : 'idle',
-      lastScannedAt: library.lastScannedAt,
-    });
+      const interval = setInterval(() => {
+        const status = activeScanStatuses.get(id);
+        if (status) {
+          res.write(`data: ${JSON.stringify(status)}\n\n`);
+          if (status.status === 'complete' || status.status === 'error') {
+            clearInterval(interval);
+            res.write(`data: ${JSON.stringify(status)}\n\n`);
+            res.end();
+          }
+        } else {
+          // No active scan — send idle status
+          res.write(`data: ${JSON.stringify({ libraryId: id, status: 'idle', lastScannedAt: library.lastScannedAt })}\n\n`);
+          clearInterval(interval);
+          res.end();
+        }
+      }, 1000);
+
+      req.on('close', () => clearInterval(interval));
+    } else {
+      // JSON poll mode
+      const status = activeScanStatuses.get(id);
+      if (status) {
+        res.json(status);
+      } else {
+        // Check for pending jobs
+        const activeJob = db
+          .select()
+          .from(schema.jobQueue)
+          .where(eq(schema.jobQueue.jobType, 'scan_library'))
+          .all()
+          .find((j) => {
+            const payload = JSON.parse(j.payload);
+            return payload.libraryId === id && (j.status === 'pending' || j.status === 'processing');
+          });
+
+        res.json({
+          libraryId: id,
+          status: activeJob ? (activeJob.status === 'processing' ? 'scanning' : 'pending') : 'idle',
+          filesFound: 0,
+          filesProcessed: 0,
+          booksAdded: 0,
+          booksUpdated: 0,
+          errors: [],
+          startedAt: null,
+          completedAt: null,
+          lastScannedAt: library.lastScannedAt,
+        });
+      }
+    }
   } catch (error) {
     console.error('[Libraries] Scan status error:', error);
     res.status(500).json({ error: 'Internal server error' });

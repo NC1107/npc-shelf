@@ -17,6 +17,8 @@ import { collectionsRouter } from './routes/collections.js';
 import { settingsRouter } from './routes/settings.js';
 import { searchRouter } from './routes/search.js';
 import { authMiddleware } from './middleware/auth.js';
+import { registerJobHandler, startJobProcessor } from './services/job-queue.js';
+import { scanLibrary } from './services/scanner.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +27,17 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Initialize database
 initializeDatabase();
+
+// Register job handlers
+registerJobHandler('scan_library', async (payload) => {
+  const libraryId = payload.libraryId as number;
+  console.log(`[Jobs] Starting scan for library ${libraryId}`);
+  const result = await scanLibrary(libraryId);
+  console.log(`[Jobs] Scan complete: ${result.booksAdded} added, ${result.booksUpdated} updated, ${result.errors.length} errors`);
+});
+
+// Start background job processor
+startJobProcessor();
 
 // Global middleware
 app.use(cors({
