@@ -1,8 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link } from '@tanstack/react-router';
 import {
   BookOpen, ArrowLeft, Download, Send, Play, Edit,
   Headphones, Calendar, Globe, Hash, Building2, FileText,
+  Sparkles, Loader2,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -23,10 +24,20 @@ const FORMAT_COLORS: Record<string, string> = {
 export function BookDetailPage() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
 
+  const queryClient = useQueryClient();
+
   const { data: book, isLoading } = useQuery({
     queryKey: ['book', bookId],
     queryFn: () => api.get<BookDetail>(`/books/${bookId}`),
     enabled: !!bookId,
+  });
+
+  const matchMetadata = useMutation({
+    mutationFn: () => api.post(`/metadata/match/${bookId}`),
+    onSuccess: () => {
+      // Refetch after a delay to let the job process
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ['book', bookId] }), 3000);
+    },
   });
 
   if (isLoading) {
@@ -195,6 +206,18 @@ export function BookDetailPage() {
                 Send to Kindle
               </Button>
             )}
+            <Button
+              variant="outline"
+              onClick={() => matchMetadata.mutate()}
+              disabled={matchMetadata.isPending}
+            >
+              {matchMetadata.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {book.hardcoverId ? 'Re-match' : 'Match Metadata'}
+            </Button>
             <Button variant="ghost">
               <Edit className="h-4 w-4" />
               Edit

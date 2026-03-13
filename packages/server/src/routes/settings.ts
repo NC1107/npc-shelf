@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { updateProviderToken } from '../services/metadata-pipeline.js';
 
 export const settingsRouter = Router();
 
@@ -36,6 +37,11 @@ settingsRouter.put('/', (req, res) => {
           set: { value: String(value), updatedAt: new Date().toISOString() },
         })
         .run();
+    }
+
+    // If Hardcover API token was updated, reconfigure the provider
+    if (updates.hardcoverApiToken) {
+      updateProviderToken(String(updates.hardcoverApiToken));
     }
 
     res.json({ message: 'Settings updated' });

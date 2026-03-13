@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { searchProvider, applyMatch } from '../services/metadata-pipeline.js';
 
 export const metadataRouter = Router();
 
@@ -45,8 +46,8 @@ metadataRouter.post('/match-all', (_req, res) => {
   }
 });
 
-// Search Hardcover directly
-metadataRouter.get('/search', (req, res) => {
+// Search provider directly (for manual matching)
+metadataRouter.get('/search', async (req, res) => {
   try {
     const q = req.query.q as string;
     if (!q) {
@@ -54,10 +55,36 @@ metadataRouter.get('/search', (req, res) => {
       return;
     }
 
-    // TODO: Implement Hardcover GraphQL search
-    res.json({ results: [], query: q });
+    const results = await searchProvider(q);
+    res.json({ results, query: q });
   } catch (error) {
     console.error('[Metadata] Search error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Apply a specific match to a book (manual matching)
+metadataRouter.post('/apply/:bookId', async (req, res) => {
+  try {
+    const bookId = parseInt(req.params.bookId);
+    const { externalId } = req.body;
+    if (!externalId) {
+      res.status(400).json({ error: 'externalId is required' });
+      return;
+    }
+
+    const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
+    if (!book) {
+      res.status(404).json({ error: 'Book not found' });
+      return;
+    }
+
+    await applyMatch(bookId, externalId);
+
+    const updated = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
+    res.json(updated);
+  } catch (error) {
+    console.error('[Metadata] Apply error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -98,7 +125,7 @@ metadataRouter.put('/books/:id/metadata', (req, res) => {
   }
 });
 
-// Export metadata as OPF/JSON sidecar
+// Export metadata as JSON sidecar
 metadataRouter.post('/books/:id/export', (req, res) => {
   try {
     const bookId = parseInt(req.params.id);
@@ -108,8 +135,43 @@ metadataRouter.post('/books/:id/export', (req, res) => {
       return;
     }
 
-    // TODO: Implement OPF/JSON export
-    res.json({ message: 'Export not yet implemented', bookId });
+    // Get full book detail
+    const authors = db
+      .select({ name: schema.authors.name, role: schema.bookAuthors.role })
+      .from(schema.bookAuthors)
+      .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+      .where(eq(schema.bookAuthors.bookId, bookId))
+      .all();
+
+    const series = db
+      .select({ name: schema.series.name, position: schema.bookSeries.position })
+      .from(schema.bookSeries)
+      .innerJoin(schema.series, eq(schema.bookSeries.seriesId, schema.series.id))
+      .where(eq(schema.bookSeries.bookId, bookId))
+      .all();
+
+    const tags = db
+      .select({ name: schema.tags.name })
+      .from(schema.bookTags)
+      .innerJoin(schema.tags, eq(schema.bookTags.tagId, schema.tags.id))
+      .where(eq(schema.bookTags.bookId, bookId))
+      .all();
+
+    res.json({
+      title: book.title,
+      subtitle: book.subtitle,
+      authors: authors.map((a) => ({ name: a.name, role: a.role })),
+      description: book.description,
+      publisher: book.publisher,
+      publishDate: book.publishDate,
+      language: book.language,
+      isbn10: book.isbn10,
+      isbn13: book.isbn13,
+      pageCount: book.pageCount,
+      series: series.map((s) => ({ name: s.name, position: s.position })),
+      tags: tags.map((t) => t.name),
+      hardcoverId: book.hardcoverId,
+    });
   } catch (error) {
     console.error('[Metadata] Export error:', error);
     res.status(500).json({ error: 'Internal server error' });

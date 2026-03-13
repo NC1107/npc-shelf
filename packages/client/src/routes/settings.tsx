@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, FolderSync, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, FolderSync, Loader2, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -46,6 +46,7 @@ export function SettingsPage() {
   const [newLibPath, setNewLibPath] = useState('');
   const [newLibType, setNewLibType] = useState<'ebook' | 'audiobook' | 'mixed'>('mixed');
   const [scanningLibId, setScanningLibId] = useState<number | null>(null);
+  const [hardcoverToken, setHardcoverToken] = useState('');
 
   const scanStatus = useScanProgress(scanningLibId);
 
@@ -85,6 +86,15 @@ export function SettingsPage() {
       return () => clearTimeout(timer);
     }
   }, [scanStatus?.status, queryClient]);
+
+  const saveHardcoverToken = useMutation({
+    mutationFn: (token: string) =>
+      api.put('/settings', { hardcoverApiToken: token }),
+  });
+
+  const matchAllBooks = useMutation({
+    mutationFn: () => api.post('/metadata/match-all'),
+  });
 
   const isScanning = scanStatus?.status === 'scanning';
 
@@ -220,6 +230,51 @@ export function SettingsPage() {
             </Button>
             {addLibrary.isError && (
               <p className="text-sm text-destructive">{(addLibrary.error as Error).message}</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+      {/* Metadata */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Metadata</CardTitle>
+          <CardDescription>Configure metadata enrichment via Hardcover.app</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Automatically match your books with metadata from Hardcover.app to get covers, descriptions, and series info.
+              You'll need a free API token from{' '}
+              <a href="https://hardcover.app/account/api" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                hardcover.app/account/api
+              </a>
+            </p>
+            <Input
+              placeholder="Hardcover API token"
+              value={hardcoverToken}
+              onChange={(e) => setHardcoverToken(e.target.value)}
+              type="password"
+            />
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => saveHardcoverToken.mutate(hardcoverToken)}
+                disabled={saveHardcoverToken.isPending || !hardcoverToken}
+              >
+                {saveHardcoverToken.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save Token
+              </Button>
+              <Button
+                onClick={() => matchAllBooks.mutate()}
+                disabled={matchAllBooks.isPending}
+              >
+                {matchAllBooks.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                <Sparkles className="h-4 w-4" />
+                Match All Books
+              </Button>
+            </div>
+            {matchAllBooks.isSuccess && (
+              <p className="text-sm text-green-600">Metadata matching queued. Books will be enriched in the background.</p>
             )}
           </div>
         </CardContent>

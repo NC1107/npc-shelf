@@ -19,6 +19,7 @@ import { searchRouter } from './routes/search.js';
 import { authMiddleware } from './middleware/auth.js';
 import { registerJobHandler, startJobProcessor } from './services/job-queue.js';
 import { scanLibrary } from './services/scanner.js';
+import { enrichBook, enrichAllUnmatched } from './services/metadata-pipeline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +35,18 @@ registerJobHandler('scan_library', async (payload) => {
   console.log(`[Jobs] Starting scan for library ${libraryId}`);
   const result = await scanLibrary(libraryId);
   console.log(`[Jobs] Scan complete: ${result.booksAdded} added, ${result.booksUpdated} updated, ${result.errors.length} errors`);
+});
+
+registerJobHandler('match_metadata', async (payload) => {
+  const bookId = payload.bookId as number;
+  console.log(`[Jobs] Starting metadata match for book ${bookId}`);
+  await enrichBook(bookId);
+});
+
+registerJobHandler('match_all_metadata', async () => {
+  console.log('[Jobs] Starting batch metadata match');
+  const result = await enrichAllUnmatched();
+  console.log(`[Jobs] Batch match complete: ${result.matched}/${result.total} matched`);
 });
 
 // Start background job processor
