@@ -337,6 +337,42 @@ booksRouter.get('/:id/file', (req, res) => {
 });
 
 // Delete book (from index only, not disk)
+// Download book file
+booksRouter.get('/:id/file', (req, res) => {
+  try {
+    const bookId = parseInt(req.params.id);
+    const formatPref = req.query.format as string | undefined;
+
+    let file;
+    if (formatPref) {
+      file = db.select().from(schema.files)
+        .where(sql`${schema.files.bookId} = ${bookId} AND ${schema.files.format} = ${formatPref}`)
+        .get();
+    }
+    if (!file) {
+      file = db.select().from(schema.files).where(eq(schema.files.bookId, bookId)).get();
+    }
+
+    if (!file) {
+      res.status(404).json({ error: 'No file found' });
+      return;
+    }
+
+    const fs = require('node:fs');
+    if (!fs.existsSync(file.path)) {
+      res.status(404).json({ error: 'File not found on disk' });
+      return;
+    }
+
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.sendFile(file.path);
+  } catch (error) {
+    console.error('[Books] File download error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 booksRouter.delete('/:id', (req, res) => {
   try {
     const bookId = parseInt(req.params.id);

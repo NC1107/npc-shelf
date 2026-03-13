@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, desc } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { sendToKindle } from '../services/kindle.js';
+import fs from 'node:fs';
 
 export const kindleRouter = Router();
 
 // Send book to Kindle
-kindleRouter.post('/send/:bookId', (req, res) => {
+kindleRouter.post('/send/:bookId', async (req, res) => {
   try {
     const bookId = parseInt(req.params.bookId);
     const userId = req.user!.userId;
@@ -16,20 +18,77 @@ kindleRouter.post('/send/:bookId', (req, res) => {
       return;
     }
 
-    // Check Kindle settings
+    // Get Kindle email
     const kindleConfig = db
       .select()
       .from(schema.kindleSettings)
       .where(eq(schema.kindleSettings.userId, userId))
       .get();
 
-    if (!kindleConfig) {
+    if (!kindleConfig?.kindleEmail) {
       res.status(400).json({ error: 'Kindle email not configured' });
       return;
     }
 
-    // TODO: Implement actual email sending via nodemailer
-    res.json({ message: 'Send to Kindle queued', bookId });
+    // Get SMTP config
+    const getSettings = (key: string) =>
+      db.select().from(schema.settings).where(eq(schema.settings.key, key)).get()?.value || '';
+
+    const smtpConfig = {
+      host: getSettings('smtpHost'),
+      port: parseInt(getSettings('smtpPort') || '587'),
+      user: getSettings('smtpUser'),
+      pass: getSettings('smtpPass'),
+      from: getSettings('fromEmail'),
+    };
+
+    if (!smtpConfig.host || !smtpConfig.user) {
+      res.status(400).json({ error: 'SMTP settings not configured' });
+      return;
+    }
+
+    // Find a supported file (prefer epub, then pdf, then mobi)
+    const files = db.select().from(schema.files).where(eq(schema.files.bookId, bookId)).all();
+    const supportedFormats = ['epub', 'pdf', 'mobi'];
+    const file = supportedFormats
+      .map((fmt) => files.find((f) => f.format === fmt))
+      .find((f) => f && fs.existsSync(f.path));
+
+    if (!file) {
+      res.status(400).json({ error: 'No supported file found for Kindle delivery' });
+      return;
+    }
+
+    // Record delivery attempt
+    const delivery = db
+      .insert(schema.kindleDeliveries)
+      .values({
+        userId,
+        bookId,
+        kindleEmail: kindleConfig.kindleEmail,
+        status: 'pending',
+        fileFormat: file.format,
+        fileSizeBytes: file.sizeBytes,
+      })
+      .returning()
+      .get();
+
+    // Send asynchronously
+    sendToKindle(file.path, kindleConfig.kindleEmail, smtpConfig)
+      .then((result) => {
+        db.update(schema.kindleDeliveries)
+          .set({ status: 'sent', messageId: result.messageId })
+          .where(eq(schema.kindleDeliveries.id, delivery.id))
+          .run();
+      })
+      .catch((err) => {
+        db.update(schema.kindleDeliveries)
+          .set({ status: 'failed', error: err.message })
+          .where(eq(schema.kindleDeliveries.id, delivery.id))
+          .run();
+      });
+
+    res.json({ message: 'Sending to Kindle...', deliveryId: delivery.id });
   } catch (error) {
     console.error('[Kindle] Send error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -46,18 +105,16 @@ kindleRouter.get('/settings', (req, res) => {
       .where(eq(schema.kindleSettings.userId, userId))
       .get();
 
-    // Get SMTP settings from app settings
-    const smtpHost = db.select().from(schema.settings).where(eq(schema.settings.key, 'smtpHost')).get();
-    const smtpPort = db.select().from(schema.settings).where(eq(schema.settings.key, 'smtpPort')).get();
-    const smtpUser = db.select().from(schema.settings).where(eq(schema.settings.key, 'smtpUser')).get();
-    const fromEmail = db.select().from(schema.settings).where(eq(schema.settings.key, 'fromEmail')).get();
+    const getSettings = (key: string) =>
+      db.select().from(schema.settings).where(eq(schema.settings.key, key)).get()?.value || '';
 
     res.json({
       kindleEmail: settings?.kindleEmail || '',
-      smtpHost: smtpHost?.value || '',
-      smtpPort: smtpPort?.value ? parseInt(smtpPort.value) : 587,
-      smtpUser: smtpUser?.value || '',
-      fromEmail: fromEmail?.value || '',
+      smtpHost: getSettings('smtpHost'),
+      smtpPort: parseInt(getSettings('smtpPort') || '587'),
+      smtpUser: getSettings('smtpUser'),
+      fromEmail: getSettings('fromEmail'),
+      configured: !!(getSettings('smtpHost') && getSettings('smtpUser')),
     });
   } catch (error) {
     console.error('[Kindle] Settings error:', error);
@@ -90,7 +147,13 @@ kindleRouter.put('/settings', (req, res) => {
     }
 
     // Update SMTP settings
-    const smtpSettings = { smtpHost, smtpPort: smtpPort?.toString(), smtpUser, smtpPass, fromEmail };
+    const smtpSettings: Record<string, string | undefined> = {
+      smtpHost,
+      smtpPort: smtpPort?.toString(),
+      smtpUser,
+      smtpPass,
+      fromEmail,
+    };
     for (const [key, value] of Object.entries(smtpSettings)) {
       if (value !== undefined) {
         db.insert(schema.settings)
@@ -115,6 +178,7 @@ kindleRouter.get('/history', (req, res) => {
       .select()
       .from(schema.kindleDeliveries)
       .where(eq(schema.kindleDeliveries.userId, userId))
+      .orderBy(desc(schema.kindleDeliveries.createdAt))
       .all();
     res.json(deliveries);
   } catch (error) {

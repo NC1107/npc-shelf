@@ -32,6 +32,10 @@ export function BookDetailPage() {
     enabled: !!bookId,
   });
 
+  const sendToKindle = useMutation({
+    mutationFn: () => api.post(`/kindle/send/${bookId}`),
+  });
+
   const matchMetadata = useMutation({
     mutationFn: () => api.post(`/metadata/match/${bookId}`),
     onSuccess: () => {
@@ -203,14 +207,25 @@ export function BookDetailPage() {
                 Listen
               </Button>
             )}
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => window.open(`/api/books/${bookId}/file`, '_blank')}
+            >
               <Download className="h-4 w-4" />
               Download
             </Button>
             {hasEbook && (
-              <Button variant="outline">
-                <Send className="h-4 w-4" />
-                Send to Kindle
+              <Button
+                variant="outline"
+                onClick={() => sendToKindle.mutate()}
+                disabled={sendToKindle.isPending}
+              >
+                {sendToKindle.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                {sendToKindle.isSuccess ? 'Sent!' : sendToKindle.isError ? 'Failed' : 'Send to Kindle'}
               </Button>
             )}
             <Button

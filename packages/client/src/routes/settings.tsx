@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, FolderSync, Loader2, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import { Plus, Trash2, FolderSync, Loader2, CheckCircle2, AlertCircle, Sparkles, Send, Rss } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -86,6 +86,33 @@ export function SettingsPage() {
       return () => clearTimeout(timer);
     }
   }, [scanStatus?.status, queryClient]);
+
+  const [kindleEmail, setKindleEmail] = useState('');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('587');
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPass, setSmtpPass] = useState('');
+  const [fromEmail, setFromEmail] = useState('');
+
+  const { data: kindleSettings } = useQuery({
+    queryKey: ['kindle-settings'],
+    queryFn: () => api.get<any>('/kindle/settings'),
+  });
+
+  useEffect(() => {
+    if (kindleSettings) {
+      setKindleEmail(kindleSettings.kindleEmail || '');
+      setSmtpHost(kindleSettings.smtpHost || '');
+      setSmtpPort(String(kindleSettings.smtpPort || 587));
+      setSmtpUser(kindleSettings.smtpUser || '');
+      setFromEmail(kindleSettings.fromEmail || '');
+    }
+  }, [kindleSettings]);
+
+  const saveKindleSettings = useMutation({
+    mutationFn: (data: any) => api.put('/kindle/settings', data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kindle-settings'] }),
+  });
 
   const saveHardcoverToken = useMutation({
     mutationFn: (token: string) =>
@@ -277,6 +304,75 @@ export function SettingsPage() {
               <p className="text-sm text-green-600">Metadata matching queued. Books will be enriched in the background.</p>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Kindle */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Send className="h-5 w-5" />
+            Send to Kindle
+          </CardTitle>
+          <CardDescription>Configure SMTP and Kindle email for book delivery</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3">
+            <Input
+              placeholder="Kindle email (e.g. yourname@kindle.com)"
+              value={kindleEmail}
+              onChange={(e) => setKindleEmail(e.target.value)}
+            />
+            <Separator />
+            <p className="text-xs font-medium text-muted-foreground">SMTP Settings</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input placeholder="SMTP host" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
+              <Input placeholder="SMTP port" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
+              <Input placeholder="SMTP username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
+              <Input placeholder="SMTP password" type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
+            </div>
+            <Input placeholder="From email" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} />
+            <Button
+              onClick={() => saveKindleSettings.mutate({
+                kindleEmail,
+                smtpHost,
+                smtpPort: parseInt(smtpPort),
+                smtpUser,
+                smtpPass: smtpPass || undefined,
+                fromEmail,
+              })}
+              disabled={saveKindleSettings.isPending}
+            >
+              {saveKindleSettings.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save Kindle Settings
+            </Button>
+            {saveKindleSettings.isSuccess && (
+              <p className="text-sm text-green-600">Kindle settings saved.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* OPDS */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Rss className="h-5 w-5" />
+            OPDS Catalog
+          </CardTitle>
+          <CardDescription>Access your library from e-reader apps like KOReader</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Your OPDS catalog is available at:
+          </p>
+          <code className="block rounded bg-muted px-3 py-2 text-sm">
+            {window.location.origin}/opds
+          </code>
+          <p className="text-xs text-muted-foreground">
+            Use your NPC-Shelf username and password for HTTP Basic authentication.
+            Configure this URL in your e-reader app's OPDS catalog settings.
+          </p>
         </CardContent>
       </Card>
     </div>
