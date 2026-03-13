@@ -7,6 +7,7 @@ import { SUPPORTED_FORMATS, MIME_TYPES, SUPPORTED_EBOOK_FORMATS, SUPPORTED_AUDIO
 import { parseFilename, toSortName } from '../utils/filename-parser.js';
 import { parseEpub } from './epub-parser.js';
 import { parseAudioMetadata } from './audio-parser.js';
+import { extractAndCacheCover } from './cover.js';
 import type { ScanStatus } from '@npc-shelf/shared';
 
 const AUDIO_PARTIAL_HASH_SIZE = 64 * 1024; // 64KB
@@ -288,7 +289,7 @@ async function processFile(filePath: string, libraryId: number): Promise<Process
 
   // Handle cover image
   if (embedded.coverImage) {
-    saveCoverImage(book.id, embedded.coverImage);
+    await saveCoverImage(book.id, embedded.coverImage);
   }
 
   // For audio files, create audio track record
@@ -407,7 +408,7 @@ async function extractAndUpdateMetadata(filePath: string, format: string, bookId
   db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
 
   if (embedded.coverImage) {
-    saveCoverImage(bookId, embedded.coverImage);
+    await saveCoverImage(bookId, embedded.coverImage);
   }
 }
 
@@ -432,18 +433,15 @@ function findOrCreateTag(name: string, source: 'hardcover' | 'user'): number {
   return db.insert(schema.tags).values({ name, source }).returning().get().id;
 }
 
-function saveCoverImage(bookId: number, imageBuffer: Buffer): void {
+async function saveCoverImage(bookId: number, imageBuffer: Buffer): Promise<void> {
   try {
-    const coverDir = process.env.COVER_CACHE_PATH || './cache/covers';
-    fs.mkdirSync(coverDir, { recursive: true });
-
-    const coverPath = path.join(coverDir, `${bookId}_original`);
-    fs.writeFileSync(coverPath, imageBuffer);
-
-    db.update(schema.books)
-      .set({ coverPath })
-      .where(eq(schema.books.id, bookId))
-      .run();
+    const coverPath = await extractAndCacheCover(imageBuffer, bookId);
+    if (coverPath) {
+      db.update(schema.books)
+        .set({ coverPath })
+        .where(eq(schema.books.id, bookId))
+        .run();
+    }
   } catch (err) {
     console.error(`[Scanner] Cover save error for book ${bookId}:`, err);
   }

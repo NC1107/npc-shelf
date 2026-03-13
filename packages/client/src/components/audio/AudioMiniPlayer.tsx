@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Play, Pause, SkipForward, SkipBack, X, Maximize2 } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { Button } from '../ui/button';
@@ -14,8 +15,24 @@ function formatTime(seconds: number): string {
 }
 
 export function AudioMiniPlayer() {
-  const { bookId, bookTitle, bookAuthor, coverUrl, positionSeconds, totalDurationSeconds, isPlaying, setPlaying, stop } =
+  const { bookId, bookTitle, bookAuthor, coverUrl, positionSeconds, totalDurationSeconds, isPlaying, setPlaying, stop, currentTrackIndex } =
     useAudioStore();
+  const reloadedRef = useRef(false);
+
+  // Reload audio source if store has persisted state but AudioEngine has no source
+  // (happens after page refresh — store persists via localStorage, AudioEngine doesn't)
+  useEffect(() => {
+    if (!bookId || reloadedRef.current) return;
+    if (AudioEngine.duration === 0 && !AudioEngine.paused) {
+      // AudioEngine has nothing loaded — reload the track
+      const url = `/api/audiobooks/${bookId}/stream/${currentTrackIndex}`;
+      AudioEngine.load(url);
+      if (positionSeconds > 0) {
+        setTimeout(() => AudioEngine.seek(positionSeconds), 300);
+      }
+    }
+    reloadedRef.current = true;
+  }, [bookId, currentTrackIndex, positionSeconds]);
 
   const togglePlay = () => {
     if (isPlaying) {

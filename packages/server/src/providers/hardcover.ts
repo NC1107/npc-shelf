@@ -166,6 +166,9 @@ function parseSearchResults(results: TypesenseResults | string): MetadataSearchR
       coverUrl: doc.image?.url || null,
       publishDate: doc.release_date || null,
       isbn13,
+      pageCount: doc.pages || null,
+      isbn10: null,
+      tags: null,
       series: doc.featured_series?.name || null,
       seriesPosition: doc.featured_series?.position ?? null,
     };
@@ -199,6 +202,9 @@ function mapBookToResult(book: HardcoverBook): MetadataSearchResult {
     coverUrl: book.image?.url || null,
     publishDate: book.release_date || null,
     isbn13: book.isbn_13 || null,
+    pageCount: book.pages || null,
+    isbn10: book.isbn_10 || null,
+    tags: book.cached_tags || null,
     series: book.book_series.length > 0 ? book.book_series[0]!.series.name : null,
     seriesPosition: book.book_series.length > 0 ? book.book_series[0]!.position : null,
   };

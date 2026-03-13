@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, FolderSync, Loader2, CheckCircle2, AlertCircle, Sparkles, Send, Rss } from 'lucide-react';
+import { Plus, Trash2, FolderSync, Loader2, CheckCircle2, AlertCircle, Sparkles, Send, Rss, RefreshCw, Clock, XCircle, RotateCcw } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -38,6 +38,156 @@ function useScanProgress(libraryId: number | null) {
   }, [libraryId]);
 
   return status;
+}
+
+interface JobSummary {
+  pending: number;
+  processing: number;
+  completed: number;
+  failed: number;
+}
+
+interface Job {
+  id: number;
+  jobType: string;
+  payload: string;
+  status: string;
+  attempts: number;
+  maxAttempts: number;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function BackgroundJobsCard() {
+  const queryClient = useQueryClient();
+
+  const { data: summary } = useQuery({
+    queryKey: ['jobs-summary'],
+    queryFn: () => api.get<JobSummary>('/jobs/summary'),
+    refetchInterval: 5000,
+  });
+
+  const { data: recentJobs } = useQuery({
+    queryKey: ['jobs-recent'],
+    queryFn: () => api.get<{ items: Job[] }>('/jobs?pageSize=10'),
+    refetchInterval: 5000,
+  });
+
+  const retryJob = useMutation({
+    mutationFn: (id: number) => api.post(`/jobs/${id}/retry`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['jobs-recent'] });
+    },
+  });
+
+  const purgeJobs = useMutation({
+    mutationFn: () => api.delete('/jobs/purge?days=7'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['jobs-recent'] });
+    },
+  });
+
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case 'pending': return <Clock className="h-3 w-3 text-muted-foreground" />;
+      case 'processing': return <Loader2 className="h-3 w-3 animate-spin text-blue-500" />;
+      case 'completed': return <CheckCircle2 className="h-3 w-3 text-green-500" />;
+      case 'failed': return <XCircle className="h-3 w-3 text-destructive" />;
+      default: return null;
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <RefreshCw className="h-5 w-5" />
+          Background Jobs
+        </CardTitle>
+        <CardDescription>Monitor metadata matching and other background tasks</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Summary counts */}
+        {summary && (
+          <div className="grid grid-cols-4 gap-3 text-center">
+            <div className="rounded-lg bg-muted p-2">
+              <p className="text-lg font-semibold">{summary.pending}</p>
+              <p className="text-xs text-muted-foreground">Pending</p>
+            </div>
+            <div className="rounded-lg bg-muted p-2">
+              <p className="text-lg font-semibold">{summary.processing}</p>
+              <p className="text-xs text-muted-foreground">Running</p>
+            </div>
+            <div className="rounded-lg bg-muted p-2">
+              <p className="text-lg font-semibold">{summary.completed}</p>
+              <p className="text-xs text-muted-foreground">Done</p>
+            </div>
+            <div className="rounded-lg bg-muted p-2">
+              <p className="text-lg font-semibold text-destructive">{summary.failed}</p>
+              <p className="text-xs text-muted-foreground">Failed</p>
+            </div>
+          </div>
+        )}
+
+        {/* Recent jobs table */}
+        {recentJobs?.items && recentJobs.items.length > 0 && (
+          <div className="max-h-60 overflow-y-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-background">
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="p-2">Status</th>
+                  <th className="p-2">Type</th>
+                  <th className="p-2">Created</th>
+                  <th className="p-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentJobs.items.map((job) => (
+                  <tr key={job.id} className="border-b last:border-0">
+                    <td className="p-2">{statusIcon(job.status)}</td>
+                    <td className="p-2 font-mono text-xs">{job.jobType}</td>
+                    <td className="p-2 text-xs text-muted-foreground">
+                      {new Date(job.createdAt).toLocaleString()}
+                    </td>
+                    <td className="p-2">
+                      {job.status === 'failed' && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => retryJob.mutate(job.id)}
+                          disabled={retryJob.isPending}
+                          title={job.error || 'Retry'}
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Purge button */}
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => purgeJobs.mutate()}
+            disabled={purgeJobs.isPending}
+          >
+            {purgeJobs.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+            Purge Old Jobs
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export function SettingsPage() {
@@ -352,6 +502,9 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Background Jobs */}
+      <BackgroundJobsCard />
 
       {/* OPDS */}
       <Card>

@@ -247,7 +247,6 @@ export function ListenPage() {
   const trackDuration = tracks?.[store.currentTrackIndex]?.durationSeconds || 0;
   const progressPercent = trackDuration > 0 ? (store.positionSeconds / trackDuration) * 100 : 0;
   const totalElapsed = calculateTotalElapsed(store.currentTrackIndex, store.positionSeconds);
-  const overallProgress = store.totalDurationSeconds > 0 ? (totalElapsed / store.totalDurationSeconds) * 100 : 0;
 
   return (
     <div className="mx-auto max-w-lg space-y-6 pb-8">
@@ -330,19 +329,10 @@ export function ListenPage() {
         </Button>
       </div>
 
-      {/* Overall progress */}
-      <div className="space-y-1">
-        <div className="h-1 rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary/50 transition-all"
-            style={{ width: `${overallProgress}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>{formatTime(totalElapsed)}</span>
-          <span>{formatTime(store.totalDurationSeconds)}</span>
-        </div>
-      </div>
+      {/* Overall progress (text only) */}
+      <p className="text-center text-xs text-muted-foreground">
+        Overall: {formatTime(totalElapsed)} / {formatTime(store.totalDurationSeconds)}
+      </p>
 
       {/* Secondary controls */}
       <div className="flex items-center justify-center gap-2">

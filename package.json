@@ -19,10 +19,17 @@
     "start": "npm run start --workspace=packages/server",
     "lint": "eslint packages/*/src --ext .ts,.tsx",
     "format": "prettier --write \"packages/*/src/**/*.{ts,tsx,css}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "npm run db:generate --workspace=packages/server",
     "db:migrate": "npm run db:migrate --workspace=packages/server"
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@vitest/coverage-v8": "^4.1.0",
+    "vitest": "^4.1.0"
   }
 }
