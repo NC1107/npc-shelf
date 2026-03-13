@@ -11,13 +11,36 @@ import { HardcoverProvider } from '../providers/hardcover.js';
 let provider: HardcoverProvider = new HardcoverProvider(
   process.env.HARDCOVER_API_TOKEN,
 );
+let tokenLoaded = false;
+
+function ensureToken() {
+  if (tokenLoaded) return;
+  tokenLoaded = true;
+  try {
+    const row = db
+      .select()
+      .from(schema.settings)
+      .where(eq(schema.settings.key, 'hardcoverApiToken'))
+      .get();
+    if (row?.value) {
+      const token = row.value.startsWith('Bearer ') ? row.value.slice(7) : row.value;
+      provider.setToken(token);
+      console.log('[Metadata] Loaded Hardcover API token from settings');
+    }
+  } catch {
+    // DB may not be ready yet
+  }
+}
 
 export function getProvider(): HardcoverProvider {
+  ensureToken();
   return provider;
 }
 
 export function updateProviderToken(token: string) {
-  provider.setToken(token);
+  const cleaned = token.startsWith('Bearer ') ? token.slice(7) : token;
+  provider.setToken(cleaned);
+  tokenLoaded = true;
 }
 
 /**
@@ -89,6 +112,7 @@ export async function enrichBook(bookId: number): Promise<void> {
     .get();
 
   const isbn = book.isbn13 || book.isbn10 || undefined;
+  ensureToken();
   const match = await matchBook(provider, book.title, authorRow?.name, isbn);
 
   if (!match) {
@@ -182,6 +206,7 @@ export async function enrichAllUnmatched(): Promise<{ matched: number; total: nu
  * Search the provider directly (for manual matching UI).
  */
 export async function searchProvider(query: string): Promise<MetadataSearchResult[]> {
+  ensureToken();
   return provider.searchByTitle(query);
 }
 
@@ -189,6 +214,7 @@ export async function searchProvider(query: string): Promise<MetadataSearchResul
  * Apply a specific metadata match to a book (manual matching).
  */
 export async function applyMatch(bookId: number, externalId: string): Promise<void> {
+  ensureToken();
   const details = await provider.getDetails(externalId);
   if (!details) return;
 

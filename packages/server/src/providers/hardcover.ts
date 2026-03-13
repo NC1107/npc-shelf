@@ -29,38 +29,36 @@ class TokenBucket {
   }
 }
 
-const BOOK_FIELDS = gql`
-  fragment BookFields on books {
-    id
-    title
-    description
-    pages
-    release_date
-    isbn_13
-    isbn_10
-    slug
-    image {
-      url
+const SEARCH_QUERY = gql`
+  query SearchBooks($q: String!, $perPage: Int!) {
+    search(query: $q, query_type: "Book", per_page: $perPage) {
+      results
     }
-    contributions {
-      author {
-        id
-        name
-      }
+  }
+`;
+
+const BOOK_BY_PK_QUERY = gql`
+  query GetBook($id: Int!) {
+    books_by_pk(id: $id) {
+      id
+      title
+      description
+      pages
+      release_date
+      isbn_13
+      isbn_10
+      slug
+      image { url }
+      contributions { author { id name } }
+      book_series { series { id name } position }
+      cached_tags
     }
-    book_series {
-      series {
-        id
-        name
-      }
-      position
-    }
-    cached_tags
   }
 `;
 
 /**
  * Hardcover GraphQL metadata provider.
+ * Uses the search() query (Typesense-backed) for book lookups.
  * Rate limited to 60 req/min via token bucket.
  */
 export class HardcoverProvider implements MetadataProvider {
@@ -83,17 +81,11 @@ export class HardcoverProvider implements MetadataProvider {
   async searchByIsbn(isbn: string): Promise<MetadataSearchResult[]> {
     await this.bucket.acquire();
     try {
-      const field = isbn.length === 13 ? 'isbn_13' : 'isbn_10';
-      const query = gql`
-        ${BOOK_FIELDS}
-        query SearchByIsbn($isbn: String!) {
-          books(where: { ${field}: { _eq: $isbn } }, limit: 5) {
-            ...BookFields
-          }
-        }
-      `;
-      const data = await this.client.request<{ books: HardcoverBook[] }>(query, { isbn });
-      return data.books.map(mapToSearchResult);
+      const data = await this.client.request<SearchResponse>(SEARCH_QUERY, {
+        q: isbn,
+        perPage: 5,
+      });
+      return parseSearchResults(data.search.results);
     } catch (err: any) {
       console.error('[Hardcover] ISBN search error:', err.message);
       return [];
@@ -103,46 +95,12 @@ export class HardcoverProvider implements MetadataProvider {
   async searchByTitle(title: string, author?: string): Promise<MetadataSearchResult[]> {
     await this.bucket.acquire();
     try {
-      let query: string;
-      let variables: Record<string, any>;
-
-      if (author) {
-        query = gql`
-          ${BOOK_FIELDS}
-          query SearchByTitleAuthor($title: String!, $author: String!) {
-            books(
-              where: {
-                _and: [
-                  { title: { _ilike: $title } }
-                  { contributions: { author: { name: { _ilike: $author } } } }
-                ]
-              }
-              order_by: { users_read_count: desc }
-              limit: 10
-            ) {
-              ...BookFields
-            }
-          }
-        `;
-        variables = { title: `%${title}%`, author: `%${author}%` };
-      } else {
-        query = gql`
-          ${BOOK_FIELDS}
-          query SearchByTitle($title: String!) {
-            books(
-              where: { title: { _ilike: $title } }
-              order_by: { users_read_count: desc }
-              limit: 10
-            ) {
-              ...BookFields
-            }
-          }
-        `;
-        variables = { title: `%${title}%` };
-      }
-
-      const data = await this.client.request<{ books: HardcoverBook[] }>(query, variables);
-      return data.books.map(mapToSearchResult);
+      const q = author ? `${title} ${author}` : title;
+      const data = await this.client.request<SearchResponse>(SEARCH_QUERY, {
+        q,
+        perPage: 10,
+      });
+      return parseSearchResults(data.search.results);
     } catch (err: any) {
       console.error('[Hardcover] Title search error:', err.message);
       return [];
@@ -152,24 +110,69 @@ export class HardcoverProvider implements MetadataProvider {
   async getDetails(externalId: string): Promise<MetadataSearchResult | null> {
     await this.bucket.acquire();
     try {
-      const query = gql`
-        ${BOOK_FIELDS}
-        query GetBook($id: Int!) {
-          books_by_pk(id: $id) {
-            ...BookFields
-          }
-        }
-      `;
-      const data = await this.client.request<{ books_by_pk: HardcoverBook | null }>(query, {
-        id: parseInt(externalId),
-      });
-      return data.books_by_pk ? mapToSearchResult(data.books_by_pk) : null;
+      const data = await this.client.request<{ books_by_pk: HardcoverBook | null }>(
+        BOOK_BY_PK_QUERY,
+        { id: parseInt(externalId) },
+      );
+      return data.books_by_pk ? mapBookToResult(data.books_by_pk) : null;
     } catch (err: any) {
       console.error('[Hardcover] Detail fetch error:', err.message);
       return null;
     }
   }
 }
+
+// ===== Typesense search response types =====
+
+interface SearchResponse {
+  search: { results: TypesenseResults | string };
+}
+
+interface TypesenseResults {
+  found: number;
+  hits: TypesenseHit[];
+}
+
+interface TypesenseHit {
+  document: TypesenseDocument;
+}
+
+interface TypesenseDocument {
+  id: string;
+  title: string;
+  description?: string;
+  author_names?: string[];
+  image?: { url: string };
+  isbns?: string[];
+  featured_series?: { name: string; position: number } | null;
+  pages?: number;
+  release_date?: string;
+}
+
+function parseSearchResults(results: TypesenseResults | string): MetadataSearchResult[] {
+  // results may come as a JSON string or parsed object
+  const parsed: TypesenseResults = typeof results === 'string' ? JSON.parse(results) : results;
+  if (!parsed?.hits) return [];
+
+  return parsed.hits.map((hit) => {
+    const doc = hit.document;
+    const isbn13 = doc.isbns?.find((i) => i.length === 13) || null;
+    return {
+      externalId: String(doc.id),
+      title: doc.title,
+      subtitle: null,
+      authors: doc.author_names || [],
+      description: doc.description || null,
+      coverUrl: doc.image?.url || null,
+      publishDate: doc.release_date || null,
+      isbn13,
+      series: doc.featured_series?.name || null,
+      seriesPosition: doc.featured_series?.position ?? null,
+    };
+  });
+}
+
+// ===== books_by_pk response types =====
 
 interface HardcoverBook {
   id: number;
@@ -186,7 +189,7 @@ interface HardcoverBook {
   cached_tags: string[] | null;
 }
 
-function mapToSearchResult(book: HardcoverBook): MetadataSearchResult {
+function mapBookToResult(book: HardcoverBook): MetadataSearchResult {
   return {
     externalId: String(book.id),
     title: book.title,
