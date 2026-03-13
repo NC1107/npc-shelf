@@ -178,7 +178,7 @@ export function SettingsPage() {
   // Check if Hardcover token is already configured
   const { data: settings } = useQuery({
     queryKey: ['app-settings'],
-    queryFn: () => api.get<{ hardcoverApiToken?: string; metadataAutoMatch?: boolean }>('/settings'),
+    queryFn: () => api.get<{ hardcoverApiToken?: string; metadataAutoMatch?: string }>('/settings'),
   });
 
   const hasToken = !!settings?.hardcoverApiToken;
@@ -476,7 +476,7 @@ export function SettingsPage() {
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={settings?.metadataAutoMatch !== false}
+                  checked={settings?.metadataAutoMatch !== 'false'}
                   onChange={(e) => {
                     api.put('/settings', { metadataAutoMatch: e.target.checked ? 'true' : 'false' })
                       .then(() => queryClient.invalidateQueries({ queryKey: ['app-settings'] }));

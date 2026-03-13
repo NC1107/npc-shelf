@@ -24,7 +24,7 @@ import { registerJobHandler, startJobProcessor, stopJobProcessor } from './servi
 import { scanLibrary } from './services/scanner.js';
 import { enrichBook, enrichAllUnmatched } from './services/metadata-pipeline.js';
 import { backfillCovers } from './services/cover-backfill.js';
-import { mergeAudiobook } from './services/audio-merge.js';
+import { mergeAudiobook, isFfmpegAvailable } from './services/audio-merge.js';
 import { initializeWatchers, stopAllWatchers } from './services/file-watcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -115,7 +115,7 @@ app.get('/api/health', (_req, res) => {
 
     res.json({
       status: 'ok',
-      version: '0.2.0',
+      version: '0.3.1',
       uptime: process.uptime(),
       database: 'connected',
       books: bookCount,
@@ -306,6 +306,9 @@ app.get('*', (_req, res) => {
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Server] NPC-Shelf running on http://0.0.0.0:${PORT}`);
+  if (!isFfmpegAvailable()) {
+    console.warn('[Server] ffmpeg not found — audiobook merge will be unavailable');
+  }
 });
 
 // Graceful shutdown

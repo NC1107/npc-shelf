@@ -7,7 +7,9 @@ export const booksRouter = Router();
 // Library stats
 booksRouter.get('/stats', (_req, res) => {
   try {
-    const totalBooks = db.select({ count: sql<number>`count(*)` }).from(schema.books).get()!.count;
+    const totalBooks = db.all<{ count: number }>(
+      sql`SELECT COUNT(DISTINCT book_id) as count FROM files`,
+    )[0]?.count ?? 0;
     const totalAuthors = db.select({ count: sql<number>`count(*)` }).from(schema.authors).get()!.count;
 
     // Count ebooks vs audiobooks by checking files
@@ -116,6 +118,15 @@ booksRouter.get('/', (req, res) => {
       bookIds = bookIds
         ? bookIds.filter((id) => seriesBookIds.includes(id))
         : seriesBookIds;
+    }
+
+    // Default: only show books that have at least one file
+    if (bookIds === undefined) {
+      const booksWithFiles = db
+        .all<{ book_id: number }>(
+          sql`SELECT DISTINCT book_id FROM files`,
+        );
+      bookIds = booksWithFiles.map(r => r.book_id);
     }
 
     // Build query

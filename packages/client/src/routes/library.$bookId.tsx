@@ -264,32 +264,6 @@ function BookDetailContent({
             </div>
           )}
 
-          {/* Format tab toggle (when both ebook + audio exist) */}
-          {hasBothFormats && (
-            <div className="flex rounded-lg border p-0.5 gap-0.5 w-fit">
-              <button
-                onClick={() => setActiveFormat('ebook')}
-                className={`px-3 py-1 rounded text-sm transition-colors ${
-                  activeFormat === 'ebook'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-muted'
-                }`}
-              >
-                <BookOpen className="h-3.5 w-3.5 inline mr-1" /> Ebook
-              </button>
-              <button
-                onClick={() => setActiveFormat('audiobook')}
-                className={`px-3 py-1 rounded text-sm transition-colors ${
-                  activeFormat === 'audiobook'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-muted'
-                }`}
-              >
-                <Headphones className="h-3.5 w-3.5 inline mr-1" /> Audiobook
-              </button>
-            </div>
-          )}
-
           {/* Progress */}
           {(!hasBothFormats || activeFormat === 'ebook') && readingProgress && readingProgress.progressPercent > 0 && (
             <div className="space-y-1">
@@ -322,9 +296,9 @@ function BookDetailContent({
             </div>
           ) : null}
 
-          {/* Action buttons */}
+          {/* Action buttons — always visible */}
           <div className="flex flex-wrap gap-2">
-            {hasEbook && (!hasBothFormats || activeFormat === 'ebook') && (
+            {hasEbook && (
               <Button
                 size="lg"
                 onClick={() => navigate({ to: '/library/$bookId/read', params: { bookId } })}
@@ -333,7 +307,7 @@ function BookDetailContent({
                 Read
               </Button>
             )}
-            {hasAudio && (!hasBothFormats || activeFormat === 'audiobook') && (
+            {hasAudio && (
               <Button
                 size="lg"
                 variant="secondary"
@@ -438,6 +412,32 @@ function BookDetailContent({
               Delete
             </Button>
           </div>
+
+          {/* Format toggle — only controls progress/description display below */}
+          {hasBothFormats && (
+            <div className="flex rounded-lg border p-0.5 gap-0.5 w-fit">
+              <button
+                onClick={() => setActiveFormat('ebook')}
+                className={`px-3 py-1 rounded text-sm transition-colors ${
+                  activeFormat === 'ebook'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                <BookOpen className="h-3.5 w-3.5 inline mr-1" /> Ebook
+              </button>
+              <button
+                onClick={() => setActiveFormat('audiobook')}
+                className={`px-3 py-1 rounded text-sm transition-colors ${
+                  activeFormat === 'audiobook'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                <Headphones className="h-3.5 w-3.5 inline mr-1" /> Audiobook
+              </button>
+            </div>
+          )}
 
           {/* Description */}
           {isEditing ? (

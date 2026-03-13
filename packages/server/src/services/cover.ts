@@ -58,7 +58,15 @@ export async function extractAndCacheCover(
   }
 }
 
-async function resizeAndSave(buffer: Buffer, bookId: number): Promise<string> {
+async function resizeAndSave(buffer: Buffer, bookId: number): Promise<string | null> {
+  // Validate image format before processing
+  try {
+    await sharp(buffer).metadata();
+  } catch {
+    console.warn(`[Cover] Unsupported image format for book ${bookId}, skipping`);
+    return null;
+  }
+
   // Save original
   const originalPath = path.join(COVER_CACHE_DIR, `${bookId}_original`);
   fs.writeFileSync(originalPath, buffer);

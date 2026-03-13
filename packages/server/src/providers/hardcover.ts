@@ -45,8 +45,6 @@ const BOOK_BY_PK_QUERY = gql`
       description
       pages
       release_date
-      isbn_13
-      isbn_10
       slug
       image { url }
       contributions { author { id name } }
@@ -89,10 +87,28 @@ export class HardcoverProvider implements MetadataProvider {
     });
   }
 
+  private async requestWithRetry<T>(query: any, variables: any, maxRetries = 3): Promise<T> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      await this.bucket.acquire();
+      try {
+        return await this.client.request<T>(query, variables);
+      } catch (err: any) {
+        const status = err.response?.status;
+        if ((status === 429 || (status >= 500 && status < 600)) && attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000;
+          console.warn(`[Hardcover] ${status} on attempt ${attempt + 1}, retrying in ${delay}ms`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('Max retries exceeded');
+  }
+
   async searchByIsbn(isbn: string): Promise<MetadataSearchResult[]> {
-    await this.bucket.acquire();
     try {
-      const data = await this.client.request<SearchResponse>(SEARCH_QUERY, {
+      const data = await this.requestWithRetry<SearchResponse>(SEARCH_QUERY, {
         q: isbn,
         perPage: 5,
       });
@@ -104,10 +120,9 @@ export class HardcoverProvider implements MetadataProvider {
   }
 
   async searchByTitle(title: string, author?: string): Promise<MetadataSearchResult[]> {
-    await this.bucket.acquire();
     try {
       const q = author ? `${title} ${author}` : title;
-      const data = await this.client.request<SearchResponse>(SEARCH_QUERY, {
+      const data = await this.requestWithRetry<SearchResponse>(SEARCH_QUERY, {
         q,
         perPage: 10,
       });
@@ -119,9 +134,8 @@ export class HardcoverProvider implements MetadataProvider {
   }
 
   async getDetails(externalId: string): Promise<MetadataSearchResult | null> {
-    await this.bucket.acquire();
     try {
-      const data = await this.client.request<{ books_by_pk: HardcoverBook | null }>(
+      const data = await this.requestWithRetry<{ books_by_pk: HardcoverBook | null }>(
         BOOK_BY_PK_QUERY,
         { id: parseInt(externalId) },
       );
@@ -133,9 +147,8 @@ export class HardcoverProvider implements MetadataProvider {
   }
 
   async getSeriesDetails(seriesId: string): Promise<{ id: number; name: string; description: string | null; bookCount: number | null } | null> {
-    await this.bucket.acquire();
     try {
-      const data = await this.client.request<{
+      const data = await this.requestWithRetry<{
         series_by_pk: { id: number; name: string; description: string | null; book_count: number | null } | null;
       }>(SERIES_BY_PK_QUERY, { id: parseInt(seriesId) });
       if (!data.series_by_pk) return null;
@@ -215,8 +228,6 @@ interface HardcoverBook {
   description: string | null;
   pages: number | null;
   release_date: string | null;
-  isbn_13: string | null;
-  isbn_10: string | null;
   slug: string | null;
   image: { url: string } | null;
   contributions: { author: { id: number; name: string } }[];
@@ -233,9 +244,9 @@ function mapBookToResult(book: HardcoverBook): MetadataSearchResult {
     description: book.description || null,
     coverUrl: book.image?.url || null,
     publishDate: book.release_date || null,
-    isbn13: book.isbn_13 || null,
+    isbn13: null,
     pageCount: book.pages || null,
-    isbn10: book.isbn_10 || null,
+    isbn10: null,
     tags: book.cached_tags || null,
     series: book.book_series.length > 0 ? book.book_series[0]!.series.name : null,
     seriesPosition: book.book_series.length > 0 ? book.book_series[0]!.position : null,

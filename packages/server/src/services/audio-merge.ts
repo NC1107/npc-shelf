@@ -22,6 +22,10 @@ export function isFfmpegAvailable(): boolean {
  * Uses -c copy (no re-encoding) for fast operation.
  */
 export async function mergeAudiobook(bookId: number): Promise<string> {
+  if (!isFfmpegAvailable()) {
+    throw new Error('ffmpeg is not installed. Install ffmpeg to merge audio tracks.');
+  }
+
   // Get book info
   const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
   if (!book) throw new Error(`Book ${bookId} not found`);

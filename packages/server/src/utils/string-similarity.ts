@@ -21,7 +21,12 @@ export function stringSimilarity(a: string, b: string): number {
     if (bigrams2.has(bigram)) intersection++;
   }
 
-  return (2 * intersection) / (bigrams1.size + bigrams2.size);
+  const rawScore = (2 * intersection) / (bigrams1.size + bigrams2.size);
+
+  // Length penalty: if strings differ greatly in length, reduce score
+  const lenRatio = Math.min(s1.length, s2.length) / Math.max(s1.length, s2.length);
+  const lengthPenalty = lenRatio < 0.4 ? lenRatio : 1;
+  return rawScore * lengthPenalty;
 }
 
 function getBigrams(str: string): Set<string> {

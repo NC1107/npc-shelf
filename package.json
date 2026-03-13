@@ -1,6 +1,6 @@
 {
   "name": "npc-shelf",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Self-hosted book library platform for ebooks and audiobooks",
   "workspaces": [
@@ -25,7 +25,7 @@
     "db:migrate": "npm run db:migrate --workspace=packages/server"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

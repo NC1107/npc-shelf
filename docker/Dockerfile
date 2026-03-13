@@ -1,5 +1,5 @@
 # ===== Stage 1: Build shared types =====
-FROM node:20-alpine AS shared-build
+FROM node:22-alpine AS shared-build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY packages/shared/package.json packages/shared/
@@ -9,7 +9,7 @@ COPY tsconfig.base.json .
 RUN npm run build --workspace=packages/shared
 
 # ===== Stage 2: Build client =====
-FROM node:20-alpine AS client-build
+FROM node:22-alpine AS client-build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY packages/shared/package.json packages/shared/
@@ -21,7 +21,7 @@ COPY packages/client packages/client
 RUN npm run build --workspace=packages/client
 
 # ===== Stage 3: Build server =====
-FROM node:20-alpine AS server-build
+FROM node:22-alpine AS server-build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY packages/shared/package.json packages/shared/
@@ -33,7 +33,7 @@ COPY packages/server packages/server
 RUN npm run build --workspace=packages/server
 
 # ===== Stage 4: Production =====
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 
 # Install tini for proper signal handling and ffprobe for M4B chapters
 RUN apk add --no-cache tini ffmpeg

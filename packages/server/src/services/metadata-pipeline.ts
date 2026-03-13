@@ -106,6 +106,13 @@ export async function matchBook(
   scored.sort((a, b) => b.confidence - a.confidence);
   const best = scored[0]!;
 
+  // Require minimum title similarity to prevent false positives from high author scores
+  const bestTitleSim = stringSimilarity(
+    normalizeForComparison(title),
+    normalizeForComparison(best.title),
+  );
+  if (bestTitleSim < 0.4) return null;
+
   return best.confidence >= METADATA.LOW_CONFIDENCE_THRESHOLD ? best : null;
 }
 
