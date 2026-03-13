@@ -3,8 +3,62 @@ import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { activeScanStatuses } from '../services/scanner.js';
 import fs from 'node:fs';
+import path from 'node:path';
+import { SUPPORTED_EBOOK_FORMATS, SUPPORTED_AUDIO_FORMATS } from '@npc-shelf/shared';
 
 export const librariesRouter = Router();
+
+// Browse directories for library setup
+librariesRouter.get('/browse', (req, res) => {
+  try {
+    const requestedPath = (req.query.path as string) || (process.platform === 'win32' ? 'C:/' : '/');
+    const normalizedPath = path.resolve(requestedPath);
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(normalizedPath, { withFileTypes: true });
+    } catch {
+      res.status(400).json({ error: 'Cannot read directory' });
+      return;
+    }
+
+    const audioExts = new Set(SUPPORTED_AUDIO_FORMATS.map((f) => `.${f}`));
+    const ebookExts = new Set(SUPPORTED_EBOOK_FORMATS.map((f) => `.${f}`));
+
+    const directories: { name: string; path: string }[] = [];
+    let audioFiles = 0;
+    let ebookFiles = 0;
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue; // skip hidden
+      try {
+        if (entry.isDirectory()) {
+          directories.push({ name: entry.name, path: path.join(normalizedPath, entry.name) });
+        } else if (entry.isFile()) {
+          const ext = path.extname(entry.name).toLowerCase();
+          if (audioExts.has(ext)) audioFiles++;
+          if (ebookExts.has(ext)) ebookFiles++;
+        }
+      } catch {
+        // skip entries we can't stat
+      }
+    }
+
+    directories.sort((a, b) => a.name.localeCompare(b.name));
+
+    const parentPath = path.dirname(normalizedPath);
+    res.json({
+      currentPath: normalizedPath,
+      parent: parentPath !== normalizedPath ? parentPath : null,
+      directories,
+      audioFiles,
+      ebookFiles,
+    });
+  } catch (error) {
+    console.error('[Libraries] Browse error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // List libraries
 librariesRouter.get('/', (_req, res) => {

@@ -24,6 +24,7 @@ import { registerJobHandler, startJobProcessor, stopJobProcessor } from './servi
 import { scanLibrary } from './services/scanner.js';
 import { enrichBook, enrichAllUnmatched } from './services/metadata-pipeline.js';
 import { backfillCovers } from './services/cover-backfill.js';
+import { mergeAudiobook } from './services/audio-merge.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +59,13 @@ registerJobHandler('backfill_covers', async () => {
   console.log('[Jobs] Starting cover backfill');
   const result = await backfillCovers();
   console.log(`[Jobs] Cover backfill complete: ${result.processed} processed, ${result.errors} errors`);
+});
+
+registerJobHandler('merge_audiobook', async (payload) => {
+  const bookId = payload.bookId as number;
+  console.log(`[Jobs] Starting audiobook merge for book ${bookId}`);
+  const outputPath = await mergeAudiobook(bookId);
+  console.log(`[Jobs] Merge complete: ${outputPath}`);
 });
 
 // Start background job processor

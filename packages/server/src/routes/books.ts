@@ -268,6 +268,21 @@ booksRouter.get('/:id', (req, res) => {
       )
       .get() || null;
 
+    // Compute total audio duration from tracks if not on the book record
+    let audioTotalDuration = book.audioSeconds || 0;
+    if (!audioTotalDuration) {
+      const tracks = db.select().from(schema.audioTracks)
+        .where(eq(schema.audioTracks.bookId, bookId)).all();
+      audioTotalDuration = tracks.reduce((sum, t) => sum + t.durationSeconds, 0);
+    }
+
+    // Count audio tracks for display
+    const audioTrackCount = db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.audioTracks)
+      .where(eq(schema.audioTracks.bookId, bookId))
+      .get()!.count;
+
     res.json({
       ...book,
       authors,
@@ -276,6 +291,8 @@ booksRouter.get('/:id', (req, res) => {
       tags,
       readingProgress,
       audioProgress,
+      audioTotalDuration,
+      audioTrackCount,
     });
   } catch (error) {
     console.error('[Books] Detail error:', error);

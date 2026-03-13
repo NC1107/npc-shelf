@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { eq, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { enqueueJob } from '../services/job-queue.js';
+import { isFfmpegAvailable } from '../services/audio-merge.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -168,6 +170,42 @@ audioRouter.put('/:id/progress', (req, res) => {
     res.json({ message: 'Progress updated' });
   } catch (error) {
     console.error('[Audio] Update progress error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Merge split audiobook into single M4B
+audioRouter.post('/:id/merge', (req, res) => {
+  try {
+    const bookId = parseInt(req.params.id);
+    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+
+    const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
+    if (!book) { res.status(404).json({ error: 'Book not found' }); return; }
+
+    // Check track count
+    const trackCount = db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.audioTracks)
+      .where(eq(schema.audioTracks.bookId, bookId))
+      .get()!.count;
+
+    if (trackCount <= 1) {
+      res.status(400).json({ error: 'Book has only one audio track, nothing to merge' });
+      return;
+    }
+
+    // Check ffmpeg availability
+    if (!isFfmpegAvailable()) {
+      res.status(400).json({ error: 'ffmpeg is not available on this system. Install ffmpeg to use the merge feature.' });
+      return;
+    }
+
+    // Queue merge job
+    enqueueJob('merge_audiobook', { bookId });
+    res.status(202).json({ message: 'Merge job queued' });
+  } catch (error) {
+    console.error('[Audio] Merge error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

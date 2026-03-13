@@ -4,7 +4,8 @@ import { useParams, Link, useNavigate } from '@tanstack/react-router';
 import {
   BookOpen, ArrowLeft, Download, Send, Play, Edit, Check, X,
   Headphones, Calendar, Globe, Hash, Building2, FileText,
-  Sparkles, Loader2,
+  Sparkles, Loader2, Mic, ExternalLink, Music, Trash2, Merge,
+  ChevronDown, ShieldCheck,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -14,12 +15,12 @@ import { api } from '../lib/api';
 import type { BookDetail } from '@npc-shelf/shared';
 
 const FORMAT_COLORS: Record<string, string> = {
-  epub: 'bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/20',
-  pdf: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20',
-  mobi: 'bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/20',
-  azw3: 'bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/20',
-  m4b: 'bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-500/20',
-  mp3: 'bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/20',
+  epub: 'bg-blue-600 text-white border-blue-700',
+  pdf: 'bg-red-600 text-white border-red-700',
+  mobi: 'bg-orange-600 text-white border-orange-700',
+  azw3: 'bg-orange-600 text-white border-orange-700',
+  m4b: 'bg-purple-600 text-white border-purple-700',
+  mp3: 'bg-green-600 text-white border-green-700',
 };
 
 export function BookDetailPage() {
@@ -45,8 +46,21 @@ export function BookDetailPage() {
     },
   });
 
+  const deleteBook = useMutation({
+    mutationFn: () => api.delete(`/books/${bookId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['books'] });
+      navigate({ to: '/library' });
+    },
+  });
+
+  const mergeAudiobook = useMutation({
+    mutationFn: () => api.post(`/audiobooks/${bookId}/merge`),
+  });
+
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
+  const [showFiles, setShowFiles] = useState(false);
 
   const saveEdit = useMutation({
     mutationFn: (data: Record<string, any>) => api.put(`/books/${bookId}`, data),
@@ -139,18 +153,18 @@ export function BookDetailPage() {
             )}
           </div>
 
-          {/* File formats */}
+          {/* File formats — summarize when many files */}
           {book.files && book.files.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {book.files.map((f) => (
+              {summarizeFiles(book.files).map((s) => (
                 <Badge
-                  key={f.id}
+                  key={s.label}
                   variant="outline"
-                  className={FORMAT_COLORS[f.format]}
+                  className={FORMAT_COLORS[s.format]}
                 >
-                  {f.format.toUpperCase()}
+                  {s.label}
                   <span className="ml-1 text-[10px] opacity-60">
-                    {formatBytes(f.sizeBytes)}
+                    {s.detail}
                   </span>
                 </Badge>
               ))}
@@ -223,21 +237,26 @@ export function BookDetailPage() {
             </div>
           )}
 
-          {audioProgress && audioProgress.totalElapsedSeconds > 0 && (
+          {audioProgress && audioProgress.totalElapsedSeconds > 0 ? (
             <div className="space-y-1">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Listening progress</span>
                 <span className="font-medium">
-                  {formatDuration(audioProgress.totalElapsedSeconds)} / {formatDuration(audioProgress.totalDurationSeconds)}
+                  {formatDuration(audioProgress.totalElapsedSeconds)} / {formatDuration(audioProgress.totalDurationSeconds || book.audioTotalDuration)}
                 </span>
               </div>
               <Progress
-                value={audioProgress.totalDurationSeconds > 0
-                  ? (audioProgress.totalElapsedSeconds / audioProgress.totalDurationSeconds) * 100
+                value={(audioProgress.totalDurationSeconds || book.audioTotalDuration) > 0
+                  ? (audioProgress.totalElapsedSeconds / (audioProgress.totalDurationSeconds || book.audioTotalDuration)) * 100
                   : 0}
               />
             </div>
-          )}
+          ) : book.audioTotalDuration > 0 ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Headphones className="h-4 w-4" />
+              <span>Total: {formatDuration(book.audioTotalDuration)}</span>
+            </div>
+          ) : null}
 
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2">
@@ -313,6 +332,36 @@ export function BookDetailPage() {
                 Edit
               </Button>
             )}
+            {hasAudio && book.audioTrackCount > 1 && (
+              <Button
+                variant="outline"
+                onClick={() => mergeAudiobook.mutate()}
+                disabled={mergeAudiobook.isPending}
+              >
+                {mergeAudiobook.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Merge className="h-4 w-4" />
+                )}
+                {mergeAudiobook.isSuccess ? 'Queued!' : mergeAudiobook.isError ? 'Failed' : 'Merge Tracks'}
+              </Button>
+            )}
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (window.confirm(`Delete "${book.title}" from library?`)) {
+                  deleteBook.mutate();
+                }
+              }}
+              disabled={deleteBook.isPending}
+            >
+              {deleteBook.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Delete
+            </Button>
           </div>
 
           {/* Description */}
@@ -380,8 +429,51 @@ export function BookDetailPage() {
                 {book.isbn10 && (
                   <DetailItem icon={Hash} label="ISBN-10" value={book.isbn10} />
                 )}
-                {book.audioSeconds && book.audioSeconds > 0 && (
-                  <DetailItem icon={Headphones} label="Duration" value={formatDuration(book.audioSeconds)} />
+                {book.audioTotalDuration > 0 && (
+                  <DetailItem icon={Headphones} label="Duration" value={formatDuration(book.audioTotalDuration)} />
+                )}
+                {book.authors?.filter(a => a.role === 'narrator').length > 0 && (
+                  <DetailItem
+                    icon={Mic}
+                    label="Narrator"
+                    value={book.authors.filter(a => a.role === 'narrator').map(a => a.author.name).join(', ')}
+                  />
+                )}
+                {book.audioTrackCount > 1 && (
+                  <DetailItem icon={Music} label="Tracks" value={`${book.audioTrackCount} tracks`} />
+                )}
+                {book.matchConfidence != null && (
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground">Match:</span>
+                    <Badge
+                      variant="outline"
+                      className={
+                        book.matchConfidence >= 0.8
+                          ? 'border-green-500 text-green-700 dark:text-green-400'
+                          : book.matchConfidence >= 0.5
+                            ? 'border-yellow-500 text-yellow-700 dark:text-yellow-400'
+                            : 'border-red-500 text-red-700 dark:text-red-400'
+                      }
+                    >
+                      {book.matchConfidence >= 0.8 ? 'High' : book.matchConfidence >= 0.5 ? 'Medium' : 'Low'}
+                      {' '}({Math.round(book.matchConfidence * 100)}%)
+                    </Badge>
+                  </div>
+                )}
+                {(book.hardcoverSlug || book.hardcoverId) && (
+                  <div className="flex items-center gap-2">
+                    <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground">Hardcover:</span>
+                    <a
+                      href={`https://hardcover.app/books/${book.hardcoverSlug || book.hardcoverId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      View on Hardcover
+                    </a>
+                  </div>
                 )}
               </div>
             )}
@@ -402,6 +494,40 @@ export function BookDetailPage() {
                     </Badge>
                   ))}
                 </div>
+              </div>
+            </>
+          )}
+
+          {/* Files section */}
+          {book.files && book.files.length > 0 && (
+            <>
+              <Separator />
+              <div>
+                <button
+                  onClick={() => setShowFiles(!showFiles)}
+                  className="flex w-full items-center justify-between mb-3"
+                >
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    Files ({book.files.length})
+                  </h2>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showFiles ? 'rotate-180' : ''}`} />
+                </button>
+                {showFiles && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {book.files.map((file) => (
+                      <div key={file.id} className="rounded border bg-muted/50 p-2 text-xs space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className={FORMAT_COLORS[file.format]}>
+                            {file.format.toUpperCase()}
+                          </Badge>
+                          <span className="font-medium truncate">{file.filename}</span>
+                          <span className="ml-auto shrink-0 text-muted-foreground">{formatBytes(file.sizeBytes)}</span>
+                        </div>
+                        <div className="text-muted-foreground truncate">{file.path}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -432,6 +558,22 @@ function DetailItem({ icon: Icon, label, value }: { icon: any; label: string; va
       <span className="font-medium">{value}</span>
     </div>
   );
+}
+
+function summarizeFiles(files: { id: number; format: string; sizeBytes: number }[]): { format: string; label: string; detail: string }[] {
+  const groups = new Map<string, { count: number; totalSize: number }>();
+  for (const f of files) {
+    const existing = groups.get(f.format) || { count: 0, totalSize: 0 };
+    existing.count++;
+    existing.totalSize += f.sizeBytes;
+    groups.set(f.format, existing);
+  }
+
+  return Array.from(groups.entries()).map(([format, { count, totalSize }]) => ({
+    format,
+    label: count > 1 ? `${format.toUpperCase()} ×${count}` : format.toUpperCase(),
+    detail: formatBytes(totalSize),
+  }));
 }
 
 function formatBytes(bytes: number): string {

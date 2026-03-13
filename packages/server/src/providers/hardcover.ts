@@ -171,6 +171,8 @@ function parseSearchResults(results: TypesenseResults | string): MetadataSearchR
       tags: null,
       series: doc.featured_series?.name || null,
       seriesPosition: doc.featured_series?.position ?? null,
+      slug: null, // Typesense search doesn't include slug
+      allSeries: null, // Only available via books_by_pk
     };
   });
 }
@@ -207,5 +209,11 @@ function mapBookToResult(book: HardcoverBook): MetadataSearchResult {
     tags: book.cached_tags || null,
     series: book.book_series.length > 0 ? book.book_series[0]!.series.name : null,
     seriesPosition: book.book_series.length > 0 ? book.book_series[0]!.position : null,
+    slug: book.slug || null,
+    allSeries: book.book_series.map((bs) => ({
+      name: bs.series.name,
+      position: bs.position,
+      seriesId: String(bs.series.id),
+    })),
   };
 }

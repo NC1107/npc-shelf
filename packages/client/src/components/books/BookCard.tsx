@@ -6,12 +6,12 @@ import { cn } from '../ui/utils';
 import type { Book } from '@npc-shelf/shared';
 
 const FORMAT_COLORS: Record<string, string> = {
-  epub: 'bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/20',
-  pdf: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20',
-  mobi: 'bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/20',
-  azw3: 'bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/20',
-  m4b: 'bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-500/20',
-  mp3: 'bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/20',
+  epub: 'bg-blue-600 text-white border-blue-700',
+  pdf: 'bg-red-600 text-white border-red-700',
+  mobi: 'bg-orange-600 text-white border-orange-700',
+  azw3: 'bg-orange-600 text-white border-orange-700',
+  m4b: 'bg-purple-600 text-white border-purple-700',
+  mp3: 'bg-green-600 text-white border-green-700',
 };
 
 interface BookCardProps {
@@ -89,7 +89,7 @@ export function BookCard({ book, view = 'grid' }: BookCardProps) {
               <span
                 key={fmt}
                 className={cn(
-                  'rounded px-1 py-0.5 text-[9px] font-bold uppercase leading-none backdrop-blur-sm',
+                  'rounded px-1 py-0.5 text-[10px] font-bold uppercase leading-none',
                   FORMAT_COLORS[fmt],
                 )}
               >

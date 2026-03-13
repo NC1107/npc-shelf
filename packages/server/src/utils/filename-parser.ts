@@ -75,3 +75,48 @@ export function toSortName(name: string): string {
   const last = parts.pop()!;
   return `${last}, ${parts.join(' ')}`;
 }
+
+// --- Enhanced filename parsing for scan pipeline ---
+
+export interface FilenameHints {
+  author: string | null;
+  title: string | null;
+  series: string | null;
+  seriesPosition: number | null;
+  trackNumber: number | null;
+  confidence: number;
+}
+
+const TRACK_NUMBER_PATTERN = /^(\d+)\s*[-_.]\s*/;
+
+/**
+ * Enhanced filename parsing that also detects track numbers.
+ * Accepts a FileCandidate-shaped object with filename and extension.
+ */
+export function parseFilenameEnhanced(file: { filename: string; extension: string }): FilenameHints {
+  let name = file.filename.replace(/\.[^.]+$/, '').trim();
+  let trackNumber: number | null = null;
+
+  // Detect leading track numbers: "001 - Title.m4b"
+  const trackMatch = name.match(TRACK_NUMBER_PATTERN);
+  if (trackMatch) {
+    trackNumber = parseInt(trackMatch[1]!, 10);
+    name = name.slice(trackMatch[0].length).trim();
+  }
+
+  // Use the existing parser on the cleaned name
+  const parsed = parseFilename(name + '.' + file.extension);
+
+  let confidence = 0.5;
+  if (parsed.author) confidence += 0.2;
+  if (parsed.seriesName) confidence += 0.1;
+
+  return {
+    author: parsed.author,
+    title: parsed.title,
+    series: parsed.seriesName,
+    seriesPosition: parsed.seriesPosition,
+    trackNumber,
+    confidence,
+  };
+}

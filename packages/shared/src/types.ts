@@ -54,6 +54,7 @@ export interface Book {
   isbn10: string | null;
   isbn13: string | null;
   hardcoverId: string | null;
+  hardcoverSlug: string | null;
   matchConfidence: number | null;
   coverPath: string | null;
   blurhash: string | null;
@@ -69,6 +70,8 @@ export interface BookDetail extends Book {
   tags: Tag[];
   readingProgress: ReadingProgress | null;
   audioProgress: AudioProgress | null;
+  audioTotalDuration: number;
+  audioTrackCount: number;
 }
 
 export interface BookFile {
@@ -189,6 +192,8 @@ export interface MetadataSearchResult {
   tags: string[] | null;
   series: string | null;
   seriesPosition: number | null;
+  slug: string | null;
+  allSeries: { name: string; position: number | null; seriesId?: string }[] | null;
 }
 
 export interface MetadataMatchResult extends MetadataSearchResult {
@@ -221,7 +226,7 @@ export interface KindleDelivery {
 
 // ===== Jobs =====
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
-export type JobType = 'scan_library' | 'match_metadata' | 'match_all_metadata' | 'download_cover';
+export type JobType = 'scan_library' | 'match_metadata' | 'match_all_metadata' | 'download_cover' | 'merge_audiobook';
 
 export interface Job {
   id: number;
@@ -293,7 +298,7 @@ export interface OpdsLink {
 // ===== Scan =====
 export interface ScanStatus {
   libraryId: number;
-  status: 'idle' | 'scanning' | 'complete' | 'error';
+  status: 'idle' | 'pending' | 'scanning' | 'complete' | 'error';
   filesFound: number;
   filesProcessed: number;
   booksAdded: number;

@@ -295,6 +295,9 @@ export function initializeDatabase() {
     INSERT OR IGNORE INTO settings (key, value) VALUES ('scanIntervalMinutes', '60');
   `);
 
+  // Schema migrations — add columns that may not exist yet
+  try { sqlite.exec(`ALTER TABLE books ADD COLUMN hardcover_slug TEXT`); } catch { /* column already exists */ }
+
   console.log('[DB] Database initialized successfully');
 }
 

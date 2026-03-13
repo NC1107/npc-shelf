@@ -1,16 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { eq, sql, and, notInArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
-import { SUPPORTED_FORMATS, MIME_TYPES, SUPPORTED_EBOOK_FORMATS, SUPPORTED_AUDIO_FORMATS } from '@npc-shelf/shared';
-import { parseFilename, toSortName } from '../utils/filename-parser.js';
+import { SUPPORTED_AUDIO_FORMATS, MIME_TYPES } from '@npc-shelf/shared';
+import { toSortName } from '../utils/filename-parser.js';
 import { parseEpub } from './epub-parser.js';
 import { parseAudioMetadata } from './audio-parser.js';
 import { extractAndCacheCover } from './cover.js';
+import { runPipeline, discoverFiles, type BookCandidate, type FileCandidate } from './scan-pipeline.js';
 import type { ScanStatus } from '@npc-shelf/shared';
 
 const AUDIO_PARTIAL_HASH_SIZE = 64 * 1024; // 64KB
+const AUDIO_EXTENSIONS = new Set(SUPPORTED_AUDIO_FORMATS as readonly string[]);
 
 // Shared scan status map — read by the SSE endpoint
 export const activeScanStatuses = new Map<number, ScanStatus>();
@@ -35,51 +37,47 @@ export async function scanLibrary(libraryId: number): Promise<ScanStatus> {
   activeScanStatuses.set(libraryId, status);
 
   try {
-    // 1. Find all supported files on disk
-    const diskFiles = findSupportedFiles(library.path);
-    status.filesFound = diskFiles.length;
+    // Pass 0: Detect removed files
+    const diskFiles = discoverFiles(library.path);
+    const diskPathSet = new Set(diskFiles.map((f) => f.path));
 
-    // 2. Get all currently indexed file paths for this library
     const indexedFiles = db
-      .select({ id: schema.files.id, path: schema.files.path })
+      .select({ id: schema.files.id, path: schema.files.path, bookId: schema.files.bookId })
       .from(schema.files)
       .where(eq(schema.files.libraryId, libraryId))
       .all();
-    const indexedPaths = new Set(indexedFiles.map((f) => f.path));
 
-    // 3. Detect removed files — paths in DB but no longer on disk
-    const diskPathSet = new Set(diskFiles);
-    const removedFiles = indexedFiles.filter((f) => !diskPathSet.has(f.path));
-    for (const removed of removedFiles) {
-      // Get the book for this file
-      const file = db.select().from(schema.files).where(eq(schema.files.id, removed.id)).get();
-      if (file) {
-        // Delete the file record
-        db.delete(schema.files).where(eq(schema.files.id, removed.id)).run();
-        // If this was the only file for the book, delete the book too
-        const remainingFiles = db
-          .select({ id: schema.files.id })
-          .from(schema.files)
-          .where(eq(schema.files.bookId, file.bookId))
-          .all();
-        if (remainingFiles.length === 0) {
-          db.delete(schema.books).where(eq(schema.books.id, file.bookId)).run();
-        }
+    for (const removed of indexedFiles.filter((f) => !diskPathSet.has(f.path))) {
+      db.delete(schema.files).where(eq(schema.files.id, removed.id)).run();
+      const remainingFiles = db
+        .select({ id: schema.files.id })
+        .from(schema.files)
+        .where(eq(schema.files.bookId, removed.bookId))
+        .all();
+      if (remainingFiles.length === 0) {
+        // Clean up audio tracks and chapters before deleting book
+        db.delete(schema.audioTracks).where(eq(schema.audioTracks.bookId, removed.bookId)).run();
+        db.delete(schema.audioChapters).where(eq(schema.audioChapters.bookId, removed.bookId)).run();
+        db.delete(schema.books).where(eq(schema.books.id, removed.bookId)).run();
       }
     }
 
-    // 4. Process each file on disk
-    for (const filePath of diskFiles) {
+    // Run the multi-pass pipeline
+    const candidates = runPipeline(library.path);
+    status.filesFound = diskFiles.length;
+    activeScanStatuses.set(libraryId, { ...status });
+
+    // Process each BookCandidate
+    for (const candidate of candidates) {
       try {
-        const result = await processFile(filePath, libraryId);
-        status.filesProcessed++;
+        const result = await persistCandidate(candidate, libraryId, status);
         if (result === 'added') status.booksAdded++;
         else if (result === 'updated') status.booksUpdated++;
+        status.filesProcessed += candidate.files.length;
       } catch (err: any) {
-        status.errors.push(`${path.basename(filePath)}: ${err.message}`);
-        status.filesProcessed++;
+        status.errors.push(`${candidate.resolvedTitle}: ${err.message}`);
+        status.filesProcessed += candidate.files.length;
       }
-      // Update the shared status for real-time progress
       activeScanStatuses.set(libraryId, { ...status });
     }
 
@@ -97,125 +95,99 @@ export async function scanLibrary(libraryId: number): Promise<ScanStatus> {
   }
 
   activeScanStatuses.set(libraryId, { ...status });
-
-  // Clean up after a delay so the client can read the final status
   setTimeout(() => activeScanStatuses.delete(libraryId), 30000);
 
   return status;
 }
 
-function findSupportedFiles(dirPath: string): string[] {
-  const results: string[] = [];
-  const extensions = SUPPORTED_FORMATS.map((f) => `.${f}`);
+type PersistResult = 'added' | 'updated' | 'skipped';
 
-  function walk(dir: string) {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
+async function persistCandidate(
+  candidate: BookCandidate,
+  libraryId: number,
+  _status: ScanStatus,
+): Promise<PersistResult> {
+  // Check if any file in the candidate already exists in DB
+  let existingBookId: number | null = null;
+  let allSkipped = true;
 
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(fullPath);
-      } else if (entry.isFile()) {
-        const ext = path.extname(entry.name).toLowerCase();
-        if (extensions.includes(ext)) {
-          results.push(fullPath);
-        }
+  for (const file of candidate.files) {
+    const existing = db
+      .select({ id: schema.files.id, bookId: schema.files.bookId, lastModified: schema.files.lastModified, sizeBytes: schema.files.sizeBytes })
+      .from(schema.files)
+      .where(eq(schema.files.path, file.path))
+      .get();
+
+    if (existing) {
+      existingBookId = existing.bookId;
+      // Check if modified
+      if (existing.lastModified !== file.modifiedTime || existing.sizeBytes !== file.size) {
+        allSkipped = false;
       }
+    } else {
+      allSkipped = false;
     }
   }
 
-  walk(dirPath);
-  return results;
-}
-
-type ProcessResult = 'added' | 'updated' | 'skipped';
-
-async function processFile(filePath: string, libraryId: number): Promise<ProcessResult> {
-  const stat = fs.statSync(filePath);
-  const ext = path.extname(filePath).toLowerCase().slice(1);
-  const format = ext as 'epub' | 'pdf' | 'mobi' | 'azw3' | 'm4b' | 'mp3';
-  const mimeType = MIME_TYPES[format] || 'application/octet-stream';
-  const lastMod = stat.mtime.toISOString();
-
-  // Check if file already indexed
-  const existingFile = db
-    .select()
-    .from(schema.files)
-    .where(eq(schema.files.path, filePath))
-    .get();
-
-  if (existingFile) {
-    // Unchanged — skip
-    if (existingFile.lastModified === lastMod && existingFile.sizeBytes === stat.size) {
-      return 'skipped';
-    }
-
-    // File was modified — re-hash and re-extract metadata
-    const hash = await computeHash(filePath, format);
-    db.update(schema.files)
-      .set({ hashSha256: hash, lastModified: lastMod, sizeBytes: stat.size })
-      .where(eq(schema.files.id, existingFile.id))
-      .run();
-
-    // Re-extract metadata and update the book
-    await extractAndUpdateMetadata(filePath, format, existingFile.bookId);
-    return 'updated';
-  }
-
-  // Compute hash for new file
-  const hash = await computeHash(filePath, format);
-
-  // Check for duplicate by hash
-  const duplicate = db
-    .select()
-    .from(schema.files)
-    .where(eq(schema.files.hashSha256, hash))
-    .get();
-
-  if (duplicate) {
-    // Same content exists — add as additional file for same book
-    db.insert(schema.files)
-      .values({
-        bookId: duplicate.bookId,
-        libraryId,
-        path: filePath,
-        filename: path.basename(filePath),
-        format,
-        mimeType,
-        sizeBytes: stat.size,
-        hashSha256: hash,
-        lastModified: lastMod,
-      })
-      .run();
+  if (existingBookId && allSkipped) {
     return 'skipped';
   }
 
-  // --- New book ---
+  // Extract embedded metadata from the first (or only) file
+  const primaryFile = candidate.files[0]!;
+  const embedded = await extractEmbeddedMetadata(primaryFile.path, primaryFile.extension);
 
-  // Parse metadata from filename as baseline
-  const dirPath = path.dirname(filePath);
-  const parsed = parseFilename(path.basename(filePath), dirPath);
-
-  // Extract embedded metadata
-  const embedded = await extractEmbeddedMetadata(filePath, format);
-
-  // Merge: embedded takes priority over filename-parsed
-  const title = embedded.title || parsed.title;
-  const authorName = embedded.author || parsed.author;
+  // Merge embedded metadata with pipeline-resolved metadata
+  // Embedded takes priority for title/author if higher quality than filename/directory
+  const title = embedded.title || candidate.resolvedTitle;
+  const authorName = embedded.author || candidate.resolvedAuthor;
   const description = embedded.description || null;
   const language = embedded.language || null;
   const publisher = embedded.publisher || null;
   const publishDate = embedded.date || null;
   const isbn = embedded.isbn || null;
   const subjects = embedded.subjects || [];
-  const duration = embedded.duration || null;
 
-  // Create book record
+  // Calculate total duration for audiobooks
+  let totalDuration: number | null = null;
+  if (candidate.isAudiobook) {
+    if (candidate.files.length === 1) {
+      totalDuration = embedded.duration || null;
+    } else {
+      // For multi-file audiobooks, we'll compute duration per-track below
+      totalDuration = 0;
+    }
+  }
+
+  if (existingBookId) {
+    // Update existing book
+    db.update(schema.books)
+      .set({
+        title,
+        description: description || undefined,
+        language: language || undefined,
+        publisher: publisher || undefined,
+        publishDate: publishDate || undefined,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.books.id, existingBookId))
+      .run();
+
+    // Update/add files
+    await syncFiles(candidate, existingBookId, libraryId);
+
+    // Handle audiobook tracks
+    if (candidate.isAudiobook) {
+      await syncAudioTracks(candidate, existingBookId);
+    }
+
+    // Handle cover
+    await handleCover(candidate, existingBookId, embedded);
+
+    return 'updated';
+  }
+
+  // --- Create new book ---
   const book = db
     .insert(schema.books)
     .values({
@@ -226,27 +198,36 @@ async function processFile(filePath: string, libraryId: number): Promise<Process
       publishDate,
       isbn13: isbn && isbn.length === 13 ? isbn : null,
       isbn10: isbn && isbn.length === 10 ? isbn : null,
-      audioSeconds: duration,
+      audioSeconds: totalDuration,
     })
     .returning()
     .get();
 
-  // Create file record
-  const file = db
-    .insert(schema.files)
-    .values({
-      bookId: book.id,
-      libraryId,
-      path: filePath,
-      filename: path.basename(filePath),
-      format,
-      mimeType,
-      sizeBytes: stat.size,
-      hashSha256: hash,
-      lastModified: lastMod,
-    })
-    .returning()
-    .get();
+  // Create file records
+  const fileRecords: { fileId: number; file: FileCandidate }[] = [];
+  for (const file of candidate.files) {
+    const hash = await computeHash(file.path, file.extension);
+    const format = file.extension as 'epub' | 'pdf' | 'mobi' | 'azw3' | 'm4b' | 'mp3';
+    const mimeType = MIME_TYPES[format] || 'application/octet-stream';
+
+    const fileRecord = db
+      .insert(schema.files)
+      .values({
+        bookId: book.id,
+        libraryId,
+        path: file.path,
+        filename: file.filename,
+        format,
+        mimeType,
+        sizeBytes: file.size,
+        hashSha256: hash,
+        lastModified: file.modifiedTime,
+      })
+      .returning()
+      .get();
+
+    fileRecords.push({ fileId: fileRecord.id, file });
+  }
 
   // Create author
   if (authorName) {
@@ -260,7 +241,7 @@ async function processFile(filePath: string, libraryId: number): Promise<Process
   // Additional creators from embedded metadata
   if (embedded.creators) {
     for (const creator of embedded.creators) {
-      if (creator.name === authorName) continue; // already added
+      if (creator.name === authorName) continue;
       const creatorId = findOrCreateAuthor(creator.name);
       db.insert(schema.bookAuthors)
         .values({ bookId: book.id, authorId: creatorId, role: creator.role as 'author' | 'narrator' | 'editor' })
@@ -269,43 +250,83 @@ async function processFile(filePath: string, libraryId: number): Promise<Process
     }
   }
 
-  // Create series from filename
-  if (parsed.seriesName) {
-    const seriesId = findOrCreateSeries(parsed.seriesName);
-    db.insert(schema.bookSeries)
-      .values({ bookId: book.id, seriesId, position: parsed.seriesPosition })
+  // Narrator from sidecar
+  if (candidate.sidecarMeta?.narrator) {
+    const narratorId = findOrCreateAuthor(candidate.sidecarMeta.narrator);
+    db.insert(schema.bookAuthors)
+      .values({ bookId: book.id, authorId: narratorId, role: 'narrator' })
       .onConflictDoNothing()
       .run();
   }
 
-  // Create tags from subjects
-  for (const subject of subjects) {
-    const tagId = findOrCreateTag(subject, 'user');
+  // Series — support multiple
+  const seriesList = candidate.resolvedSeriesList.length > 0
+    ? candidate.resolvedSeriesList
+    : candidate.resolvedSeries
+      ? [{ name: candidate.resolvedSeries, position: candidate.resolvedSeriesPosition }]
+      : [];
+
+  for (const s of seriesList) {
+    const seriesId = findOrCreateSeries(s.name);
+    db.insert(schema.bookSeries)
+      .values({ bookId: book.id, seriesId, position: s.position })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  // Tags from embedded metadata + sidecar
+  const allTags = [...subjects, ...(candidate.sidecarMeta?.tags || [])];
+  const uniqueTags = [...new Set(allTags)];
+  for (const tagName of uniqueTags) {
+    const tagId = findOrCreateTag(tagName, 'user');
     db.insert(schema.bookTags)
       .values({ bookId: book.id, tagId })
       .onConflictDoNothing()
       .run();
   }
 
-  // Handle cover image
-  if (embedded.coverImage) {
-    await saveCoverImage(book.id, embedded.coverImage);
-  }
+  // Audio tracks
+  if (candidate.isAudiobook) {
+    let cumulativeOffset = 0;
+    for (let i = 0; i < fileRecords.length; i++) {
+      const rec = fileRecords[i]!;
+      let trackDuration = 0;
 
-  // For audio files, create audio track record
-  if (['m4b', 'mp3'].includes(format)) {
-    db.insert(schema.audioTracks)
-      .values({
-        bookId: book.id,
-        fileId: file.id,
-        trackIndex: 0,
-        title: title,
-        durationSeconds: duration || 0,
-        startOffsetSeconds: 0,
-      })
-      .run();
+      if (i === 0 && embedded.duration) {
+        trackDuration = embedded.duration;
+      } else if (rec.file.isAudio) {
+        // Parse duration for subsequent audio files
+        try {
+          const trackMeta = await parseAudioMetadata(rec.file.path);
+          trackDuration = trackMeta.duration;
+        } catch {
+          // fallback: 0
+        }
+      }
 
-    // Store chapters
+      db.insert(schema.audioTracks)
+        .values({
+          bookId: book.id,
+          fileId: rec.fileId,
+          trackIndex: i,
+          title: candidate.files.length === 1 ? title : `Track ${i + 1}`,
+          durationSeconds: trackDuration,
+          startOffsetSeconds: cumulativeOffset,
+        })
+        .run();
+
+      cumulativeOffset += trackDuration;
+    }
+
+    // Update total duration
+    if (cumulativeOffset > 0) {
+      db.update(schema.books)
+        .set({ audioSeconds: cumulativeOffset })
+        .where(eq(schema.books.id, book.id))
+        .run();
+    }
+
+    // Store chapters from first file
     if (embedded.chapters) {
       for (const chapter of embedded.chapters) {
         db.insert(schema.audioChapters)
@@ -321,8 +342,109 @@ async function processFile(filePath: string, libraryId: number): Promise<Process
     }
   }
 
+  // Handle cover
+  await handleCover(candidate, book.id, embedded);
+
   return 'added';
 }
+
+async function syncFiles(candidate: BookCandidate, bookId: number, libraryId: number): Promise<void> {
+  for (const file of candidate.files) {
+    const existing = db.select().from(schema.files).where(eq(schema.files.path, file.path)).get();
+    const format = file.extension as 'epub' | 'pdf' | 'mobi' | 'azw3' | 'm4b' | 'mp3';
+    const mimeType = MIME_TYPES[format] || 'application/octet-stream';
+
+    if (existing) {
+      if (existing.lastModified !== file.modifiedTime || existing.sizeBytes !== file.size) {
+        const hash = await computeHash(file.path, file.extension);
+        db.update(schema.files)
+          .set({ hashSha256: hash, lastModified: file.modifiedTime, sizeBytes: file.size })
+          .where(eq(schema.files.id, existing.id))
+          .run();
+      }
+    } else {
+      const hash = await computeHash(file.path, file.extension);
+      db.insert(schema.files)
+        .values({
+          bookId,
+          libraryId,
+          path: file.path,
+          filename: file.filename,
+          format,
+          mimeType,
+          sizeBytes: file.size,
+          hashSha256: hash,
+          lastModified: file.modifiedTime,
+        })
+        .run();
+    }
+  }
+}
+
+async function syncAudioTracks(candidate: BookCandidate, bookId: number): Promise<void> {
+  // Delete existing tracks and rebuild
+  db.delete(schema.audioTracks).where(eq(schema.audioTracks.bookId, bookId)).run();
+
+  let cumulativeOffset = 0;
+  for (let i = 0; i < candidate.files.length; i++) {
+    const file = candidate.files[i]!;
+    if (!file.isAudio) continue;
+
+    const fileRecord = db.select().from(schema.files).where(eq(schema.files.path, file.path)).get();
+    if (!fileRecord) continue;
+
+    let trackDuration = 0;
+    try {
+      const meta = await parseAudioMetadata(file.path);
+      trackDuration = meta.duration;
+    } catch {
+      // fallback
+    }
+
+    db.insert(schema.audioTracks)
+      .values({
+        bookId,
+        fileId: fileRecord.id,
+        trackIndex: i,
+        title: candidate.files.length === 1 ? candidate.resolvedTitle : `Track ${i + 1}`,
+        durationSeconds: trackDuration,
+        startOffsetSeconds: cumulativeOffset,
+      })
+      .run();
+
+    cumulativeOffset += trackDuration;
+  }
+
+  if (cumulativeOffset > 0) {
+    db.update(schema.books)
+      .set({ audioSeconds: cumulativeOffset })
+      .where(eq(schema.books.id, bookId))
+      .run();
+  }
+}
+
+async function handleCover(candidate: BookCandidate, bookId: number, embedded: EmbeddedMetadata): Promise<void> {
+  // Check if book already has a cover
+  const book = db.select({ coverPath: schema.books.coverPath }).from(schema.books).where(eq(schema.books.id, bookId)).get();
+  if (book?.coverPath) return; // Already has cover
+
+  // Priority: sidecar cover > embedded cover
+  if (candidate.sidecarMeta?.coverPath) {
+    try {
+      const coverBuffer = fs.readFileSync(candidate.sidecarMeta.coverPath);
+      await saveCoverImage(bookId, coverBuffer);
+      return;
+    } catch {
+      // Fall through to embedded
+    }
+  }
+
+  if (embedded.coverImage) {
+    await saveCoverImage(bookId, embedded.coverImage);
+  }
+}
+
+// --- Shared helpers (kept from original) ---
 
 interface EmbeddedMetadata {
   title: string | null;
@@ -389,30 +511,7 @@ async function extractEmbeddedMetadata(filePath: string, format: string): Promis
   return empty;
 }
 
-async function extractAndUpdateMetadata(filePath: string, format: string, bookId: number): Promise<void> {
-  const embedded = await extractEmbeddedMetadata(filePath, format);
-  if (!embedded.title && !embedded.author) return;
-
-  const updates: Record<string, any> = { updatedAt: new Date().toISOString() };
-  if (embedded.title) updates.title = embedded.title;
-  if (embedded.description) updates.description = embedded.description;
-  if (embedded.language) updates.language = embedded.language;
-  if (embedded.publisher) updates.publisher = embedded.publisher;
-  if (embedded.date) updates.publishDate = embedded.date;
-  if (embedded.isbn) {
-    if (embedded.isbn.length === 13) updates.isbn13 = embedded.isbn;
-    else if (embedded.isbn.length === 10) updates.isbn10 = embedded.isbn;
-  }
-  if (embedded.duration) updates.audioSeconds = embedded.duration;
-
-  db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
-
-  if (embedded.coverImage) {
-    await saveCoverImage(bookId, embedded.coverImage);
-  }
-}
-
-function findOrCreateAuthor(name: string): number {
+export function findOrCreateAuthor(name: string): number {
   const existing = db.select().from(schema.authors).where(eq(schema.authors.name, name)).get();
   if (existing) return existing.id;
   return db.insert(schema.authors)
@@ -421,13 +520,13 @@ function findOrCreateAuthor(name: string): number {
     .get().id;
 }
 
-function findOrCreateSeries(name: string): number {
+export function findOrCreateSeries(name: string): number {
   const existing = db.select().from(schema.series).where(eq(schema.series.name, name)).get();
   if (existing) return existing.id;
   return db.insert(schema.series).values({ name }).returning().get().id;
 }
 
-function findOrCreateTag(name: string, source: 'hardcover' | 'user'): number {
+export function findOrCreateTag(name: string, source: 'hardcover' | 'user'): number {
   const existing = db.select().from(schema.tags).where(eq(schema.tags.name, name)).get();
   if (existing) return existing.id;
   return db.insert(schema.tags).values({ name, source }).returning().get().id;
@@ -448,7 +547,7 @@ async function saveCoverImage(bookId: number, imageBuffer: Buffer): Promise<void
 }
 
 async function computeHash(filePath: string, format: string): Promise<string> {
-  const isAudio = ['m4b', 'mp3'].includes(format);
+  const isAudio = AUDIO_EXTENSIONS.has(format);
   const stat = fs.statSync(filePath);
 
   if (isAudio && stat.size > AUDIO_PARTIAL_HASH_SIZE * 4) {

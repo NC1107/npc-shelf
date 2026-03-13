@@ -122,9 +122,21 @@ export async function enrichBook(bookId: number): Promise<void> {
 
   console.log(`[Metadata] Matched "${book.title}" -> "${match.title}" (${(match.confidence * 100).toFixed(0)}% confidence)`);
 
+  // If we matched via search (no slug), fetch details to get slug + all series
+  let slug = match.slug;
+  let allSeries = match.allSeries;
+  if (!slug) {
+    const details = await provider.getDetails(match.externalId);
+    if (details) {
+      slug = details.slug;
+      allSeries = details.allSeries;
+    }
+  }
+
   // Update book metadata
   const updates: Record<string, any> = {
     hardcoverId: match.externalId,
+    hardcoverSlug: slug || null,
     matchConfidence: match.confidence,
     updatedAt: new Date().toISOString(),
   };
@@ -147,14 +159,25 @@ export async function enrichBook(bookId: number): Promise<void> {
   }
 
   // Add series if not already set
-  if (match.series) {
-    const existingSeries = db
-      .select()
-      .from(schema.bookSeries)
-      .where(eq(schema.bookSeries.bookId, bookId))
-      .get();
+  const existingSeries = db
+    .select()
+    .from(schema.bookSeries)
+    .where(eq(schema.bookSeries.bookId, bookId))
+    .get();
 
-    if (!existingSeries) {
+  if (!existingSeries) {
+    if (allSeries && allSeries.length > 0) {
+      for (const s of allSeries) {
+        let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, s.name)).get();
+        if (!seriesRow) {
+          seriesRow = db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
+        }
+        db.insert(schema.bookSeries)
+          .values({ bookId, seriesId: seriesRow.id, position: s.position })
+          .onConflictDoNothing()
+          .run();
+      }
+    } else if (match.series) {
       let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, match.series)).get();
       if (!seriesRow) {
         seriesRow = db.insert(schema.series).values({ name: match.series }).returning().get();
@@ -236,6 +259,7 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
 
   const updates: Record<string, any> = {
     hardcoverId: externalId,
+    hardcoverSlug: details.slug || null,
     matchConfidence: 1.0,
     updatedAt: new Date().toISOString(),
   };
@@ -252,6 +276,20 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
     const coverPath = await downloadAndResizeCover(details.coverUrl, bookId);
     if (coverPath) {
       db.update(schema.books).set({ coverPath }).where(eq(schema.books.id, bookId)).run();
+    }
+  }
+
+  // Add all series from details
+  if (details.allSeries && details.allSeries.length > 0) {
+    for (const s of details.allSeries) {
+      let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, s.name)).get();
+      if (!seriesRow) {
+        seriesRow = db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
+      }
+      db.insert(schema.bookSeries)
+        .values({ bookId, seriesId: seriesRow.id, position: s.position })
+        .onConflictDoNothing()
+        .run();
     }
   }
 

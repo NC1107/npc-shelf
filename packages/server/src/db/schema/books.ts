@@ -13,6 +13,7 @@ export const books = sqliteTable('books', {
   isbn10: text('isbn_10'),
   isbn13: text('isbn_13'),
   hardcoverId: text('hardcover_id'),
+  hardcoverSlug: text('hardcover_slug'),
   matchConfidence: real('match_confidence'),
   coverPath: text('cover_path'),
   blurhash: text('blurhash'),

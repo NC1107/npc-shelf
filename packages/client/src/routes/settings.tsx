@@ -1,44 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, FolderSync, Loader2, CheckCircle2, AlertCircle, Sparkles, Send, Rss, RefreshCw, Clock, XCircle, RotateCcw } from 'lucide-react';
+import { Plus, Trash2, FolderSync, Loader2, CheckCircle2, AlertCircle, Sparkles, Send, Rss, RefreshCw, Clock, XCircle, RotateCcw, FolderOpen, ChevronUp, ExternalLink } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Separator } from '../components/ui/separator';
+import { DirectoryBrowser } from '../components/DirectoryBrowser';
 import { api } from '../lib/api';
-import type { Library as LibraryType, ScanStatus } from '@npc-shelf/shared';
-
-function useScanProgress(libraryId: number | null) {
-  const [status, setStatus] = useState<ScanStatus | null>(null);
-
-  useEffect(() => {
-    if (!libraryId) {
-      setStatus(null);
-      return;
-    }
-
-    // Poll scan status every second
-    const interval = setInterval(async () => {
-      try {
-        const data = await api.get<ScanStatus>(`/libraries/${libraryId}/scan/status`);
-        setStatus(data);
-        if (data.status === 'complete' || data.status === 'error' || data.status === 'idle') {
-          // Keep showing for a moment then clear
-          if (data.status === 'idle') {
-            setStatus(null);
-            clearInterval(interval);
-          }
-        }
-      } catch {
-        clearInterval(interval);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [libraryId]);
-
-  return status;
-}
+import { useScanStore } from '../stores/scanStore';
+import type { Library as LibraryType } from '@npc-shelf/shared';
 
 interface JobSummary {
   pending: number;
@@ -110,7 +80,6 @@ function BackgroundJobsCard() {
         <CardDescription>Monitor metadata matching and other background tasks</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Summary counts */}
         {summary && (
           <div className="grid grid-cols-4 gap-3 text-center">
             <div className="rounded-lg bg-muted p-2">
@@ -132,7 +101,6 @@ function BackgroundJobsCard() {
           </div>
         )}
 
-        {/* Recent jobs table */}
         {recentJobs?.items && recentJobs.items.length > 0 && (
           <div className="max-h-60 overflow-y-auto rounded-lg border">
             <table className="w-full text-sm">
@@ -173,7 +141,6 @@ function BackgroundJobsCard() {
           </div>
         )}
 
-        {/* Purge button */}
         <div className="flex justify-end">
           <Button
             variant="outline"
@@ -192,18 +159,29 @@ function BackgroundJobsCard() {
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
+  const [showAddForm, setShowAddForm] = useState(false);
   const [newLibName, setNewLibName] = useState('');
   const [newLibPath, setNewLibPath] = useState('');
   const [newLibType, setNewLibType] = useState<'ebook' | 'audiobook' | 'mixed'>('mixed');
-  const [scanningLibId, setScanningLibId] = useState<number | null>(null);
+  const [browsing, setBrowsing] = useState(false);
   const [hardcoverToken, setHardcoverToken] = useState('');
+  const [tokenSaved, setTokenSaved] = useState(false);
 
-  const scanStatus = useScanProgress(scanningLibId);
+  // Scan store
+  const { activeScanLibraryId, scanStatus, startScan } = useScanStore();
 
   const { data: libraries } = useQuery({
     queryKey: ['libraries'],
     queryFn: () => api.get<LibraryType[]>('/libraries'),
   });
+
+  // Check if Hardcover token is already configured
+  const { data: settings } = useQuery({
+    queryKey: ['app-settings'],
+    queryFn: () => api.get<{ hardcoverApiToken?: string }>('/settings'),
+  });
+
+  const hasToken = !!settings?.hardcoverApiToken;
 
   const addLibrary = useMutation({
     mutationFn: (lib: { name: string; path: string; type: string }) =>
@@ -212,6 +190,7 @@ export function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['libraries'] });
       setNewLibName('');
       setNewLibPath('');
+      setShowAddForm(false);
     },
   });
 
@@ -223,19 +202,11 @@ export function SettingsPage() {
   const scanLibrary = useMutation({
     mutationFn: (id: number) => api.post(`/libraries/${id}/scan`),
     onSuccess: (_data, id) => {
-      setScanningLibId(id);
+      startScan(id);
     },
   });
 
-  // Clear scan state when complete and refresh libraries
-  useEffect(() => {
-    if (scanStatus?.status === 'complete') {
-      queryClient.invalidateQueries({ queryKey: ['libraries'] });
-      queryClient.invalidateQueries({ queryKey: ['books'] });
-      const timer = setTimeout(() => setScanningLibId(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [scanStatus?.status, queryClient]);
+  const isScanning = scanStatus?.status === 'scanning' || scanStatus?.status === 'pending';
 
   const [kindleEmail, setKindleEmail] = useState('');
   const [smtpHost, setSmtpHost] = useState('');
@@ -267,13 +238,17 @@ export function SettingsPage() {
   const saveHardcoverToken = useMutation({
     mutationFn: (token: string) =>
       api.put('/settings', { hardcoverApiToken: token }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['app-settings'] });
+      setHardcoverToken('');
+      setTokenSaved(true);
+      setTimeout(() => setTokenSaved(false), 3000);
+    },
   });
 
   const matchAllBooks = useMutation({
     mutationFn: () => api.post('/metadata/match-all'),
   });
-
-  const isScanning = scanStatus?.status === 'scanning';
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -302,9 +277,9 @@ export function SettingsPage() {
                       variant="ghost"
                       size="icon"
                       onClick={() => scanLibrary.mutate(lib.id)}
-                      disabled={isScanning && scanningLibId === lib.id}
+                      disabled={isScanning && activeScanLibraryId === lib.id}
                     >
-                      {isScanning && scanningLibId === lib.id ? (
+                      {isScanning && activeScanLibraryId === lib.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <FolderSync className="h-4 w-4" />
@@ -314,16 +289,15 @@ export function SettingsPage() {
                       variant="ghost"
                       size="icon"
                       onClick={() => deleteLibrary.mutate(lib.id)}
-                      disabled={isScanning && scanningLibId === lib.id}
+                      disabled={isScanning && activeScanLibraryId === lib.id}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
 
-                  {/* Scan progress */}
-                  {scanningLibId === lib.id && scanStatus && scanStatus.status !== 'idle' && (
+                  {/* Scan progress (inline) */}
+                  {activeScanLibraryId === lib.id && scanStatus && scanStatus.status !== 'idle' && (
                     <div className="mt-3 space-y-2">
-                      {/* Progress bar */}
                       {scanStatus.filesFound > 0 && (
                         <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                           <div
@@ -341,6 +315,12 @@ export function SettingsPage() {
                             <Loader2 className="h-3 w-3 animate-spin" />
                             Scanning... {scanStatus.filesProcessed}/{scanStatus.filesFound} files
                             {scanStatus.booksAdded > 0 && ` · ${scanStatus.booksAdded} books added`}
+                          </>
+                        )}
+                        {scanStatus.status === 'pending' && (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Scan queued...
                           </>
                         )}
                         {scanStatus.status === 'complete' && (
@@ -376,41 +356,67 @@ export function SettingsPage() {
 
           <Separator />
 
-          <div className="space-y-3">
-            <p className="text-sm font-medium">Add Library</p>
-            <Input
-              placeholder="Library name"
-              value={newLibName}
-              onChange={(e) => setNewLibName(e.target.value)}
-            />
-            <Input
-              placeholder="Path (e.g. /libraries/ebooks)"
-              value={newLibPath}
-              onChange={(e) => setNewLibPath(e.target.value)}
-            />
-            <select
-              value={newLibType}
-              onChange={(e) => setNewLibType(e.target.value as 'ebook' | 'audiobook' | 'mixed')}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value="mixed">Mixed</option>
-              <option value="ebook">Ebook</option>
-              <option value="audiobook">Audiobook</option>
-            </select>
-            <Button
-              onClick={() => addLibrary.mutate({ name: newLibName, path: newLibPath, type: newLibType })}
-              disabled={!newLibName || !newLibPath || addLibrary.isPending}
-            >
-              {addLibrary.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+          {/* Collapsible Add Library form */}
+          {!showAddForm ? (
+            <Button variant="outline" onClick={() => setShowAddForm(true)}>
               <Plus className="h-4 w-4" />
               Add Library
             </Button>
-            {addLibrary.isError && (
-              <p className="text-sm text-destructive">{(addLibrary.error as Error).message}</p>
-            )}
-          </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">Add Library</p>
+                <Button variant="ghost" size="sm" onClick={() => setShowAddForm(false)}>
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+              </div>
+              <Input
+                placeholder="Library name"
+                value={newLibName}
+                onChange={(e) => setNewLibName(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Path (e.g. /libraries/ebooks)"
+                  value={newLibPath}
+                  onChange={(e) => setNewLibPath(e.target.value)}
+                  className="flex-1"
+                />
+                <Button variant="outline" size="icon" onClick={() => setBrowsing(true)} title="Browse directories">
+                  <FolderOpen className="h-4 w-4" />
+                </Button>
+              </div>
+              <select
+                value={newLibType}
+                onChange={(e) => setNewLibType(e.target.value as 'ebook' | 'audiobook' | 'mixed')}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="mixed">Mixed</option>
+                <option value="ebook">Ebook</option>
+                <option value="audiobook">Audiobook</option>
+              </select>
+              <Button
+                onClick={() => addLibrary.mutate({ name: newLibName, path: newLibPath, type: newLibType })}
+                disabled={!newLibName || !newLibPath || addLibrary.isPending}
+              >
+                {addLibrary.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                <Plus className="h-4 w-4" />
+                Add Library
+              </Button>
+              {addLibrary.isError && (
+                <p className="text-sm text-destructive">{(addLibrary.error as Error).message}</p>
+              )}
+            </div>
+          )}
+
+          <DirectoryBrowser
+            open={browsing}
+            onOpenChange={setBrowsing}
+            onSelect={(path) => setNewLibPath(path)}
+          />
         </CardContent>
       </Card>
+
       {/* Metadata */}
       <Card>
         <CardHeader>
@@ -426,6 +432,15 @@ export function SettingsPage() {
                 hardcover.app/account/api
               </a>
             </p>
+
+            {/* Token status indicator */}
+            {hasToken && (
+              <div className="flex items-center gap-2 text-sm text-green-600">
+                <CheckCircle2 className="h-4 w-4" />
+                API token configured
+              </div>
+            )}
+
             <Input
               placeholder="Hardcover API token"
               value={hardcoverToken}
@@ -450,6 +465,9 @@ export function SettingsPage() {
                 Match All Books
               </Button>
             </div>
+            {tokenSaved && (
+              <p className="text-sm text-green-600">Token saved.</p>
+            )}
             {matchAllBooks.isSuccess && (
               <p className="text-sm text-green-600">Metadata matching queued. Books will be enriched in the background.</p>
             )}
@@ -467,6 +485,49 @@ export function SettingsPage() {
           <CardDescription>Configure SMTP and Kindle email for book delivery</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Setup guide */}
+          <div className="rounded-lg bg-muted p-3 text-xs space-y-1">
+            <p className="font-medium">Setup Guide:</p>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>
+                Find your Kindle email:{' '}
+                <a
+                  href="https://www.amazon.com/hz/mycd/myx#/home/settings/pdoc"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline inline-flex items-center gap-0.5"
+                >
+                  Amazon Devices <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+              </li>
+              <li>Add your From email to Amazon's Approved Senders list</li>
+              <li>
+                Gmail: use{' '}
+                <a
+                  href="https://myaccount.google.com/apppasswords"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline inline-flex items-center gap-0.5"
+                >
+                  App Password <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+                {' '}(smtp.gmail.com, port 587)
+              </li>
+              <li>
+                Outlook: use{' '}
+                <a
+                  href="https://account.microsoft.com/security"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline inline-flex items-center gap-0.5"
+                >
+                  App Password <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+                {' '}(smtp.office365.com, port 587)
+              </li>
+            </ol>
+          </div>
+
           <div className="space-y-3">
             <Input
               placeholder="Kindle email (e.g. yourname@kindle.com)"

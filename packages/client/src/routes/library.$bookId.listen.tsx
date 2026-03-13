@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from '@tanstack/react-router';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Play, Pause, SkipBack, SkipForward,
   Volume2, VolumeX, Timer, ListMusic, Gauge,
@@ -30,6 +30,7 @@ export function ListenPage() {
   const [showSleep, setShowSleep] = useState(false);
 
   const store = useAudioStore();
+  const queryClient = useQueryClient();
   const sleepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: book } = useQuery({
@@ -59,9 +60,12 @@ export function ListenPage() {
   const saveProgress = useMutation({
     mutationFn: (data: Partial<AudioProgress>) =>
       api.put(`/audiobooks/${bookId}/progress`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['audio-progress', bookId] });
+    },
   });
 
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSaveTimeRef = useRef(0);
 
   // Initialize audio when book data is ready
   useEffect(() => {
@@ -111,9 +115,10 @@ export function ListenPage() {
     AudioEngine.onTimeUpdate((time) => {
       store.setPosition(time);
 
-      // Debounced save
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => {
+      // Save every 15 seconds of real playback time
+      const now = Date.now();
+      if (now - lastSaveTimeRef.current >= 15000) {
+        lastSaveTimeRef.current = now;
         const totalElapsed = calculateTotalElapsed(store.currentTrackIndex, time);
         saveProgress.mutate({
           currentTrackIndex: store.currentTrackIndex,
@@ -123,7 +128,7 @@ export function ListenPage() {
           playbackRate: store.playbackRate,
           isFinished: false,
         });
-      }, 5000);
+      }
     });
 
     AudioEngine.onEnded(() => {
@@ -217,6 +222,16 @@ export function ListenPage() {
     if (store.isPlaying) {
       AudioEngine.pause();
       store.setPlaying(false);
+      // Immediately save progress on pause
+      const totalElapsed = calculateTotalElapsed(store.currentTrackIndex, AudioEngine.currentTime);
+      saveProgress.mutate({
+        currentTrackIndex: store.currentTrackIndex,
+        positionSeconds: AudioEngine.currentTime,
+        totalElapsedSeconds: totalElapsed,
+        totalDurationSeconds: store.totalDurationSeconds,
+        playbackRate: store.playbackRate,
+        isFinished: false,
+      });
     } else {
       AudioEngine.play();
       store.setPlaying(true);
