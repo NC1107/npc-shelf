@@ -33,7 +33,7 @@ export function BookCard({ book, view = 'grid' }: BookCardProps) {
         <div className="h-16 w-11 shrink-0 overflow-hidden rounded bg-muted flex items-center justify-center">
           {book.coverPath ? (
             <img
-              src={`/api/books/${book.id}/cover/thumb`}
+              src={`/api/books/${book.id}/cover/thumb?v=${book.updatedAt}`}
               alt={book.title}
               className="h-full w-full object-cover"
             />
@@ -71,7 +71,7 @@ export function BookCard({ book, view = 'grid' }: BookCardProps) {
       <div className="relative aspect-[2/3] bg-muted flex items-center justify-center overflow-hidden">
         {book.coverPath ? (
           <img
-            src={`/api/books/${book.id}/cover/thumb`}
+            src={`/api/books/${book.id}/cover/thumb?v=${book.updatedAt}`}
             alt={book.title}
             className="h-full w-full object-cover transition-transform group-hover:scale-105"
             loading="lazy"

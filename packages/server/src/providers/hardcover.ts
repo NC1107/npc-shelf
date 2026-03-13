@@ -56,6 +56,17 @@ const BOOK_BY_PK_QUERY = gql`
   }
 `;
 
+const SERIES_BY_PK_QUERY = gql`
+  query GetSeries($id: Int!) {
+    series_by_pk(id: $id) {
+      id
+      name
+      description
+      book_count
+    }
+  }
+`;
+
 /**
  * Hardcover GraphQL metadata provider.
  * Uses the search() query (Typesense-backed) for book lookups.
@@ -117,6 +128,25 @@ export class HardcoverProvider implements MetadataProvider {
       return data.books_by_pk ? mapBookToResult(data.books_by_pk) : null;
     } catch (err: any) {
       console.error('[Hardcover] Detail fetch error:', err.message);
+      return null;
+    }
+  }
+
+  async getSeriesDetails(seriesId: string): Promise<{ id: number; name: string; description: string | null; bookCount: number | null } | null> {
+    await this.bucket.acquire();
+    try {
+      const data = await this.client.request<{
+        series_by_pk: { id: number; name: string; description: string | null; book_count: number | null } | null;
+      }>(SERIES_BY_PK_QUERY, { id: parseInt(seriesId) });
+      if (!data.series_by_pk) return null;
+      return {
+        id: data.series_by_pk.id,
+        name: data.series_by_pk.name,
+        description: data.series_by_pk.description,
+        bookCount: data.series_by_pk.book_count,
+      };
+    } catch (err: any) {
+      console.error('[Hardcover] Series detail fetch error:', err.message);
       return null;
     }
   }

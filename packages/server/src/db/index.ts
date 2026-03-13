@@ -297,6 +297,8 @@ export function initializeDatabase() {
 
   // Schema migrations — add columns that may not exist yet
   try { sqlite.exec(`ALTER TABLE books ADD COLUMN hardcover_slug TEXT`); } catch { /* column already exists */ }
+  try { sqlite.exec(`ALTER TABLE books ADD COLUMN match_breakdown TEXT`); } catch { /* column already exists */ }
+  try { sqlite.exec(`ALTER TABLE series ADD COLUMN description TEXT`); } catch { /* column already exists */ }
 
   console.log('[DB] Database initialized successfully');
 }

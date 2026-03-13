@@ -1,6 +1,6 @@
 {
   "name": "@npc-shelf/server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -15,6 +15,7 @@
     "@npc-shelf/shared": "*",
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^11.7.0",
+    "chokidar": "^5.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "drizzle-orm": "^0.38.0",

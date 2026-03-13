@@ -63,6 +63,17 @@ export interface Book {
   updatedAt: string;
 }
 
+export interface MatchBreakdown {
+  titleSimilarity: number;
+  authorSimilarity: number;
+  titleWeight: number;
+  authorWeight: number;
+  localTitle: string;
+  matchedTitle: string;
+  localAuthor: string | null;
+  matchedAuthor: string | null;
+}
+
 export interface BookDetail extends Book {
   authors: AuthorRole[];
   series: SeriesPosition[];
@@ -72,6 +83,9 @@ export interface BookDetail extends Book {
   audioProgress: AudioProgress | null;
   audioTotalDuration: number;
   audioTrackCount: number;
+  hasEbook: boolean;
+  hasAudio: boolean;
+  matchBreakdown: MatchBreakdown | null;
 }
 
 export interface BookFile {
@@ -108,6 +122,7 @@ export interface Series {
   id: number;
   name: string;
   hardcoverId: string | null;
+  description: string | null;
 }
 
 export interface SeriesPosition {

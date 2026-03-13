@@ -25,6 +25,7 @@ import { scanLibrary } from './services/scanner.js';
 import { enrichBook, enrichAllUnmatched } from './services/metadata-pipeline.js';
 import { backfillCovers } from './services/cover-backfill.js';
 import { mergeAudiobook } from './services/audio-merge.js';
+import { initializeWatchers, stopAllWatchers } from './services/file-watcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -74,6 +75,9 @@ startJobProcessor();
 // Backfill covers on startup (async, non-blocking)
 backfillCovers().catch((err) => console.error('[Startup] Cover backfill error:', err));
 
+// Start file watchers for all enabled libraries
+initializeWatchers();
+
 // Global middleware
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
@@ -104,7 +108,6 @@ app.get('/api/health', (_req, res) => {
     const coverDir = process.env.COVER_CACHE_PATH || './cache/covers';
     let coverCount = 0;
     try {
-      const fs = require('node:fs');
       if (fs.existsSync(coverDir)) {
         coverCount = fs.readdirSync(coverDir).filter((f: string) => f.endsWith('.webp')).length;
       }
@@ -112,7 +115,7 @@ app.get('/api/health', (_req, res) => {
 
     res.json({
       status: 'ok',
-      version: '0.1.0',
+      version: '0.2.0',
       uptime: process.uptime(),
       database: 'connected',
       books: bookCount,
@@ -308,6 +311,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 // Graceful shutdown
 function shutdown(signal: string) {
   console.log(`[Server] ${signal} received, shutting down gracefully...`);
+  stopAllWatchers();
   stopJobProcessor();
   server.close(() => {
     sqlite.close();

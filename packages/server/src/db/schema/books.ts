@@ -18,6 +18,7 @@ export const books = sqliteTable('books', {
   coverPath: text('cover_path'),
   blurhash: text('blurhash'),
   audioSeconds: real('audio_seconds'),
+  matchBreakdown: text('match_breakdown'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });

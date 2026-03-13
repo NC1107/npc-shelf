@@ -87,6 +87,23 @@ export async function scanLibrary(libraryId: number): Promise<ScanStatus> {
       .where(eq(schema.libraries.id, libraryId))
       .run();
 
+    // Auto-queue metadata matching if setting is enabled and new books were added
+    if (status.booksAdded > 0) {
+      try {
+        const autoMatch = db.select().from(schema.settings)
+          .where(eq(schema.settings.key, 'metadataAutoMatch')).get();
+        if (autoMatch?.value === 'true') {
+          db.insert(schema.jobQueue).values({
+            jobType: 'match_all_metadata',
+            payload: '{}',
+          }).run();
+          console.log(`[Scanner] Auto-queued metadata match for ${status.booksAdded} new books`);
+        }
+      } catch (e) {
+        console.error('[Scanner] Failed to queue auto-match:', e);
+      }
+    }
+
     status.status = 'complete';
     status.completedAt = new Date().toISOString();
   } catch (err: any) {
@@ -148,10 +165,12 @@ async function persistCandidate(
   const isbn = embedded.isbn || null;
   const subjects = embedded.subjects || [];
 
-  // Calculate total duration for audiobooks
+  // Calculate total duration for audiobooks — check actual file content, not just candidate flag
+  const hasAudioFiles = candidate.files.some(f => f.isAudio);
   let totalDuration: number | null = null;
-  if (candidate.isAudiobook) {
-    if (candidate.files.length === 1) {
+  if (hasAudioFiles) {
+    const audioFileCount = candidate.files.filter(f => f.isAudio).length;
+    if (audioFileCount === 1) {
       totalDuration = embedded.duration || null;
     } else {
       // For multi-file audiobooks, we'll compute duration per-track below
@@ -177,7 +196,7 @@ async function persistCandidate(
     await syncFiles(candidate, existingBookId, libraryId);
 
     // Handle audiobook tracks
-    if (candidate.isAudiobook) {
+    if (hasAudioFiles) {
       await syncAudioTracks(candidate, existingBookId);
     }
 
@@ -285,17 +304,17 @@ async function persistCandidate(
       .run();
   }
 
-  // Audio tracks
-  if (candidate.isAudiobook) {
+  // Audio tracks — only process audio files in the candidate
+  if (hasAudioFiles) {
+    const audioRecords = fileRecords.filter(r => r.file.isAudio);
     let cumulativeOffset = 0;
-    for (let i = 0; i < fileRecords.length; i++) {
-      const rec = fileRecords[i]!;
+    for (let i = 0; i < audioRecords.length; i++) {
+      const rec = audioRecords[i]!;
       let trackDuration = 0;
 
       if (i === 0 && embedded.duration) {
         trackDuration = embedded.duration;
-      } else if (rec.file.isAudio) {
-        // Parse duration for subsequent audio files
+      } else {
         try {
           const trackMeta = await parseAudioMetadata(rec.file.path);
           trackDuration = trackMeta.duration;
@@ -309,7 +328,7 @@ async function persistCandidate(
           bookId: book.id,
           fileId: rec.fileId,
           trackIndex: i,
-          title: candidate.files.length === 1 ? title : `Track ${i + 1}`,
+          title: audioRecords.length === 1 ? title : `Track ${i + 1}`,
           durationSeconds: trackDuration,
           startOffsetSeconds: cumulativeOffset,
         })
@@ -326,7 +345,7 @@ async function persistCandidate(
         .run();
     }
 
-    // Store chapters from first file
+    // Store chapters from first audio file
     if (embedded.chapters) {
       for (const chapter of embedded.chapters) {
         db.insert(schema.audioChapters)

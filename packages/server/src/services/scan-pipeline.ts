@@ -353,5 +353,42 @@ export function runPipeline(libraryPath: string): BookCandidate[] {
   // Pass 4: Group into book candidates
   const candidates = groupIntoCandidates(files, directoryHintsMap, filenameHintsMap, libraryPath);
 
-  return candidates;
+  // Pass 5: Cross-format merge (ebook + audiobook → single candidate)
+  const merged = mergeCrossFormat(candidates);
+
+  return merged;
+}
+
+/**
+ * Pass 5: Merge ebook and audiobook candidates that share the same normalized title.
+ * This combines e.g. an epub and an m4b of the same book into a single BookCandidate.
+ */
+function mergeCrossFormat(candidates: BookCandidate[]): BookCandidate[] {
+  const audioCandidates = candidates.filter(c => c.isAudiobook);
+  const ebookCandidates = candidates.filter(c => !c.isAudiobook);
+  const merged: BookCandidate[] = [];
+  const consumedEbooks = new Set<number>();
+
+  for (const audio of audioCandidates) {
+    const matchIdx = ebookCandidates.findIndex((eb, i) =>
+      !consumedEbooks.has(i) &&
+      normalizeForComparison(audio.resolvedTitle) === normalizeForComparison(eb.resolvedTitle),
+    );
+    if (matchIdx >= 0) {
+      consumedEbooks.add(matchIdx);
+      const ebook = ebookCandidates[matchIdx]!;
+      // Merge ebook files into the audio candidate
+      audio.files.push(...ebook.files);
+      // Prefer sidecar/embedded metadata from either source
+      if (!audio.sidecarMeta && ebook.sidecarMeta) audio.sidecarMeta = ebook.sidecarMeta;
+      if (!audio.resolvedAuthor && ebook.resolvedAuthor) audio.resolvedAuthor = ebook.resolvedAuthor;
+    }
+    merged.push(audio);
+  }
+
+  // Add remaining unmerged ebooks
+  for (let i = 0; i < ebookCandidates.length; i++) {
+    if (!consumedEbooks.has(i)) merged.push(ebookCandidates[i]!);
+  }
+  return merged;
 }

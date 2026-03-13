@@ -1,18 +1,26 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Search as SearchIcon, BookOpen, User, Layers, ArrowRight } from 'lucide-react';
+import { Search as SearchIcon, BookOpen, User, Layers, ArrowRight, Headphones } from 'lucide-react';
 import { Input } from '../components/ui/input';
 import { Card, CardContent } from '../components/ui/card';
 import { BookCard } from '../components/books/BookCard';
 import { api } from '../lib/api';
 import type { Book, Author, Series } from '@npc-shelf/shared';
 
+interface SearchBook extends Book {
+  formats?: string[];
+  authors?: { author: { name: string } }[];
+}
+
 interface SearchResults {
-  books: Book[];
+  books: SearchBook[];
   authors: Author[];
   series: Series[];
 }
+
+const AUDIO_FORMATS = new Set(['m4b', 'mp3']);
+const EBOOK_FORMATS = new Set(['epub', 'pdf', 'mobi', 'azw3']);
 
 export function SearchPage() {
   const [query, setQuery] = useState('');
@@ -40,6 +48,12 @@ export function SearchPage() {
   });
 
   const hasResults = data && (data.books.length > 0 || data.authors.length > 0 || data.series.length > 0);
+
+  // Split books by format
+  const audiobooks = data?.books.filter(b => b.formats?.some(f => AUDIO_FORMATS.has(f))) || [];
+  const ebooks = data?.books.filter(b => b.formats?.some(f => EBOOK_FORMATS.has(f)) && !b.formats?.some(f => AUDIO_FORMATS.has(f))) || [];
+  // Books with both formats already appear in audiobooks; show them only once
+  const hasMixedFormats = audiobooks.length > 0 && ebooks.length > 0;
 
   return (
     <div className="space-y-6">
@@ -73,8 +87,8 @@ export function SearchPage() {
 
       {data && !isLoading && (
         <div className="space-y-8">
-          {/* Books */}
-          {data.books.length > 0 && (
+          {/* Books — grouped by format if we have both types */}
+          {data.books.length > 0 && !hasMixedFormats && (
             <section>
               <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
                 <BookOpen className="h-5 w-5" />
@@ -83,6 +97,36 @@ export function SearchPage() {
               </h2>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {data.books.map((book) => (
+                  <BookCard key={book.id} book={book as any} view="grid" />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {hasMixedFormats && audiobooks.length > 0 && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+                <Headphones className="h-5 w-5" />
+                Audiobooks
+                <span className="text-sm font-normal text-muted-foreground">({audiobooks.length})</span>
+              </h2>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+                {audiobooks.map((book) => (
+                  <BookCard key={book.id} book={book as any} view="grid" />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {hasMixedFormats && ebooks.length > 0 && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+                <BookOpen className="h-5 w-5" />
+                Ebooks
+                <span className="text-sm font-normal text-muted-foreground">({ebooks.length})</span>
+              </h2>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+                {ebooks.map((book) => (
                   <BookCard key={book.id} book={book as any} view="grid" />
                 ))}
               </div>

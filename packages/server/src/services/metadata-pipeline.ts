@@ -82,11 +82,25 @@ export async function matchBook(
         )
       : 0;
 
-    const confidence = author
-      ? titleSim * 0.6 + authorSim * 0.4
-      : titleSim * 0.8;
+    const titleWeight = author ? 0.6 : 0.8;
+    const authorWeight = author ? 0.4 : 0;
+    const confidence = titleSim * titleWeight + authorSim * authorWeight;
 
-    return { ...result, confidence, provider: prov.name };
+    return {
+      ...result,
+      confidence,
+      provider: prov.name,
+      matchBreakdown: {
+        titleSimilarity: titleSim,
+        authorSimilarity: authorSim,
+        titleWeight,
+        authorWeight,
+        localTitle: title,
+        matchedTitle: result.title,
+        localAuthor: author || null,
+        matchedAuthor: result.authors[0] || null,
+      },
+    };
   });
 
   scored.sort((a, b) => b.confidence - a.confidence);
@@ -138,6 +152,7 @@ export async function enrichBook(bookId: number): Promise<void> {
     hardcoverId: match.externalId,
     hardcoverSlug: slug || null,
     matchConfidence: match.confidence,
+    matchBreakdown: (match as any).matchBreakdown ? JSON.stringify((match as any).matchBreakdown) : null,
     updatedAt: new Date().toISOString(),
   };
 
@@ -176,6 +191,19 @@ export async function enrichBook(bookId: number): Promise<void> {
           .values({ bookId, seriesId: seriesRow.id, position: s.position })
           .onConflictDoNothing()
           .run();
+
+        // Fetch series-level metadata (description) if not already set
+        if (!seriesRow.description && s.seriesId) {
+          try {
+            const seriesDetails = await provider.getSeriesDetails(s.seriesId);
+            if (seriesDetails?.description) {
+              db.update(schema.series)
+                .set({ description: seriesDetails.description })
+                .where(eq(schema.series.id, seriesRow.id))
+                .run();
+            }
+          } catch { /* ignore series detail fetch errors */ }
+        }
       }
     } else if (match.series) {
       let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, match.series)).get();

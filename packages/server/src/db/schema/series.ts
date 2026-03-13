@@ -5,6 +5,7 @@ export const series = sqliteTable('series', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
   hardcoverId: text('hardcover_id'),
+  description: text('description'),
 });
 
 export const bookSeries = sqliteTable(

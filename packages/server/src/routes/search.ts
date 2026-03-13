@@ -49,7 +49,7 @@ searchRouter.get('/', (req, res) => {
 
     // Merge FTS and author-based book IDs, deduplicate
     const bookIds = [...new Set([...ftsBookIds, ...authorBookIds])];
-    const books =
+    const rawBooks =
       bookIds.length > 0
         ? db
             .select()
@@ -57,6 +57,24 @@ searchRouter.get('/', (req, res) => {
             .where(sql`${schema.books.id} IN (${sql.join(bookIds.map(id => sql`${id}`), sql`, `)})`)
             .all()
         : [];
+
+    // Enrich books with formats and authors for display
+    const books = rawBooks.map(book => {
+      const formats = db.selectDistinct({ format: schema.files.format })
+        .from(schema.files).where(eq(schema.files.bookId, book.id)).all()
+        .map(f => f.format);
+      const authorRows = db
+        .select({ name: schema.authors.name })
+        .from(schema.bookAuthors)
+        .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+        .where(eq(schema.bookAuthors.bookId, book.id))
+        .all();
+      return {
+        ...book,
+        formats,
+        authors: authorRows.map(a => ({ author: { name: a.name } })),
+      };
+    });
 
     // Search authors by name
     const authors = db

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Grid3X3, List, Search, SlidersHorizontal, X, BookOpen } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -6,10 +5,12 @@ import { Input } from '../components/ui/input';
 import { Select } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent } from '../components/ui/card';
+import { Combobox } from '../components/ui/combobox';
 import { BookCard } from '../components/books/BookCard';
 import { api } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 import type { PaginatedResponse, Book } from '@npc-shelf/shared';
+import { useState } from 'react';
 
 interface FilterOptions {
   authors: { id: number; name: string }[];
@@ -18,17 +19,24 @@ interface FilterOptions {
 }
 
 export function LibraryPage() {
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [sortBy, setSortBy] = useState('title');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [format, setFormat] = useState('');
-  const [authorId, setAuthorId] = useState('');
-  const [seriesId, setSeriesId] = useState('');
+  const {
+    librarySearch: search,
+    libraryPage: page,
+    librarySortBy: sortBy,
+    librarySortOrder: sortOrder,
+    libraryFormat: format,
+    libraryAuthorId: authorId,
+    librarySeriesId: seriesId,
+    libraryView,
+    setLibraryFilters,
+    clearLibraryFilters,
+    setLibraryView,
+  } = useUiStore();
+
   const [showFilters, setShowFilters] = useState(false);
-  const { libraryView, setLibraryView } = useUiStore();
 
   const activeFilterCount = [format, authorId, seriesId].filter(Boolean).length;
+  const hasAnyFilter = !!search || activeFilterCount > 0;
 
   const { data: filters } = useQuery({
     queryKey: ['book-filters'],
@@ -49,13 +57,6 @@ export function LibraryPage() {
     queryKey: ['books', { page, sortBy, sortOrder, q: search, format, authorId, seriesId }],
     queryFn: () => api.get<PaginatedResponse<Book>>(`/books?${queryParams.toString()}`),
   });
-
-  const clearFilters = () => {
-    setFormat('');
-    setAuthorId('');
-    setSeriesId('');
-    setPage(1);
-  };
 
   return (
     <div className="space-y-4">
@@ -95,15 +96,14 @@ export function LibraryPage() {
             placeholder="Search books..."
             value={search}
             onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
+              setLibraryFilters({ librarySearch: e.target.value, libraryPage: 1 });
             }}
             className="pl-9"
           />
         </div>
         <Select
           value={sortBy}
-          onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
+          onChange={(e) => { setLibraryFilters({ librarySortBy: e.target.value, libraryPage: 1 }); }}
         >
           <option value="title">Title</option>
           <option value="createdAt">Date Added</option>
@@ -112,7 +112,7 @@ export function LibraryPage() {
         <Button
           variant="outline"
           size="icon"
-          onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+          onClick={() => setLibraryFilters({ librarySortOrder: sortOrder === 'asc' ? 'desc' : 'asc' })}
           title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
         >
           {sortOrder === 'asc' ? '↑' : '↓'}
@@ -130,6 +130,12 @@ export function LibraryPage() {
             </Badge>
           )}
         </Button>
+        {hasAnyFilter && (
+          <Button variant="ghost" size="sm" onClick={clearLibraryFilters} className="text-muted-foreground">
+            <X className="h-3 w-3" />
+            Clear all
+          </Button>
+        )}
       </div>
 
       {/* Filter panel */}
@@ -139,7 +145,7 @@ export function LibraryPage() {
             {filters?.formats && filters.formats.length > 0 && (
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Format</label>
-                <Select value={format} onChange={(e) => { setFormat(e.target.value); setPage(1); }}>
+                <Select value={format} onChange={(e) => { setLibraryFilters({ libraryFormat: e.target.value, libraryPage: 1 }); }}>
                   <option value="">All formats</option>
                   {filters.formats.map((f) => (
                     <option key={f} value={f}>{f.toUpperCase()}</option>
@@ -150,28 +156,30 @@ export function LibraryPage() {
             {filters?.authors && filters.authors.length > 0 && (
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Author</label>
-                <Select value={authorId} onChange={(e) => { setAuthorId(e.target.value); setPage(1); }}>
-                  <option value="">All authors</option>
-                  {filters.authors.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </Select>
+                <Combobox
+                  options={filters.authors.map(a => ({ value: String(a.id), label: a.name }))}
+                  value={authorId}
+                  onChange={(v) => setLibraryFilters({ libraryAuthorId: v, libraryPage: 1 })}
+                  placeholder="All authors"
+                />
               </div>
             )}
             {filters?.series && filters.series.length > 0 && (
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Series</label>
-                <Select value={seriesId} onChange={(e) => { setSeriesId(e.target.value); setPage(1); }}>
-                  <option value="">All series</option>
-                  {filters.series.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </Select>
+                <Combobox
+                  options={filters.series.map(s => ({ value: String(s.id), label: s.name }))}
+                  value={seriesId}
+                  onChange={(v) => setLibraryFilters({ librarySeriesId: v, libraryPage: 1 })}
+                  placeholder="All series"
+                />
               </div>
             )}
             {activeFilterCount > 0 && (
               <div className="flex items-end">
-                <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  setLibraryFilters({ libraryFormat: '', libraryAuthorId: '', librarySeriesId: '', libraryPage: 1 });
+                }}>
                   <X className="h-3 w-3" />
                   Clear
                 </Button>
@@ -215,7 +223,7 @@ export function LibraryPage() {
                 variant="outline"
                 size="sm"
                 disabled={page <= 1}
-                onClick={() => setPage(page - 1)}
+                onClick={() => setLibraryFilters({ libraryPage: page - 1 })}
               >
                 Previous
               </Button>
@@ -229,7 +237,7 @@ export function LibraryPage() {
                       variant={p === page ? 'default' : 'outline'}
                       size="sm"
                       className="w-9"
-                      onClick={() => setPage(p as number)}
+                      onClick={() => setLibraryFilters({ libraryPage: p as number })}
                     >
                       {p}
                     </Button>
@@ -240,7 +248,7 @@ export function LibraryPage() {
                 variant="outline"
                 size="sm"
                 disabled={page >= data.totalPages}
-                onClick={() => setPage(page + 1)}
+                onClick={() => setLibraryFilters({ libraryPage: page + 1 })}
               >
                 Next
               </Button>

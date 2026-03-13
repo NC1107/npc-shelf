@@ -7,6 +7,7 @@ interface SeriesWithCount {
   id: number;
   name: string;
   hardcoverId: string | null;
+  description: string | null;
   bookCount: number;
 }
 
@@ -35,14 +36,17 @@ export function SeriesPage() {
               params={{ seriesId: String(series.id) }}
               className="group rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50"
             >
-              <div className="flex items-center gap-3">
-                <Layers className="h-8 w-8 text-primary/70" />
-                <div>
+              <div className="flex items-start gap-3">
+                <Layers className="h-8 w-8 shrink-0 text-primary/70 mt-0.5" />
+                <div className="min-w-0">
                   <h3 className="font-semibold group-hover:text-primary transition-colors">{series.name}</h3>
                   <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                     <BookOpen className="h-3.5 w-3.5" />
                     {series.bookCount} {series.bookCount === 1 ? 'book' : 'books'}
                   </div>
+                  {series.description && (
+                    <p className="mt-2 text-xs text-muted-foreground line-clamp-2">{series.description}</p>
+                  )}
                 </div>
               </div>
             </Link>

@@ -5,14 +5,16 @@ import {
   BookOpen, ArrowLeft, Download, Send, Play, Edit, Check, X,
   Headphones, Calendar, Globe, Hash, Building2, FileText,
   Sparkles, Loader2, Mic, ExternalLink, Music, Trash2, Merge,
-  ChevronDown, ShieldCheck,
+  ChevronDown, ShieldCheck, Wrench,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
 import { Separator } from '../components/ui/separator';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/tooltip';
+import { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem } from '../components/ui/dropdown-menu';
 import { api } from '../lib/api';
-import type { BookDetail } from '@npc-shelf/shared';
+import type { BookDetail, MatchBreakdown } from '@npc-shelf/shared';
 
 const FORMAT_COLORS: Record<string, string> = {
   epub: 'bg-blue-600 text-white border-blue-700',
@@ -121,10 +123,46 @@ export function BookDetailPage() {
     );
   }
 
-  const hasEbook = book.files?.some((f) => ['epub', 'pdf'].includes(f.format));
-  const hasAudio = book.files?.some((f) => ['m4b', 'mp3'].includes(f.format));
+  const hasEbook = book.hasEbook ?? book.files?.some((f) => ['epub', 'pdf'].includes(f.format));
+  const hasAudio = book.hasAudio ?? book.files?.some((f) => ['m4b', 'mp3'].includes(f.format));
+  const hasBothFormats = hasEbook && hasAudio;
   const readingProgress = book.readingProgress;
   const audioProgress = book.audioProgress;
+
+  return (
+    <BookDetailContent
+      book={book}
+      bookId={bookId}
+      hasEbook={!!hasEbook}
+      hasAudio={!!hasAudio}
+      hasBothFormats={!!hasBothFormats}
+      readingProgress={readingProgress}
+      audioProgress={audioProgress}
+      isEditing={isEditing}
+      editData={editData}
+      setEditData={setEditData}
+      showFiles={showFiles}
+      setShowFiles={setShowFiles}
+      navigate={navigate}
+      startEditing={startEditing}
+      cancelEditing={cancelEditing}
+      saveEdit={saveEdit}
+      sendToKindle={sendToKindle}
+      matchMetadata={matchMetadata}
+      deleteBook={deleteBook}
+      mergeAudiobook={mergeAudiobook}
+    />
+  );
+}
+
+function BookDetailContent({
+  book, bookId, hasEbook, hasAudio, hasBothFormats,
+  readingProgress, audioProgress,
+  isEditing, editData, setEditData, showFiles, setShowFiles,
+  navigate, startEditing, cancelEditing, saveEdit,
+  sendToKindle, matchMetadata, deleteBook, mergeAudiobook,
+}: any) {
+  const [activeFormat, setActiveFormat] = useState<'ebook' | 'audiobook'>(hasAudio ? 'audiobook' : 'ebook');
 
   return (
     <div className="space-y-6">
@@ -142,7 +180,7 @@ export function BookDetailPage() {
           <div className="h-80 w-52 overflow-hidden rounded-lg bg-muted flex items-center justify-center shadow-lg">
             {book.coverPath ? (
               <img
-                src={`/api/books/${book.id}/cover/medium`}
+                src={`/api/books/${book.id}/cover/medium?v=${book.updatedAt}`}
                 alt={book.title}
                 className="h-full w-full object-cover"
               />
@@ -153,10 +191,10 @@ export function BookDetailPage() {
             )}
           </div>
 
-          {/* File formats — summarize when many files */}
+          {/* File formats */}
           {book.files && book.files.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {summarizeFiles(book.files).map((s) => (
+              {summarizeFiles(book.files).map((s: any) => (
                 <Badge
                   key={s.label}
                   variant="outline"
@@ -203,7 +241,7 @@ export function BookDetailPage() {
           {book.authors && book.authors.length > 0 && (
             <p className="text-lg text-muted-foreground">
               by{' '}
-              {book.authors.map((a, i) => (
+              {book.authors.map((a: any, i: number) => (
                 <span key={a.author.id || i}>
                   {i > 0 && ', '}
                   <span className="font-medium text-foreground">{a.author.name}</span>
@@ -217,7 +255,7 @@ export function BookDetailPage() {
 
           {book.series && book.series.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {book.series.map((s) => (
+              {book.series.map((s: any) => (
                 <Badge key={s.series.id || s.series.name} variant="secondary">
                   {s.series.name}
                   {s.position && <span className="ml-1 opacity-70">#{s.position}</span>}
@@ -226,8 +264,34 @@ export function BookDetailPage() {
             </div>
           )}
 
+          {/* Format tab toggle (when both ebook + audio exist) */}
+          {hasBothFormats && (
+            <div className="flex rounded-lg border p-0.5 gap-0.5 w-fit">
+              <button
+                onClick={() => setActiveFormat('ebook')}
+                className={`px-3 py-1 rounded text-sm transition-colors ${
+                  activeFormat === 'ebook'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                <BookOpen className="h-3.5 w-3.5 inline mr-1" /> Ebook
+              </button>
+              <button
+                onClick={() => setActiveFormat('audiobook')}
+                className={`px-3 py-1 rounded text-sm transition-colors ${
+                  activeFormat === 'audiobook'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                <Headphones className="h-3.5 w-3.5 inline mr-1" /> Audiobook
+              </button>
+            </div>
+          )}
+
           {/* Progress */}
-          {readingProgress && readingProgress.progressPercent > 0 && (
+          {(!hasBothFormats || activeFormat === 'ebook') && readingProgress && readingProgress.progressPercent > 0 && (
             <div className="space-y-1">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Reading progress</span>
@@ -237,7 +301,7 @@ export function BookDetailPage() {
             </div>
           )}
 
-          {audioProgress && audioProgress.totalElapsedSeconds > 0 ? (
+          {(!hasBothFormats || activeFormat === 'audiobook') && audioProgress && audioProgress.totalElapsedSeconds > 0 ? (
             <div className="space-y-1">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Listening progress</span>
@@ -251,7 +315,7 @@ export function BookDetailPage() {
                   : 0}
               />
             </div>
-          ) : book.audioTotalDuration > 0 ? (
+          ) : (!hasBothFormats || activeFormat === 'audiobook') && book.audioTotalDuration > 0 ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Headphones className="h-4 w-4" />
               <span>Total: {formatDuration(book.audioTotalDuration)}</span>
@@ -260,7 +324,7 @@ export function BookDetailPage() {
 
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2">
-            {hasEbook && (
+            {hasEbook && (!hasBothFormats || activeFormat === 'ebook') && (
               <Button
                 size="lg"
                 onClick={() => navigate({ to: '/library/$bookId/read', params: { bookId } })}
@@ -269,7 +333,7 @@ export function BookDetailPage() {
                 Read
               </Button>
             )}
-            {hasAudio && (
+            {hasAudio && (!hasBothFormats || activeFormat === 'audiobook') && (
               <Button
                 size="lg"
                 variant="secondary"
@@ -332,19 +396,30 @@ export function BookDetailPage() {
                 Edit
               </Button>
             )}
+            {/* Tools dropdown */}
             {hasAudio && book.audioTrackCount > 1 && (
-              <Button
-                variant="outline"
-                onClick={() => mergeAudiobook.mutate()}
-                disabled={mergeAudiobook.isPending}
-              >
-                {mergeAudiobook.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Merge className="h-4 w-4" />
-                )}
-                {mergeAudiobook.isSuccess ? 'Queued!' : mergeAudiobook.isError ? 'Failed' : 'Merge Tracks'}
-              </Button>
+              <DropdownMenu>
+                <DropdownTrigger>
+                  <Button variant="outline">
+                    <Wrench className="h-4 w-4" />
+                    Tools
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </DropdownTrigger>
+                <DropdownContent>
+                  <DropdownItem
+                    onClick={() => mergeAudiobook.mutate()}
+                    disabled={mergeAudiobook.isPending}
+                  >
+                    {mergeAudiobook.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Merge className="h-4 w-4" />
+                    )}
+                    {mergeAudiobook.isSuccess ? 'Queued!' : 'Merge Audio Tracks'}
+                  </DropdownItem>
+                </DropdownContent>
+              </DropdownMenu>
             )}
             <Button
               variant="destructive"
@@ -432,11 +507,11 @@ export function BookDetailPage() {
                 {book.audioTotalDuration > 0 && (
                   <DetailItem icon={Headphones} label="Duration" value={formatDuration(book.audioTotalDuration)} />
                 )}
-                {book.authors?.filter(a => a.role === 'narrator').length > 0 && (
+                {book.authors?.filter((a: any) => a.role === 'narrator').length > 0 && (
                   <DetailItem
                     icon={Mic}
                     label="Narrator"
-                    value={book.authors.filter(a => a.role === 'narrator').map(a => a.author.name).join(', ')}
+                    value={book.authors.filter((a: any) => a.role === 'narrator').map((a: any) => a.author.name).join(', ')}
                   />
                 )}
                 {book.audioTrackCount > 1 && (
@@ -446,19 +521,28 @@ export function BookDetailPage() {
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="text-muted-foreground">Match:</span>
-                    <Badge
-                      variant="outline"
-                      className={
-                        book.matchConfidence >= 0.8
-                          ? 'border-green-500 text-green-700 dark:text-green-400'
-                          : book.matchConfidence >= 0.5
-                            ? 'border-yellow-500 text-yellow-700 dark:text-yellow-400'
-                            : 'border-red-500 text-red-700 dark:text-red-400'
-                      }
-                    >
-                      {book.matchConfidence >= 0.8 ? 'High' : book.matchConfidence >= 0.5 ? 'Medium' : 'Low'}
-                      {' '}({Math.round(book.matchConfidence * 100)}%)
-                    </Badge>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className={`cursor-help ${
+                              book.matchConfidence >= 0.8
+                                ? 'border-green-500 text-green-700 dark:text-green-400'
+                                : book.matchConfidence >= 0.5
+                                  ? 'border-yellow-500 text-yellow-700 dark:text-yellow-400'
+                                  : 'border-red-500 text-red-700 dark:text-red-400'
+                            }`}
+                          >
+                            {book.matchConfidence >= 0.8 ? 'High' : book.matchConfidence >= 0.5 ? 'Medium' : 'Low'}
+                            {' '}({Math.round(book.matchConfidence * 100)}%)
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs">
+                          <MatchBreakdownTooltip breakdown={book.matchBreakdown} confidence={book.matchConfidence} />
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 )}
                 {(book.hardcoverSlug || book.hardcoverId) && (
@@ -488,7 +572,7 @@ export function BookDetailPage() {
                   Tags
                 </h2>
                 <div className="flex flex-wrap gap-1.5">
-                  {book.tags.map((tag) => (
+                  {book.tags.map((tag: any) => (
                     <Badge key={tag.id} variant="secondary">
                       {tag.name}
                     </Badge>
@@ -514,7 +598,7 @@ export function BookDetailPage() {
                 </button>
                 {showFiles && (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {book.files.map((file) => (
+                    {book.files.map((file: any) => (
                       <div key={file.id} className="rounded border bg-muted/50 p-2 text-xs space-y-1">
                         <div className="flex items-center gap-2">
                           <Badge variant="outline" className={FORMAT_COLORS[file.format]}>
@@ -532,6 +616,41 @@ export function BookDetailPage() {
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MatchBreakdownTooltip({ breakdown, confidence }: { breakdown: MatchBreakdown | null; confidence: number }) {
+  if (!breakdown) {
+    return <span>Match confidence: {Math.round(confidence * 100)}%</span>;
+  }
+
+  const titleContrib = breakdown.titleSimilarity * breakdown.titleWeight;
+  const authorContrib = breakdown.authorSimilarity * breakdown.authorWeight;
+
+  return (
+    <div className="space-y-1.5 text-xs">
+      <div className="font-semibold">Match Breakdown</div>
+      <div>
+        Title: {Math.round(breakdown.titleSimilarity * 100)}%
+        {breakdown.titleWeight > 0 && (
+          <span className="opacity-70"> ({'\u00D7'}{breakdown.titleWeight} = {Math.round(titleContrib * 100)}%)</span>
+        )}
+      </div>
+      {breakdown.authorWeight > 0 && (
+        <div>
+          Author: {Math.round(breakdown.authorSimilarity * 100)}%
+          <span className="opacity-70"> ({'\u00D7'}{breakdown.authorWeight} = {Math.round(authorContrib * 100)}%)</span>
+        </div>
+      )}
+      <div className="font-semibold">Total: {Math.round(confidence * 100)}%</div>
+      <Separator />
+      <div className="opacity-70">
+        <div>Local: "{breakdown.localTitle}"</div>
+        <div>Matched: "{breakdown.matchedTitle}"</div>
+        {breakdown.localAuthor && <div>Local author: "{breakdown.localAuthor}"</div>}
+        {breakdown.matchedAuthor && <div>Matched author: "{breakdown.matchedAuthor}"</div>}
       </div>
     </div>
   );
@@ -571,7 +690,7 @@ function summarizeFiles(files: { id: number; format: string; sizeBytes: number }
 
   return Array.from(groups.entries()).map(([format, { count, totalSize }]) => ({
     format,
-    label: count > 1 ? `${format.toUpperCase()} ×${count}` : format.toUpperCase(),
+    label: count > 1 ? `${format.toUpperCase()} \u00D7${count}` : format.toUpperCase(),
     detail: formatBytes(totalSize),
   }));
 }

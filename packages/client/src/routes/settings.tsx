@@ -178,7 +178,7 @@ export function SettingsPage() {
   // Check if Hardcover token is already configured
   const { data: settings } = useQuery({
     queryKey: ['app-settings'],
-    queryFn: () => api.get<{ hardcoverApiToken?: string }>('/settings'),
+    queryFn: () => api.get<{ hardcoverApiToken?: string; metadataAutoMatch?: boolean }>('/settings'),
   });
 
   const hasToken = !!settings?.hardcoverApiToken;
@@ -464,6 +464,27 @@ export function SettingsPage() {
                 <Sparkles className="h-4 w-4" />
                 Match All Books
               </Button>
+            </div>
+
+            <Separator />
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Auto-match metadata on scan</p>
+                <p className="text-xs text-muted-foreground">Automatically search for metadata when new books are found during a scan</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings?.metadataAutoMatch !== false}
+                  onChange={(e) => {
+                    api.put('/settings', { metadataAutoMatch: e.target.checked ? 'true' : 'false' })
+                      .then(() => queryClient.invalidateQueries({ queryKey: ['app-settings'] }));
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-muted rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-background after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
+              </label>
             </div>
             {tokenSaved && (
               <p className="text-sm text-green-600">Token saved.</p>

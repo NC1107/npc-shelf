@@ -60,13 +60,19 @@ booksRouter.get('/', (req, res) => {
 
     let bookIds: number[] | undefined;
 
-    // FTS5 search
+    // FTS5 search — transform multi-word queries for proper FTS5 syntax
     if (q) {
-      const ftsResults = db
-        .all<{ rowid: number }>(
-          sql`SELECT rowid FROM books_fts WHERE books_fts MATCH ${q + '*'} ORDER BY rank LIMIT 1000`,
-        );
-      bookIds = ftsResults.map((r) => r.rowid);
+      try {
+        const ftsQuery = q.trim().split(/\s+/).map(word => `"${word}"*`).join(' ');
+        const ftsResults = db
+          .all<{ rowid: number }>(
+            sql`SELECT rowid FROM books_fts WHERE books_fts MATCH ${ftsQuery} ORDER BY rank LIMIT 1000`,
+          );
+        bookIds = ftsResults.map((r) => r.rowid);
+      } catch (ftsErr) {
+        console.warn('[Books] FTS5 query failed:', ftsErr);
+        bookIds = [];
+      }
       if (bookIds.length === 0) {
         res.json({ items: [], total: 0, page, pageSize, totalPages: 0 });
         return;
@@ -283,6 +289,16 @@ booksRouter.get('/:id', (req, res) => {
       .where(eq(schema.audioTracks.bookId, bookId))
       .get()!.count;
 
+    // Determine format flags
+    const hasEbook = files.some((f: any) => ['epub', 'pdf', 'mobi', 'azw3'].includes(f.format));
+    const hasAudio = files.some((f: any) => ['m4b', 'mp3'].includes(f.format));
+
+    // Parse match breakdown JSON
+    let matchBreakdown = null;
+    if (book.matchBreakdown) {
+      try { matchBreakdown = JSON.parse(book.matchBreakdown as string); } catch { /* ignore */ }
+    }
+
     res.json({
       ...book,
       authors,
@@ -293,6 +309,9 @@ booksRouter.get('/:id', (req, res) => {
       audioProgress,
       audioTotalDuration,
       audioTrackCount,
+      hasEbook,
+      hasAudio,
+      matchBreakdown,
     });
   } catch (error) {
     console.error('[Books] Detail error:', error);
