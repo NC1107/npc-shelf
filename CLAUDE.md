@@ -37,14 +37,15 @@ npm run db:generate         # drizzle-kit generate (snapshot schema → migratio
 TypeScript types and constants consumed by both server and client. All Book, Author, Library, Job, etc. interfaces live here, along with format lists, auth config, and size constants. Changes require rebuilding shared first.
 
 ### Server (`@npc-shelf/server`)
-Express.js on Node 20 with SQLite (better-sqlite3) and Drizzle ORM.
+Express.js on Node 22 with SQLite (better-sqlite3) and Drizzle ORM.
 
 - **Database**: Schema defined in `src/db/schema/` (11 files). Tables are created via raw SQL in `src/db/index.ts:initializeDatabase()` using `CREATE TABLE IF NOT EXISTS`. Drizzle ORM is used for all query operations in routes. Drizzle migrations are set up but the initial migration hasn't been generated yet — the raw SQL handles the baseline.
 - **Auth**: Single-user MVP. Password-only login (`POST /api/auth/login`). JWT access token (15min) + refresh token (7d, HttpOnly cookie). `authMiddleware` checks Bearer token.
 - **Cover images are served publicly** — the `GET /api/books/:id/cover/:size` route is registered BEFORE authMiddleware in `index.ts` because `<img>` tags cannot send Bearer tokens. All other `/api/books/*` routes are protected.
-- **Job queue**: SQLite-backed, polled every 5s by `startJobProcessor()`. Job handlers registered in `index.ts` for: `scan_library`, `match_metadata`, `match_all_metadata`, `backfill_covers`. Max 3 attempts with automatic retry.
+- **Job queue**: SQLite-backed, polled every 5s by `startJobProcessor()`. Job handlers registered in `index.ts` for: `scan_library`, `match_metadata`, `match_all_metadata`, `backfill_covers`, `merge_audiobook`. Max 3 attempts with automatic retry.
 - **Scanner** (`services/scanner.ts`): Walks library directories, hashes files (SHA-256, partial hash for large audio), extracts metadata from EPUB/MP3/M4B, creates book/file/author records, generates cover WebP resizes via sharp.
-- **Metadata pipeline** (`services/metadata-pipeline.ts`): Queries Hardcover GraphQL API to enrich books with descriptions, covers, series info. Confidence scoring for match quality.
+- **Metadata pipeline** (`services/metadata-pipeline.ts`): Queries Hardcover GraphQL API to enrich books with descriptions, covers, series info. Confidence scoring with bigram similarity + length penalty. Minimum threshold 0.5, title gate 0.4.
+- **Hardcover provider** (`providers/hardcover.ts`): GraphQL client with token bucket rate limiter (60/min) and `requestWithRetry()` for 429/5xx backoff. ISBN data comes from Typesense search only (not `books_by_pk`).
 - **Cover pipeline** (`services/cover.ts`): `extractAndCacheCover()` saves original + generates `{id}_thumb.webp`, `{id}_medium.webp`, `{id}_full.webp` via sharp. `cover-backfill.ts` regenerates missing WebP variants on startup.
 - **FTS5**: `books_fts` virtual table kept in sync via SQLite triggers on the books table.
 
@@ -59,7 +60,7 @@ React 19 + Vite 6 + TanStack Router + TanStack Query + Zustand + Tailwind v4 + s
 - **shadcn/ui components** in `src/components/ui/` — use these patterns when adding new UI.
 
 ### Docker
-Multi-stage build in `docker/Dockerfile` (shared → client → server → production). Production image is node:20-alpine with tini + ffmpeg. Volumes: `/data` (SQLite), `/cache` (covers), `/config`. Port 3000 in Docker (vs 3001 in dev).
+Multi-stage build in `docker/Dockerfile` (shared → client → server → production). Production image is node:22-alpine with tini + ffmpeg. Volumes: `/data` (SQLite), `/cache` (covers), `/config`. Port 3000 in Docker (vs 3001 in dev).
 
 ## Key Patterns
 
@@ -70,6 +71,10 @@ Multi-stage build in `docker/Dockerfile` (shared → client → server → produ
 - Cover URLs in the client: `/api/books/${id}/cover/thumb` (grid) or `/cover/medium` (detail)
 - Client conditionally renders `<img>` only when `book.coverPath` is truthy, with fallback icons
 - The `@npc-shelf/shared` constants (`COVER_SIZES`, `AUTH`, `JOB_QUEUE`, `METADATA`) are the source of truth for magic numbers
+- Settings values are stored as strings in the DB — client must compare with `'false'`/`'true'`, not booleans
+- Books list endpoint filters out ghost books (no files) by default
+- Cover processing validates image format via `sharp().metadata()` before saving
+- ffmpeg availability is checked at startup and before audio merge jobs
 
 ## Environment Variables
 
