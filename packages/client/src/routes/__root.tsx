@@ -10,6 +10,7 @@ import { SearchPage } from './search';
 import { SettingsPage } from './settings';
 import { SetupPage } from './setup';
 import { ReadPage } from './library.$bookId.read';
+import { ListenPage } from './library.$bookId.listen';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -88,7 +89,7 @@ const readRoute = createRoute({
 const listenRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/library/$bookId/listen',
-  component: () => <div className="text-foreground"><h1 className="text-2xl font-bold">Audio Player</h1><p className="text-muted-foreground mt-2">Coming in Phase 6...</p></div>,
+  component: ListenPage,
 });
 
 export const routeTree = rootRoute.addChildren([

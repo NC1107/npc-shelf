@@ -69,6 +69,22 @@ audioRouter.get('/:id/stream/:trackIndex', (req, res) => {
   }
 });
 
+// Get tracks for a book
+audioRouter.get('/:id/tracks', (req, res) => {
+  try {
+    const bookId = parseInt(req.params.id);
+    const tracks = db
+      .select()
+      .from(schema.audioTracks)
+      .where(eq(schema.audioTracks.bookId, bookId))
+      .all();
+    res.json(tracks);
+  } catch (error) {
+    console.error('[Audio] Tracks error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get chapters
 audioRouter.get('/:id/chapters', (req, res) => {
   try {

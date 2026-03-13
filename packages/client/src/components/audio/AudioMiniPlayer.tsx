@@ -1,9 +1,11 @@
-import { Play, Pause, SkipForward, SkipBack, X } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, X, Maximize2 } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import { Button } from '../ui/button';
 import { useAudioStore } from '../../stores/audioStore';
 import { AudioEngine } from '../../lib/AudioEngine';
 
 function formatTime(seconds: number): string {
+  if (!seconds || !isFinite(seconds)) return '0:00';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
@@ -12,7 +14,7 @@ function formatTime(seconds: number): string {
 }
 
 export function AudioMiniPlayer() {
-  const { bookTitle, bookAuthor, positionSeconds, totalDurationSeconds, isPlaying, setPlaying, stop } =
+  const { bookId, bookTitle, bookAuthor, coverUrl, positionSeconds, totalDurationSeconds, isPlaying, setPlaying, stop } =
     useAudioStore();
 
   const togglePlay = () => {
@@ -25,6 +27,12 @@ export function AudioMiniPlayer() {
     }
   };
 
+  const handleStop = () => {
+    AudioEngine.pause();
+    AudioEngine.seek(0);
+    stop();
+  };
+
   const progress = totalDurationSeconds > 0 ? (positionSeconds / totalDurationSeconds) * 100 : 0;
 
   return (
@@ -35,6 +43,13 @@ export function AudioMiniPlayer() {
       </div>
 
       <div className="flex items-center gap-3 px-4 py-2">
+        {/* Cover thumbnail */}
+        {coverUrl && (
+          <div className="hidden h-10 w-10 shrink-0 overflow-hidden rounded sm:block">
+            <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+          </div>
+        )}
+
         {/* Book info */}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{bookTitle}</p>
@@ -48,17 +63,24 @@ export function AudioMiniPlayer() {
 
         {/* Controls */}
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={() => AudioEngine.seek(Math.max(0, AudioEngine.currentTime - 30))}>
-            <SkipBack className="h-4 w-4" />
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => AudioEngine.seek(Math.max(0, AudioEngine.currentTime - 30))}>
+            <SkipBack className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={togglePlay}>
-            {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={togglePlay}>
+            {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => AudioEngine.seek(AudioEngine.currentTime + 30)}>
-            <SkipForward className="h-4 w-4" />
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => AudioEngine.seek(AudioEngine.currentTime + 30)}>
+            <SkipForward className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={stop}>
-            <X className="h-4 w-4" />
+          {bookId && (
+            <Link to="/library/$bookId/listen" params={{ bookId: String(bookId) }}>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <Maximize2 className="h-3.5 w-3.5" />
+              </Button>
+            </Link>
+          )}
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleStop}>
+            <X className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
