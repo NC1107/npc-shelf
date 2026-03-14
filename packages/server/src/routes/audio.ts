@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { eq, sql } from 'drizzle-orm';
-import { db, schema } from '../db/index.js';
-import { enqueueJob } from '../services/job-queue.js';
+import { db, schema, sqlite } from '../db/index.js';
+import { enqueueJob, hasActiveJob } from '../services/job-queue.js';
 import { isFfmpegAvailable } from '../services/audio-merge.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -103,6 +103,47 @@ audioRouter.get('/:id/chapters', (req, res) => {
   }
 });
 
+// Update chapters
+audioRouter.put('/:id/chapters', (req, res) => {
+  try {
+    const bookId = parseInt(req.params.id);
+    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+
+    const { chapters } = req.body as {
+      chapters?: { title: string; startTime: number; endTime: number; trackIndex: number }[];
+    };
+    if (!Array.isArray(chapters)) {
+      res.status(400).json({ error: 'chapters array is required' });
+      return;
+    }
+
+    const updateTx = sqlite.transaction(() => {
+      // Delete existing chapters for this book
+      db.delete(schema.audioChapters).where(eq(schema.audioChapters.bookId, bookId)).run();
+
+      // Insert new chapters
+      for (const ch of chapters) {
+        db.insert(schema.audioChapters).values({
+          bookId,
+          title: ch.title,
+          startTime: ch.startTime,
+          endTime: ch.endTime,
+          trackIndex: ch.trackIndex,
+        }).run();
+      }
+    });
+
+    updateTx();
+
+    const updated = db.select().from(schema.audioChapters)
+      .where(eq(schema.audioChapters.bookId, bookId)).all();
+    res.json(updated);
+  } catch (error) {
+    console.error('[Audio] Update chapters error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get progress
 audioRouter.get('/:id/progress', (req, res) => {
   try {
@@ -198,6 +239,12 @@ audioRouter.post('/:id/merge', (req, res) => {
     // Check ffmpeg availability
     if (!isFfmpegAvailable()) {
       res.status(400).json({ error: 'ffmpeg is not available on this system. Install ffmpeg to use the merge feature.' });
+      return;
+    }
+
+    // Check for existing merge job
+    if (hasActiveJob('merge_audiobook', bookId)) {
+      res.status(409).json({ error: 'A merge job is already queued or in progress for this book' });
       return;
     }
 

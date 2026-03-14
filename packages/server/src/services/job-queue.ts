@@ -24,7 +24,67 @@ export function enqueueJob(
     .run();
 }
 
+/**
+ * Check if an active (pending or processing) job exists for a given type and bookId.
+ * Uses json_extract to match bookId in the payload JSON.
+ */
+export function hasActiveJob(jobType: string, bookId: number): boolean {
+  const job = db
+    .select({ id: schema.jobQueue.id })
+    .from(schema.jobQueue)
+    .where(
+      sql`${schema.jobQueue.jobType} = ${jobType}
+        AND ${schema.jobQueue.status} IN ('pending', 'processing')
+        AND json_extract(${schema.jobQueue.payload}, '$.bookId') = ${bookId}`,
+    )
+    .limit(1)
+    .get();
+  return !!job;
+}
+
+/**
+ * Recover jobs left in 'processing' state from a previous server run.
+ * Must be called at startup before startJobProcessor().
+ */
+export function recoverStaleJobs() {
+  const staleJobs = db
+    .select()
+    .from(schema.jobQueue)
+    .where(eq(schema.jobQueue.status, 'processing'))
+    .all();
+
+  if (staleJobs.length === 0) return;
+
+  const now = new Date().toISOString();
+  for (const job of staleJobs) {
+    if (job.attempts >= job.maxAttempts) {
+      db.update(schema.jobQueue)
+        .set({
+          status: 'failed',
+          error: 'Server restarted while job was processing',
+          updatedAt: now,
+        })
+        .where(eq(schema.jobQueue.id, job.id))
+        .run();
+      console.warn(`[JobQueue] Stale job ${job.id} (${job.jobType}) marked failed — max attempts reached`);
+    } else {
+      db.update(schema.jobQueue)
+        .set({ status: 'pending', updatedAt: now })
+        .where(eq(schema.jobQueue.id, job.id))
+        .run();
+      console.warn(`[JobQueue] Stale job ${job.id} (${job.jobType}) reset to pending (attempt ${job.attempts}/${job.maxAttempts})`);
+    }
+  }
+  console.log(`[JobQueue] Recovered ${staleJobs.length} stale job(s)`);
+}
+
+let pollInterval: NodeJS.Timeout | null = null;
+let stopping = false;
+let currentJobPromise: Promise<boolean> | null = null;
+
 async function processNextJob(): Promise<boolean> {
+  if (stopping) return false;
+
   const now = new Date().toISOString();
 
   // Find and claim the next pending job
@@ -80,27 +140,44 @@ async function processNextJob(): Promise<boolean> {
   return true;
 }
 
-let pollInterval: NodeJS.Timeout | null = null;
-
 export function startJobProcessor() {
   if (pollInterval) return;
+  stopping = false;
 
   console.log('[JobQueue] Starting job processor');
   pollInterval = setInterval(async () => {
+    if (stopping) return;
     try {
       let processed = true;
-      while (processed) {
-        processed = await processNextJob();
+      while (processed && !stopping) {
+        currentJobPromise = processNextJob();
+        processed = await currentJobPromise;
+        currentJobPromise = null;
       }
     } catch (error) {
       console.error('[JobQueue] Processing error:', error);
+      currentJobPromise = null;
     }
   }, JOB_QUEUE.POLL_INTERVAL_MS);
 }
 
-export function stopJobProcessor() {
+export async function stopJobProcessor() {
+  stopping = true;
   if (pollInterval) {
     clearInterval(pollInterval);
     pollInterval = null;
   }
+  // Wait for in-flight job to complete (up to 30s)
+  if (currentJobPromise) {
+    console.log('[JobQueue] Waiting for in-flight job to complete...');
+    try {
+      await Promise.race([
+        currentJobPromise,
+        new Promise(resolve => setTimeout(resolve, 30000)),
+      ]);
+    } catch {
+      // Job error is already handled in processNextJob
+    }
+  }
+  console.log('[JobQueue] Job processor stopped');
 }

@@ -14,8 +14,9 @@ npm run build:client
 npm run build:server
 
 # Development (server on :3001, client on :5173 with proxy to server)
-npm run dev:server          # npx tsx watch packages/server/src/index.ts
-npm run dev:client          # cd packages/client && npx vite
+npm run dev                 # both server + client concurrently
+npm run dev:server          # tsx watch packages/server/src/index.ts
+npm run dev:client          # cd packages/client && vite
 
 # Run production server (serves client from packages/client/dist)
 npx tsx packages/server/src/index.ts    # or: npm start (after build)
@@ -23,10 +24,16 @@ npx tsx packages/server/src/index.ts    # or: npm start (after build)
 # Tests
 npm test                    # vitest run (unit tests in packages/server/src/**/__tests__/)
 npm run test:watch          # vitest watch mode
+npx vitest run packages/server/src/services/__tests__/cover.test.ts  # single test file
 npx playwright test         # e2e tests in e2e/
+
+# Lint & format
+npm run lint                # eslint packages/*/src --ext .ts,.tsx
+npm run format              # prettier --write
 
 # Database
 npm run db:generate         # drizzle-kit generate (snapshot schema → migration SQL)
+npm run db:migrate          # drizzle-kit migrate (apply pending migrations)
 ```
 
 ## Architecture
@@ -47,12 +54,14 @@ Express.js on Node 22 with SQLite (better-sqlite3) and Drizzle ORM.
 - **Metadata pipeline** (`services/metadata-pipeline.ts`): Queries Hardcover GraphQL API to enrich books with descriptions, covers, series info. Confidence scoring with bigram similarity + length penalty. Minimum threshold 0.5, title gate 0.4.
 - **Hardcover provider** (`providers/hardcover.ts`): GraphQL client with token bucket rate limiter (60/min) and `requestWithRetry()` for 429/5xx backoff. ISBN data comes from Typesense search only (not `books_by_pk`).
 - **Cover pipeline** (`services/cover.ts`): `extractAndCacheCover()` saves original + generates `{id}_thumb.webp`, `{id}_medium.webp`, `{id}_full.webp` via sharp. `cover-backfill.ts` regenerates missing WebP variants on startup.
+- **File watcher** (`services/file-watcher.ts`): Chokidar-based watchers on library directories, initialized at startup via `initializeWatchers()`.
+- **OPDS** (`routes/opds.ts`): OPDS catalog feed for external reader apps, mounted at `/opds`.
 - **FTS5**: `books_fts` virtual table kept in sync via SQLite triggers on the books table.
 
 ### Client (`@npc-shelf/client`)
 React 19 + Vite 6 + TanStack Router + TanStack Query + Zustand + Tailwind v4 + shadcn/ui.
 
-- **Routing**: TanStack Router with routes defined in `src/routes/__root.tsx`. Root component gates on setup → login → authenticated shell. Route tree: `/dashboard`, `/library`, `/library/$bookId`, `/library/$bookId/read`, `/library/$bookId/listen`, `/search`, `/collections`, `/series`, `/settings`.
+- **Routing**: TanStack Router with file-based routes in `src/routes/`. Root component gates on setup → login → authenticated shell. Route tree: `/dashboard`, `/library`, `/library/$bookId`, `/library/$bookId/read`, `/library/$bookId/listen`, `/search`, `/collections`, `/collections/$collectionId`, `/series`, `/series/$seriesId`, `/settings`.
 - **API client** (`lib/api.ts`): Singleton `ApiClient` with auto-refresh on 401. All data fetching goes through `api.get/post/put/delete`.
 - **Stores**: Zustand — `authStore` (token, user), `audioStore` (playback state, persisted), `readerStore` (reading positions), `uiStore` (theme, sidebar).
 - **Dev proxy**: Vite proxies `/api` and `/opds` to `localhost:3001`.
@@ -64,6 +73,7 @@ Multi-stage build in `docker/Dockerfile` (shared → client → server → produ
 
 ## Key Patterns
 
+- Vitest uses `globals: true` — no need to import `describe`, `it`, `expect` in test files
 - Server uses `.js` extensions in all imports (ESM requirement): `import { foo } from './bar.js'`
 - Drizzle schema files define column mappings; raw SQL in `initializeDatabase()` creates actual tables
 - `parseInt(req.params.id)` must be checked for `isNaN` and return 400

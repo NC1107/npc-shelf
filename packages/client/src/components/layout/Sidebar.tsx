@@ -8,6 +8,8 @@ import {
   Settings,
   Layers,
   X,
+  Users,
+  Copy,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
@@ -19,6 +21,8 @@ const navItems = [
   { to: '/library', label: 'Library', icon: Library },
   { to: '/series', label: 'Series', icon: Layers },
   { to: '/collections', label: 'Collections', icon: Bookmark },
+  { to: '/authors', label: 'Authors', icon: Users },
+  { to: '/duplicates', label: 'Duplicates', icon: Copy },
   { to: '/search', label: 'Search', icon: Search },
 ] as const;
 

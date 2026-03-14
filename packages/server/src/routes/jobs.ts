@@ -66,6 +66,29 @@ jobsRouter.get('/summary', (_req, res) => {
   }
 });
 
+// Get active/recent jobs for a specific book
+jobsRouter.get('/book/:bookId', (req, res) => {
+  try {
+    const bookId = parseInt(req.params.bookId);
+    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+
+    const items = db
+      .select()
+      .from(schema.jobQueue)
+      .where(
+        sql`json_extract(${schema.jobQueue.payload}, '$.bookId') = ${bookId}`,
+      )
+      .orderBy(sql`${schema.jobQueue.createdAt} DESC`)
+      .limit(10)
+      .all();
+
+    res.json(items);
+  } catch (error) {
+    console.error('[Jobs] Book jobs error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Retry a failed job
 jobsRouter.post('/:id/retry', (req, res) => {
   try {

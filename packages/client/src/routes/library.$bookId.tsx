@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from '@tanstack/react-router';
 import {
   BookOpen, ArrowLeft, Download, Send, Play, Edit, Check, X,
   Headphones, Calendar, Globe, Hash, Building2, FileText,
   Sparkles, Loader2, Mic, ExternalLink, Music, Trash2, Merge,
-  ChevronDown, ShieldCheck, Wrench,
+  ChevronDown, ShieldCheck, Wrench, AlertCircle, CheckCircle2, Scissors, RotateCcw, Upload,
+  FolderSync, PenLine, RefreshCw, Save,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -58,11 +59,109 @@ export function BookDetailPage() {
 
   const mergeAudiobook = useMutation({
     mutationFn: () => api.post(`/audiobooks/${bookId}/merge`),
+    onSuccess: () => setMergePolling(true),
+  });
+
+  const [mergePolling, setMergePolling] = useState(false);
+
+  const { data: bookJobs } = useQuery({
+    queryKey: ['jobs', 'book', bookId],
+    queryFn: () => api.get<any[]>(`/jobs/book/${bookId}`),
+    enabled: mergePolling,
+    refetchInterval: 2000,
+  });
+
+  // Derive merge job status from polled jobs
+  const mergeJob = bookJobs?.find((j: any) => j.jobType === 'merge_audiobook');
+  const mergeStatus = mergeJob?.status as string | undefined;
+
+  // Stop polling and refresh book data when merge completes or fails
+  useEffect(() => {
+    if (!mergePolling || !mergeStatus) return;
+    if (mergeStatus === 'completed' || mergeStatus === 'failed') {
+      setMergePolling(false);
+      if (mergeStatus === 'completed') {
+        queryClient.invalidateQueries({ queryKey: ['book', bookId] });
+      }
+    }
+  }, [mergePolling, mergeStatus, bookId, queryClient]);
+
+  const uploadCover = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append('cover', file);
+      const res = await fetch(`/api/books/${bookId}/cover`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: form,
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['book', bookId] }),
+  });
+
+  const splitFiles = useMutation({
+    mutationFn: (fileIds: number[]) => api.post(`/books/${bookId}/split`, { fileIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['book', bookId] });
+      queryClient.invalidateQueries({ queryKey: ['books'] });
+      setSplitMode(false);
+      setSelectedFileIds(new Set());
+    },
+  });
+
+  const clearMatch = useMutation({
+    mutationFn: () => api.delete(`/books/${bookId}/match`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['book', bookId] }),
+  });
+
+  const [renamePreview, setRenamePreview] = useState<any[] | null>(null);
+
+  const previewRename = useMutation({
+    mutationFn: () => api.post(`/books/${bookId}/rename/preview`),
+    onSuccess: (data: any) => setRenamePreview(data),
+  });
+
+  const executeRename = useMutation({
+    mutationFn: () => api.post(`/books/${bookId}/rename/execute`),
+    onSuccess: () => {
+      setRenamePreview(null);
+      queryClient.invalidateQueries({ queryKey: ['book', bookId] });
+    },
+  });
+
+  const writeMetadata = useMutation({
+    mutationFn: () => api.post(`/books/${bookId}/write-metadata`),
+  });
+
+  const convertFormat = useMutation({
+    mutationFn: (data: { fileId: number; targetFormat: string }) =>
+      api.post(`/books/${bookId}/convert`, data),
+  });
+
+  const { data: chapters } = useQuery({
+    queryKey: ['chapters', bookId],
+    queryFn: () => api.get<any[]>(`/audiobooks/${bookId}/chapters`),
+    enabled: !!book?.hasAudio,
+  });
+
+  const [editingChapters, setEditingChapters] = useState(false);
+  const [chapterData, setChapterData] = useState<any[]>([]);
+
+  const saveChapters = useMutation({
+    mutationFn: (data: any[]) => api.put(`/audiobooks/${bookId}/chapters`, { chapters: data }),
+    onSuccess: () => {
+      setEditingChapters(false);
+      queryClient.invalidateQueries({ queryKey: ['chapters', bookId] });
+    },
   });
 
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
   const [showFiles, setShowFiles] = useState(false);
+  const [splitMode, setSplitMode] = useState(false);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<number>>(new Set());
 
   const saveEdit = useMutation({
     mutationFn: (data: Record<string, any>) => api.put(`/books/${bookId}`, data),
@@ -85,6 +184,8 @@ export function BookDetailPage() {
       pageCount: book.pageCount || '',
       isbn10: book.isbn10 || '',
       isbn13: book.isbn13 || '',
+      authors: book.authors?.map((a: any) => ({ name: a.author.name, role: a.role })) || [{ name: '', role: 'author' }],
+      series: book.series?.map((s: any) => ({ name: s.series.name, position: s.position })) || [],
     });
     setIsEditing(true);
   }
@@ -151,6 +252,26 @@ export function BookDetailPage() {
       matchMetadata={matchMetadata}
       deleteBook={deleteBook}
       mergeAudiobook={mergeAudiobook}
+      mergeJob={mergeJob}
+      uploadCover={uploadCover}
+      splitFiles={splitFiles}
+      clearMatch={clearMatch}
+      previewRename={previewRename}
+      executeRename={executeRename}
+      writeMetadata={writeMetadata}
+      renamePreview={renamePreview}
+      setRenamePreview={setRenamePreview}
+      splitMode={splitMode}
+      setSplitMode={setSplitMode}
+      selectedFileIds={selectedFileIds}
+      setSelectedFileIds={setSelectedFileIds}
+      convertFormat={convertFormat}
+      chapters={chapters}
+      editingChapters={editingChapters}
+      setEditingChapters={setEditingChapters}
+      chapterData={chapterData}
+      setChapterData={setChapterData}
+      saveChapters={saveChapters}
     />
   );
 }
@@ -160,7 +281,10 @@ function BookDetailContent({
   readingProgress, audioProgress,
   isEditing, editData, setEditData, showFiles, setShowFiles,
   navigate, startEditing, cancelEditing, saveEdit,
-  sendToKindle, matchMetadata, deleteBook, mergeAudiobook,
+  sendToKindle, matchMetadata, deleteBook, mergeAudiobook, mergeJob, uploadCover,
+  splitFiles, clearMatch, previewRename, executeRename, writeMetadata, renamePreview, setRenamePreview,
+  splitMode, setSplitMode, selectedFileIds, setSelectedFileIds,
+  convertFormat, chapters, editingChapters, setEditingChapters, chapterData, setChapterData, saveChapters,
 }: any) {
   const [activeFormat, setActiveFormat] = useState<'ebook' | 'audiobook'>(hasAudio ? 'audiobook' : 'ebook');
 
@@ -177,19 +301,38 @@ function BookDetailContent({
       <div className="flex flex-col gap-6 md:flex-row">
         {/* Cover */}
         <div className="shrink-0">
-          <div className="h-80 w-52 overflow-hidden rounded-lg bg-muted flex items-center justify-center shadow-lg">
-            {book.coverPath ? (
-              <img
-                src={`/api/books/${book.id}/cover/medium?v=${book.updatedAt}`}
-                alt={book.title}
-                className="h-full w-full object-cover"
-              />
-            ) : hasAudio ? (
-              <Headphones className="h-16 w-16 text-muted-foreground" />
-            ) : (
-              <BookOpen className="h-16 w-16 text-muted-foreground" />
-            )}
-          </div>
+          <label className="group relative block h-80 w-52 cursor-pointer overflow-hidden rounded-lg bg-muted shadow-lg">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadCover.mutate(file);
+                e.target.value = '';
+              }}
+            />
+            <div className="flex h-full w-full items-center justify-center">
+              {book.coverPath ? (
+                <img
+                  src={`/api/books/${book.id}/cover/medium?v=${book.updatedAt}`}
+                  alt={book.title}
+                  className="h-full w-full object-cover"
+                />
+              ) : hasAudio ? (
+                <Headphones className="h-16 w-16 text-muted-foreground" />
+              ) : (
+                <BookOpen className="h-16 w-16 text-muted-foreground" />
+              )}
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+              {uploadCover.isPending ? (
+                <Loader2 className="h-8 w-8 animate-spin text-white" />
+              ) : (
+                <Upload className="h-8 w-8 text-white" />
+              )}
+            </div>
+          </label>
 
           {/* File formats */}
           {book.files && book.files.length > 0 && (
@@ -238,22 +381,132 @@ function BookDetailContent({
             )}
           </div>
 
-          {book.authors && book.authors.length > 0 && (
-            <p className="text-lg text-muted-foreground">
-              by{' '}
-              {book.authors.map((a: any, i: number) => (
-                <span key={a.author.id || i}>
-                  {i > 0 && ', '}
-                  <span className="font-medium text-foreground">{a.author.name}</span>
-                  {a.role !== 'author' && (
-                    <span className="text-sm"> ({a.role})</span>
-                  )}
-                </span>
+          {isEditing ? (
+            <div className="space-y-1">
+              <span className="text-sm text-muted-foreground">Authors</span>
+              {(editData.authors || []).map((a: any, i: number) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    className="flex-1 rounded border bg-background px-2 py-1 text-sm"
+                    value={a.name}
+                    onChange={(e) => {
+                      const next = [...editData.authors];
+                      next[i] = { ...next[i], name: e.target.value };
+                      setEditData({ ...editData, authors: next });
+                    }}
+                    placeholder="Author name"
+                  />
+                  <select
+                    className="rounded border bg-background px-2 py-1 text-sm"
+                    value={a.role}
+                    onChange={(e) => {
+                      const next = [...editData.authors];
+                      next[i] = { ...next[i], role: e.target.value };
+                      setEditData({ ...editData, authors: next });
+                    }}
+                  >
+                    <option value="author">Author</option>
+                    <option value="narrator">Narrator</option>
+                    <option value="editor">Editor</option>
+                  </select>
+                  <button
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      const next = editData.authors.filter((_: any, j: number) => j !== i);
+                      setEditData({ ...editData, authors: next });
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               ))}
-            </p>
-          )}
+              <button
+                className="text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => setEditData({ ...editData, authors: [...(editData.authors || []), { name: '', role: 'author' }] })}
+              >
+                + Add author
+              </button>
+            </div>
+          ) : book.authors && book.authors.length > 0 ? (
+            <div className="flex items-center gap-3">
+              {book.authors.some((a: any) => a.author.photoUrl) && (
+                <div className="flex -space-x-2">
+                  {book.authors.filter((a: any) => a.author.photoUrl).map((a: any) => (
+                    <img
+                      key={a.author.id}
+                      src={a.author.photoUrl}
+                      alt={a.author.name}
+                      className="h-8 w-8 rounded-full border-2 border-background object-cover"
+                    />
+                  ))}
+                </div>
+              )}
+              <p className="text-lg text-muted-foreground">
+                by{' '}
+                {book.authors.map((a: any, i: number) => (
+                  <span key={a.author.id || i}>
+                    {i > 0 && ', '}
+                    <Link
+                      to="/library"
+                      search={{ authorId: String(a.author.id) }}
+                      className="font-medium text-foreground hover:underline"
+                    >
+                      {a.author.name}
+                    </Link>
+                    {a.role !== 'author' && (
+                      <span className="text-sm"> ({a.role})</span>
+                    )}
+                  </span>
+                ))}
+              </p>
+            </div>
+          ) : null}
 
-          {book.series && book.series.length > 0 && (
+          {isEditing ? (
+            <div className="space-y-1">
+              <span className="text-sm text-muted-foreground">Series</span>
+              {(editData.series || []).map((s: any, i: number) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    className="flex-1 rounded border bg-background px-2 py-1 text-sm"
+                    value={s.name}
+                    onChange={(e) => {
+                      const next = [...editData.series];
+                      next[i] = { ...next[i], name: e.target.value };
+                      setEditData({ ...editData, series: next });
+                    }}
+                    placeholder="Series name"
+                  />
+                  <input
+                    className="w-16 rounded border bg-background px-2 py-1 text-sm"
+                    type="number"
+                    value={s.position ?? ''}
+                    onChange={(e) => {
+                      const next = [...editData.series];
+                      next[i] = { ...next[i], position: e.target.value ? parseFloat(e.target.value) : null };
+                      setEditData({ ...editData, series: next });
+                    }}
+                    placeholder="#"
+                  />
+                  <button
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      const next = editData.series.filter((_: any, j: number) => j !== i);
+                      setEditData({ ...editData, series: next });
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              <button
+                className="text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => setEditData({ ...editData, series: [...(editData.series || []), { name: '', position: null }] })}
+              >
+                + Add series
+              </button>
+            </div>
+          ) : book.series && book.series.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {book.series.map((s: any) => (
                 <Badge key={s.series.id || s.series.name} variant="secondary">
@@ -262,7 +515,7 @@ function BookDetailContent({
                 </Badge>
               ))}
             </div>
-          )}
+          ) : null}
 
           {/* Progress */}
           {(!hasBothFormats || activeFormat === 'ebook') && readingProgress && readingProgress.progressPercent > 0 && (
@@ -371,7 +624,7 @@ function BookDetailContent({
               </Button>
             )}
             {/* Tools dropdown */}
-            {hasAudio && book.audioTrackCount > 1 && (
+            {book.files && book.files.length > 0 && (
               <DropdownMenu>
                 <DropdownTrigger>
                   <Button variant="outline">
@@ -381,19 +634,95 @@ function BookDetailContent({
                   </Button>
                 </DropdownTrigger>
                 <DropdownContent>
+                  {hasAudio && book.audioTrackCount > 1 && (
+                    <DropdownItem
+                      onClick={() => mergeAudiobook.mutate()}
+                      disabled={mergeAudiobook.isPending || mergeJob?.status === 'pending' || mergeJob?.status === 'processing'}
+                    >
+                      {mergeAudiobook.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Merge className="h-4 w-4" />
+                      )}
+                      {mergeAudiobook.isSuccess ? 'Queued!' : 'Merge Audio Tracks'}
+                    </DropdownItem>
+                  )}
+                  {book.files && book.files.length > 1 && (
+                    <DropdownItem
+                      onClick={() => { setSplitMode(true); setShowFiles(true); }}
+                    >
+                      <Scissors className="h-4 w-4" />
+                      Split Files into New Book
+                    </DropdownItem>
+                  )}
                   <DropdownItem
-                    onClick={() => mergeAudiobook.mutate()}
-                    disabled={mergeAudiobook.isPending}
+                    onClick={() => previewRename.mutate()}
+                    disabled={previewRename.isPending}
                   >
-                    {mergeAudiobook.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Merge className="h-4 w-4" />
-                    )}
-                    {mergeAudiobook.isSuccess ? 'Queued!' : 'Merge Audio Tracks'}
+                    <FolderSync className="h-4 w-4" />
+                    {previewRename.isPending ? 'Loading...' : 'Rename Files'}
                   </DropdownItem>
+                  <DropdownItem
+                    onClick={() => writeMetadata.mutate()}
+                    disabled={writeMetadata.isPending}
+                  >
+                    <PenLine className="h-4 w-4" />
+                    {writeMetadata.isPending ? 'Writing...' : writeMetadata.isSuccess ? 'Done!' : 'Write Metadata to Files'}
+                  </DropdownItem>
+                  {book.files?.some((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format)) && (
+                    <DropdownItem
+                      onClick={() => {
+                        const file = book.files.find((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format));
+                        if (!file) return;
+                        const conversions: Record<string, string[]> = {
+                          epub: ['mobi', 'azw3', 'pdf'], mobi: ['epub'], azw3: ['epub'], pdf: ['epub'],
+                        };
+                        const targets = conversions[file.format] || [];
+                        const target = targets[0];
+                        if (target) convertFormat.mutate({ fileId: file.id, targetFormat: target });
+                      }}
+                      disabled={convertFormat.isPending}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      {convertFormat.isPending ? 'Converting...' : convertFormat.isSuccess ? 'Queued!' : 'Convert Format'}
+                    </DropdownItem>
+                  )}
+                  {book.hardcoverId && (
+                    <DropdownItem
+                      onClick={() => clearMatch.mutate()}
+                      disabled={clearMatch.isPending}
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      {clearMatch.isSuccess ? 'Cleared!' : 'Clear Metadata Match'}
+                    </DropdownItem>
+                  )}
                 </DropdownContent>
               </DropdownMenu>
+            )}
+            {/* Merge job status banner */}
+            {mergeJob && (mergeJob.status === 'pending' || mergeJob.status === 'processing') && (
+              <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {mergeJob.status === 'pending' ? 'Merge queued...' : 'Merging audio tracks...'}
+              </div>
+            )}
+            {mergeJob?.status === 'completed' && (
+              <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+                <CheckCircle2 className="h-4 w-4" />
+                Merge complete!
+              </div>
+            )}
+            {mergeJob?.status === 'failed' && (
+              <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+                <AlertCircle className="h-4 w-4" />
+                Merge failed{mergeJob.error ? `: ${mergeJob.error}` : ''}
+              </div>
+            )}
+            {writeMetadata.isSuccess && (
+              <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+                <CheckCircle2 className="h-4 w-4" />
+                Metadata written to files
+              </div>
             )}
             <Button
               variant="destructive"
@@ -582,6 +911,70 @@ function BookDetailContent({
             </>
           )}
 
+          {/* Chapters section (audiobooks) */}
+          {hasAudio && chapters && chapters.length > 0 && (
+            <>
+              <Separator />
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    Chapters ({chapters.length})
+                  </h2>
+                  {editingChapters ? (
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => saveChapters.mutate(chapterData)}
+                        disabled={saveChapters.isPending}
+                      >
+                        {saveChapters.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingChapters(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setChapterData(chapters.map((c: any) => ({ ...c })));
+                        setEditingChapters(true);
+                      }}
+                    >
+                      <Edit className="h-3 w-3" />
+                      Edit
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {(editingChapters ? chapterData : chapters).map((ch: any, i: number) => (
+                    <div key={ch.id || i} className="flex items-center gap-2 rounded border bg-muted/50 px-2 py-1.5 text-xs">
+                      <span className="w-8 shrink-0 text-muted-foreground text-right">{i + 1}.</span>
+                      {editingChapters ? (
+                        <input
+                          className="flex-1 rounded border bg-background px-2 py-0.5 text-xs"
+                          value={ch.title}
+                          onChange={(e) => {
+                            const next = [...chapterData];
+                            next[i] = { ...next[i], title: e.target.value };
+                            setChapterData(next);
+                          }}
+                        />
+                      ) : (
+                        <span className="flex-1 truncate">{ch.title}</span>
+                      )}
+                      <span className="shrink-0 text-muted-foreground">
+                        {formatChapterTime(ch.startTime)} - {formatChapterTime(ch.endTime)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
           {/* Files section */}
           {book.files && book.files.length > 0 && (
             <>
@@ -597,26 +990,90 @@ function BookDetailContent({
                   <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showFiles ? 'rotate-180' : ''}`} />
                 </button>
                 {showFiles && (
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {book.files.map((file: any) => (
-                      <div key={file.id} className="rounded border bg-muted/50 p-2 text-xs space-y-1">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className={FORMAT_COLORS[file.format]}>
-                            {file.format.toUpperCase()}
-                          </Badge>
-                          <span className="font-medium truncate">{file.filename}</span>
-                          <span className="ml-auto shrink-0 text-muted-foreground">{formatBytes(file.sizeBytes)}</span>
-                        </div>
-                        <div className="text-muted-foreground truncate">{file.path}</div>
+                  <>
+                    {splitMode && (
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Select files to split into a new book:</span>
+                        <Button
+                          size="sm"
+                          disabled={selectedFileIds.size === 0 || selectedFileIds.size >= book.files.length || splitFiles.isPending}
+                          onClick={() => splitFiles.mutate([...selectedFileIds])}
+                        >
+                          {splitFiles.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Scissors className="h-3 w-3" />}
+                          Split ({selectedFileIds.size})
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setSplitMode(false); setSelectedFileIds(new Set()); }}>
+                          Cancel
+                        </Button>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {book.files.map((file: any) => (
+                        <div
+                          key={file.id}
+                          className={`rounded border bg-muted/50 p-2 text-xs space-y-1 ${splitMode ? 'cursor-pointer hover:border-primary' : ''} ${selectedFileIds.has(file.id) ? 'border-primary bg-primary/5' : ''}`}
+                          onClick={splitMode ? () => {
+                            const next = new Set(selectedFileIds);
+                            if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
+                            setSelectedFileIds(next);
+                          } : undefined}
+                        >
+                          <div className="flex items-center gap-2">
+                            {splitMode && (
+                              <input
+                                type="checkbox"
+                                checked={selectedFileIds.has(file.id)}
+                                readOnly
+                                className="h-3.5 w-3.5"
+                              />
+                            )}
+                            <Badge variant="outline" className={FORMAT_COLORS[file.format]}>
+                              {file.format.toUpperCase()}
+                            </Badge>
+                            <span className="font-medium truncate">{file.filename}</span>
+                            <span className="ml-auto shrink-0 text-muted-foreground">{formatBytes(file.sizeBytes)}</span>
+                          </div>
+                          <div className="text-muted-foreground truncate">{file.path}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
             </>
           )}
         </div>
       </div>
+
+      {/* Rename preview diff */}
+      {renamePreview && (
+        <div className="rounded-lg border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Rename Preview</h3>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => executeRename.mutate()}
+                disabled={executeRename.isPending || !renamePreview.some((p: any) => p.status === 'rename')}
+              >
+                {executeRename.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <FolderSync className="h-3 w-3" />}
+                Apply
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setRenamePreview(null)}>Cancel</Button>
+            </div>
+          </div>
+          <div className="space-y-2 text-xs">
+            {renamePreview.map((p: any) => (
+              <div key={p.fileId} className={`rounded border p-2 ${p.status === 'rename' ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950' : p.status === 'conflict' ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950' : 'border-muted bg-muted/30'}`}>
+                <div className="text-muted-foreground line-through">{p.currentPath}</div>
+                <div className={p.status === 'rename' ? 'text-blue-700 dark:text-blue-300 font-medium' : p.status === 'conflict' ? 'text-red-700 dark:text-red-300' : 'text-muted-foreground'}>
+                  {p.status === 'conflict' ? `CONFLICT: ${p.newPath}` : p.status === 'unchanged' ? '(unchanged)' : p.newPath}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -706,4 +1163,12 @@ function formatDuration(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60);
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+function formatChapterTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }

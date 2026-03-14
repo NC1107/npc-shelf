@@ -16,7 +16,52 @@ export interface ParsedFilename {
 
 const SERIES_PATTERN = /\(([^)]+)\s+#?(\d+(?:\.\d+)?)\)/;
 const YEAR_PATTERN = /\((\d{4})\)/;
-const AUTHOR_TITLE_DASH = /^([^-]+?)\s*-\s*(.+)$/;
+const AUTHOR_TITLE_DASH = /^(.+?)\s+-\s+(.+)$/;
+
+function looksLikePersonName(name: string): boolean {
+  // Person names: have spaces, no digits, no underscores/colons/special chars, 2-4 words
+  const words = name.trim().split(/\s+/);
+  return (
+    words.length >= 2 &&
+    words.length <= 4 &&
+    !/\d/.test(name) &&
+    !/[_:;!?#@$%^&*()[\]{}|<>~]/.test(name) &&
+    name.length < 50
+  );
+}
+
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().replaceAll(/[^a-z0-9]/g, '');
+}
+
+function getDirAuthorHint(dirPath?: string): string | null {
+  if (!dirPath) return null;
+  const parts = dirPath.split(/[/\\]/).filter(Boolean);
+  return parts.length >= 2 ? (parts.at(-2) ?? null) : null;
+}
+
+/** Disambiguate left/right sides of a dash-separated filename. */
+function resolveAuthorTitle(
+  left: string,
+  right: string,
+  dirPath?: string,
+): { author: string; title: string } {
+  const rightIsPerson = looksLikePersonName(right);
+  const leftIsPerson = looksLikePersonName(left);
+  const dirHint = getDirAuthorHint(dirPath);
+
+  if (dirHint) {
+    const rightMatchesDir = normalizeForMatch(right) === normalizeForMatch(dirHint);
+    const leftMatchesDir = normalizeForMatch(left) === normalizeForMatch(dirHint);
+    if (rightMatchesDir && !leftMatchesDir) {
+      return { author: right, title: left };
+    }
+  } else if (rightIsPerson && !leftIsPerson) {
+    return { author: right, title: left };
+  }
+
+  return { author: left, title: right };
+}
 
 export function parseFilename(filename: string, dirPath?: string): ParsedFilename {
   // Remove extension
@@ -43,20 +88,18 @@ export function parseFilename(filename: string, dirPath?: string): ParsedFilenam
     title = title.replace(YEAR_PATTERN, '').trim();
   }
 
-  // "Author - Title" pattern
+  // "Author - Title" or "Title - Author" pattern
   const dashMatch = title.match(AUTHOR_TITLE_DASH);
   if (dashMatch) {
-    author = dashMatch[1].trim();
-    title = dashMatch[2].trim();
+    const resolved = resolveAuthorTitle(dashMatch[1].trim(), dashMatch[2].trim(), dirPath);
+    author = resolved.author;
+    title = resolved.title;
   }
 
   // Fall back to directory name for author
   if (!author && dirPath) {
-    const parts = dirPath.split(/[/\\]/).filter(Boolean);
-    if (parts.length >= 2) {
-      // Assume parent dir is author: Author/BookTitle/file.epub
-      author = parts[parts.length - 2];
-    }
+    const dirHint = getDirAuthorHint(dirPath);
+    if (dirHint) author = dirHint;
   }
 
   // Clean up underscores and extra whitespace

@@ -1,5 +1,5 @@
 import { eq, sql, asc } from 'drizzle-orm';
-import { db, schema } from '../db/index.js';
+import { db, schema, sqlite } from '../db/index.js';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -99,47 +99,57 @@ export async function mergeAudiobook(bookId: number): Promise<string> {
     // Compute total duration from tracks
     const totalDuration = tracks.reduce((sum, t) => sum + t.durationSeconds, 0);
 
-    // Update database:
-    // 1. Insert a new file record for the merged file
-    db.insert(schema.files).values({
-      bookId,
-      libraryId: firstFile.libraryId,
-      path: outputPath,
-      filename: path.basename(outputPath),
-      format: 'm4b',
-      mimeType: 'audio/mp4',
-      sizeBytes: stat.size,
-      hashSha256: 'merged', // Placeholder — full hash not needed for merged file
-      lastModified: stat.mtime.toISOString(),
-    }).run();
+    // Update database atomically
+    const updateDb = sqlite.transaction(() => {
+      // 1. Insert a new file record for the merged file
+      db.insert(schema.files).values({
+        bookId,
+        libraryId: firstFile.libraryId,
+        path: outputPath,
+        filename: path.basename(outputPath),
+        format: 'm4b',
+        mimeType: 'audio/mp4',
+        sizeBytes: stat.size,
+        hashSha256: 'merged',
+        lastModified: stat.mtime.toISOString(),
+      }).run();
 
-    const newFile = db
-      .select()
-      .from(schema.files)
-      .where(eq(schema.files.path, outputPath))
-      .get()!;
+      const newFile = db
+        .select()
+        .from(schema.files)
+        .where(eq(schema.files.path, outputPath))
+        .get()!;
 
-    // 2. Delete old audio tracks and replace with single track
-    db.delete(schema.audioTracks).where(eq(schema.audioTracks.bookId, bookId)).run();
-    db.insert(schema.audioTracks).values({
-      bookId,
-      fileId: newFile.id,
-      trackIndex: 0,
-      title: book.title,
-      durationSeconds: totalDuration,
-      startOffsetSeconds: 0,
-    }).run();
+      // 2. Delete old audio tracks and replace with single track
+      db.delete(schema.audioTracks).where(eq(schema.audioTracks.bookId, bookId)).run();
+      db.insert(schema.audioTracks).values({
+        bookId,
+        fileId: newFile.id,
+        trackIndex: 0,
+        title: book.title,
+        durationSeconds: totalDuration,
+        startOffsetSeconds: 0,
+      }).run();
 
-    // 3. Delete old split file records (keep original files on disk)
-    for (const tf of trackFiles) {
-      db.delete(schema.files).where(eq(schema.files.id, tf.file.id)).run();
+      // 3. Delete old split file records (keep original files on disk)
+      for (const tf of trackFiles) {
+        db.delete(schema.files).where(eq(schema.files.id, tf.file.id)).run();
+      }
+
+      // 4. Update book audioSeconds
+      db.update(schema.books)
+        .set({ audioSeconds: totalDuration, updatedAt: new Date().toISOString() })
+        .where(eq(schema.books.id, bookId))
+        .run();
+    });
+
+    try {
+      updateDb();
+    } catch (dbError) {
+      // Transaction failed — clean up the output file to avoid orphan
+      try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
+      throw dbError;
     }
-
-    // 4. Update book audioSeconds
-    db.update(schema.books)
-      .set({ audioSeconds: totalDuration, updatedAt: new Date().toISOString() })
-      .where(eq(schema.books.id, bookId))
-      .run();
 
     return outputPath;
   } finally {

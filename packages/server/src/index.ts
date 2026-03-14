@@ -19,12 +19,16 @@ import { seriesRouter } from './routes/series.js';
 import { settingsRouter } from './routes/settings.js';
 import { searchRouter } from './routes/search.js';
 import { jobsRouter } from './routes/jobs.js';
+import { renameRouter } from './routes/rename.js';
+import { authorsRouter } from './routes/authors.js';
 import { authMiddleware } from './middleware/auth.js';
-import { registerJobHandler, startJobProcessor, stopJobProcessor } from './services/job-queue.js';
+import { registerJobHandler, startJobProcessor, stopJobProcessor, recoverStaleJobs } from './services/job-queue.js';
 import { scanLibrary } from './services/scanner.js';
 import { enrichBook, enrichAllUnmatched } from './services/metadata-pipeline.js';
 import { backfillCovers } from './services/cover-backfill.js';
 import { mergeAudiobook, isFfmpegAvailable } from './services/audio-merge.js';
+import { isCalibreAvailable } from './services/metadata-writer.js';
+import { convertBook } from './services/format-converter.js';
 import { initializeWatchers, stopAllWatchers } from './services/file-watcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +39,9 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 // Initialize database
 initializeDatabase();
 runMigrations();
+
+// Recover any jobs left in 'processing' state from a previous crash/restart
+recoverStaleJobs();
 
 // Register job handlers
 registerJobHandler('scan_library', async (payload) => {
@@ -67,6 +74,13 @@ registerJobHandler('merge_audiobook', async (payload) => {
   console.log(`[Jobs] Starting audiobook merge for book ${bookId}`);
   const outputPath = await mergeAudiobook(bookId);
   console.log(`[Jobs] Merge complete: ${outputPath}`);
+});
+
+registerJobHandler('convert_format', async (payload) => {
+  const { fileId, targetFormat } = payload as { fileId: number; targetFormat: string };
+  console.log(`[Jobs] Starting format conversion: file ${fileId} → ${targetFormat}`);
+  const result = await convertBook(fileId, targetFormat);
+  console.log(`[Jobs] Conversion complete: ${result.outputPath}`);
 });
 
 // Start background job processor
@@ -115,7 +129,7 @@ app.get('/api/health', (_req, res) => {
 
     res.json({
       status: 'ok',
-      version: '0.3.1',
+      version: '0.4.0',
       uptime: process.uptime(),
       database: 'connected',
       books: bookCount,
@@ -296,6 +310,8 @@ app.use('/api/series', authMiddleware, seriesRouter);
 app.use('/api/settings', authMiddleware, settingsRouter);
 app.use('/api/search', authMiddleware, searchRouter);
 app.use('/api/jobs', authMiddleware, jobsRouter);
+app.use('/api/books', authMiddleware, renameRouter);
+app.use('/api/authors', authMiddleware, authorsRouter);
 
 // Serve static frontend in production
 const clientDist = path.join(__dirname, '../../client/dist');
@@ -309,13 +325,16 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   if (!isFfmpegAvailable()) {
     console.warn('[Server] ffmpeg not found — audiobook merge will be unavailable');
   }
+  if (!isCalibreAvailable()) {
+    console.warn('[Server] Calibre (ebook-meta) not found — AZW3/MOBI metadata writing will be unavailable');
+  }
 });
 
 // Graceful shutdown
-function shutdown(signal: string) {
+async function shutdown(signal: string) {
   console.log(`[Server] ${signal} received, shutting down gracefully...`);
   stopAllWatchers();
-  stopJobProcessor();
+  await stopJobProcessor();
   server.close(() => {
     sqlite.close();
     console.log('[Server] Shut down complete');

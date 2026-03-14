@@ -104,16 +104,34 @@ export async function matchBook(
   });
 
   scored.sort((a, b) => b.confidence - a.confidence);
+
+  // Log query and top results for diagnostics
+  console.log(`[Metadata] Query: title="${title}" author="${author || ''}" → ${scored.length} results`);
+  for (const s of scored.slice(0, 3)) {
+    const bd = s.matchBreakdown;
+    console.log(`[Metadata]   "${s.title}" by ${s.authors[0] || '?'}: title=${bd.titleSimilarity.toFixed(2)} author=${bd.authorSimilarity.toFixed(2)} → ${(s.confidence * 100).toFixed(0)}%`);
+  }
+
   const best = scored[0]!;
 
-  // Require minimum title similarity to prevent false positives from high author scores
-  const bestTitleSim = stringSimilarity(
-    normalizeForComparison(title),
-    normalizeForComparison(best.title),
-  );
-  if (bestTitleSim < 0.4) return null;
+  // Hard floor: reject if title similarity is too low (prevents garbage matches)
+  if (best.matchBreakdown.titleSimilarity < 0.3) {
+    console.log(`[Metadata] Rejected "${best.title}" — title similarity ${best.matchBreakdown.titleSimilarity.toFixed(2)} below hard floor 0.30`);
+    return null;
+  }
 
-  return best.confidence >= METADATA.LOW_CONFIDENCE_THRESHOLD ? best : null;
+  // Require minimum title similarity to prevent false positives from high author scores
+  if (best.matchBreakdown.titleSimilarity < 0.5) {
+    console.log(`[Metadata] Rejected "${best.title}" — title similarity ${best.matchBreakdown.titleSimilarity.toFixed(2)} below title gate 0.50`);
+    return null;
+  }
+
+  if (best.confidence < METADATA.LOW_CONFIDENCE_THRESHOLD) {
+    console.log(`[Metadata] Rejected "${best.title}" — confidence ${(best.confidence * 100).toFixed(0)}% below threshold ${(METADATA.LOW_CONFIDENCE_THRESHOLD * 100).toFixed(0)}%`);
+    return null;
+  }
+
+  return best;
 }
 
 /**
@@ -223,6 +241,9 @@ export async function enrichBook(bookId: number): Promise<void> {
         .run();
     }
   }
+
+  // Enrich author details (bio, photo) from Hardcover
+  await enrichAuthorsFromMatch(bookId);
 
   // Cache the raw metadata
   db.insert(schema.metadataCache)
@@ -351,6 +372,64 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
         .values({ bookId, tagId: tag.id })
         .onConflictDoNothing()
         .run();
+    }
+  }
+}
+
+/**
+ * Enrich local author records with bio and photo from Hardcover.
+ * Fetches Hardcover author IDs from the book's contributions,
+ * then queries each author for bio/photo.
+ */
+async function enrichAuthorsFromMatch(bookId: number): Promise<void> {
+  const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
+  if (!book?.hardcoverId) return;
+
+  const localAuthors = db.select({
+    authorId: schema.bookAuthors.authorId,
+    name: schema.authors.name,
+    bio: schema.authors.bio,
+    photoUrl: schema.authors.photoUrl,
+  })
+    .from(schema.bookAuthors)
+    .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+    .where(eq(schema.bookAuthors.bookId, bookId))
+    .all();
+
+  // Skip if all authors already have bio and photo
+  const needsEnrichment = localAuthors.filter(a => !a.bio || !a.photoUrl);
+  if (needsEnrichment.length === 0) return;
+
+  // Get Hardcover author IDs from the book's contributions
+  const hcAuthors = await provider.getBookAuthorIds(book.hardcoverId);
+  if (hcAuthors.length === 0) return;
+
+  for (const localAuthor of needsEnrichment) {
+    const normalizedLocal = normalizeForComparison(localAuthor.name);
+
+    // Match local author to Hardcover author by name similarity
+    const hcMatch = hcAuthors.find(
+      (a) => stringSimilarity(normalizeForComparison(a.name), normalizedLocal) > 0.85,
+    );
+    if (!hcMatch) continue;
+
+    try {
+      const details = await provider.getAuthorDetails(String(hcMatch.id));
+      if (!details) continue;
+
+      const updates: Record<string, string> = {};
+      if (!localAuthor.bio && details.bio) updates.bio = details.bio;
+      if (!localAuthor.photoUrl && details.imageUrl) updates.photoUrl = details.imageUrl;
+
+      if (Object.keys(updates).length > 0) {
+        db.update(schema.authors)
+          .set(updates)
+          .where(eq(schema.authors.id, localAuthor.authorId))
+          .run();
+        console.log(`[Metadata] Enriched author "${localAuthor.name}" with ${Object.keys(updates).join(', ')}`);
+      }
+    } catch (err) {
+      console.warn(`[Metadata] Failed to enrich author "${localAuthor.name}":`, err);
     }
   }
 }

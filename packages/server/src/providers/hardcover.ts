@@ -60,7 +60,17 @@ const SERIES_BY_PK_QUERY = gql`
       id
       name
       description
-      book_count
+    }
+  }
+`;
+
+const AUTHOR_BY_PK_QUERY = gql`
+  query GetAuthor($id: Int!) {
+    authors_by_pk(id: $id) {
+      id
+      name
+      bio
+      image { url }
     }
   }
 `;
@@ -146,17 +156,47 @@ export class HardcoverProvider implements MetadataProvider {
     }
   }
 
-  async getSeriesDetails(seriesId: string): Promise<{ id: number; name: string; description: string | null; bookCount: number | null } | null> {
+  async getBookAuthorIds(bookId: string): Promise<{ id: number; name: string }[]> {
+    try {
+      const data = await this.requestWithRetry<{ books_by_pk: HardcoverBook | null }>(
+        BOOK_BY_PK_QUERY,
+        { id: parseInt(bookId) },
+      );
+      return data.books_by_pk?.contributions.map(c => ({ id: c.author.id, name: c.author.name })) || [];
+    } catch (err: any) {
+      console.error('[Hardcover] Book author IDs fetch error:', err.message);
+      return [];
+    }
+  }
+
+  async getAuthorDetails(authorId: string): Promise<{ id: number; name: string; bio: string | null; imageUrl: string | null } | null> {
     try {
       const data = await this.requestWithRetry<{
-        series_by_pk: { id: number; name: string; description: string | null; book_count: number | null } | null;
+        authors_by_pk: { id: number; name: string; bio: string | null; image: { url: string } | null } | null;
+      }>(AUTHOR_BY_PK_QUERY, { id: parseInt(authorId) });
+      if (!data.authors_by_pk) return null;
+      return {
+        id: data.authors_by_pk.id,
+        name: data.authors_by_pk.name,
+        bio: data.authors_by_pk.bio,
+        imageUrl: data.authors_by_pk.image?.url || null,
+      };
+    } catch (err: any) {
+      console.error('[Hardcover] Author detail fetch error:', err.message);
+      return null;
+    }
+  }
+
+  async getSeriesDetails(seriesId: string): Promise<{ id: number; name: string; description: string | null } | null> {
+    try {
+      const data = await this.requestWithRetry<{
+        series_by_pk: { id: number; name: string; description: string | null } | null;
       }>(SERIES_BY_PK_QUERY, { id: parseInt(seriesId) });
       if (!data.series_by_pk) return null;
       return {
         id: data.series_by_pk.id,
         name: data.series_by_pk.name,
         description: data.series_by_pk.description,
-        bookCount: data.series_by_pk.book_count,
       };
     } catch (err: any) {
       console.error('[Hardcover] Series detail fetch error:', err.message);
