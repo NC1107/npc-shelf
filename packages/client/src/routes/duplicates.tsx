@@ -91,6 +91,7 @@ export function DuplicatesPage() {
           <button
             key={opt.value}
             onClick={() => setMethodFilter(opt.value)}
+            aria-pressed={methodFilter === opt.value}
             className={`inline-flex items-center rounded-md border px-3 py-1 text-sm font-medium transition-colors ${
               methodFilter === opt.value
                 ? 'border-primary bg-primary text-primary-foreground'

@@ -11,6 +11,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'pdf-reader': ['pdfjs-dist'],
+          'epub-reader': ['react-reader', 'epubjs'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

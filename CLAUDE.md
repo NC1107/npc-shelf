@@ -49,19 +49,25 @@ Express.js on Node 22 with SQLite (better-sqlite3) and Drizzle ORM.
 - **Database**: Schema defined in `src/db/schema/` (11 files). Tables are created via raw SQL in `src/db/index.ts:initializeDatabase()` using `CREATE TABLE IF NOT EXISTS`. Drizzle ORM is used for all query operations in routes. Drizzle migrations are set up but the initial migration hasn't been generated yet — the raw SQL handles the baseline.
 - **Auth**: Single-user MVP. Password-only login (`POST /api/auth/login`). JWT access token (15min) + refresh token (7d, HttpOnly cookie). `authMiddleware` checks Bearer token.
 - **Cover images are served publicly** — the `GET /api/books/:id/cover/:size` route is registered BEFORE authMiddleware in `index.ts` because `<img>` tags cannot send Bearer tokens. All other `/api/books/*` routes are protected.
-- **Job queue**: SQLite-backed, polled every 5s by `startJobProcessor()`. Job handlers registered in `index.ts` for: `scan_library`, `match_metadata`, `match_all_metadata`, `backfill_covers`, `merge_audiobook`. Max 3 attempts with automatic retry.
+- **Job queue**: SQLite-backed, polled every 5s by `startJobProcessor()`. Job handlers registered in `index.ts` for: `scan_library`, `match_metadata`, `match_all_metadata`, `backfill_covers`, `merge_audiobook`, `convert_format`. Max 3 attempts with automatic retry.
 - **Scanner** (`services/scanner.ts`): Walks library directories, hashes files (SHA-256, partial hash for large audio), extracts metadata from EPUB/MP3/M4B, creates book/file/author records, generates cover WebP resizes via sharp.
-- **Metadata pipeline** (`services/metadata-pipeline.ts`): Queries Hardcover GraphQL API to enrich books with descriptions, covers, series info. Confidence scoring with bigram similarity + length penalty. Minimum threshold 0.5, title gate 0.4.
+- **Metadata pipeline** (`services/metadata-pipeline.ts`): Queries Hardcover GraphQL API to enrich books with descriptions, covers, series info. Confidence scoring with bigram similarity + length penalty. Hard floor 0.3, title gate 0.5.
 - **Hardcover provider** (`providers/hardcover.ts`): GraphQL client with token bucket rate limiter (60/min) and `requestWithRetry()` for 429/5xx backoff. ISBN data comes from Typesense search only (not `books_by_pk`).
 - **Cover pipeline** (`services/cover.ts`): `extractAndCacheCover()` saves original + generates `{id}_thumb.webp`, `{id}_medium.webp`, `{id}_full.webp` via sharp. `cover-backfill.ts` regenerates missing WebP variants on startup.
 - **File watcher** (`services/file-watcher.ts`): Chokidar-based watchers on library directories, initialized at startup via `initializeWatchers()`.
 - **OPDS** (`routes/opds.ts`): OPDS catalog feed for external reader apps, mounted at `/opds`.
 - **FTS5**: `books_fts` virtual table kept in sync via SQLite triggers on the books table.
+- **Metadata writer** (`services/metadata-writer.ts`): Writes book metadata into file headers — EPUB (JSZip + fast-xml-parser for OPF), MP3 (node-id3), M4B (ffmpeg), PDF (pdf-lib), AZW3/MOBI (Calibre `ebook-meta`).
+- **File renamer** (`services/file-renamer.ts`): Template-based renaming (`{author}/{series_prefix}{title}/{title}.{ext}`) with preview/execute pattern and path traversal protection.
+- **Duplicate detector** (`services/duplicate-detector.ts`): Finds duplicates by file hash, title+author fuzzy match (0.85 threshold), and ISBN collision.
+- **Format converter** (`services/format-converter.ts`): Calibre `ebook-convert` wrapper for EPUB ↔ MOBI/AZW3/PDF conversion. Queued as `convert_format` job.
+- **Authors** (`routes/authors.ts`): Author listing with book counts, duplicate detection, and author merge.
+- **External tools**: ffmpeg (audio merge, M4B metadata) and Calibre (ebook-meta, ebook-convert) are checked at startup; warnings logged if unavailable.
 
 ### Client (`@npc-shelf/client`)
 React 19 + Vite 6 + TanStack Router + TanStack Query + Zustand + Tailwind v4 + shadcn/ui.
 
-- **Routing**: TanStack Router with file-based routes in `src/routes/`. Root component gates on setup → login → authenticated shell. Route tree: `/dashboard`, `/library`, `/library/$bookId`, `/library/$bookId/read`, `/library/$bookId/listen`, `/search`, `/collections`, `/collections/$collectionId`, `/series`, `/series/$seriesId`, `/settings`.
+- **Routing**: TanStack Router with file-based routes in `src/routes/`. Root component gates on setup → login → authenticated shell. Route tree: `/dashboard`, `/library`, `/library/$bookId`, `/library/$bookId/read`, `/library/$bookId/listen`, `/search`, `/collections`, `/collections/$collectionId`, `/series`, `/series/$seriesId`, `/authors`, `/duplicates`, `/settings`.
 - **API client** (`lib/api.ts`): Singleton `ApiClient` with auto-refresh on 401. All data fetching goes through `api.get/post/put/delete`.
 - **Stores**: Zustand — `authStore` (token, user), `audioStore` (playback state, persisted), `readerStore` (reading positions), `uiStore` (theme, sidebar).
 - **Dev proxy**: Vite proxies `/api` and `/opds` to `localhost:3001`.
@@ -84,7 +90,8 @@ Multi-stage build in `docker/Dockerfile` (shared → client → server → produ
 - Settings values are stored as strings in the DB — client must compare with `'false'`/`'true'`, not booleans
 - Books list endpoint filters out ghost books (no files) by default
 - Cover processing validates image format via `sharp().metadata()` before saving
-- ffmpeg availability is checked at startup and before audio merge jobs
+- ffmpeg and Calibre availability are checked at startup and before jobs that need them
+- Filename parser (`utils/filename-parser.ts`) uses person-name heuristic + directory hint to disambiguate "Author - Title" vs "Title - Author" patterns
 
 ## Environment Variables
 

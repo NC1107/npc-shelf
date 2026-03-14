@@ -50,7 +50,9 @@ export function AudioMiniPlayer() {
     stop();
   };
 
-  const progress = totalDurationSeconds > 0 ? (positionSeconds / totalDurationSeconds) * 100 : 0;
+  // Round to nearest second so progress bar re-renders ~1/s instead of every frame
+  const roundedPosition = Math.floor(positionSeconds);
+  const progress = totalDurationSeconds > 0 ? (roundedPosition / totalDurationSeconds) * 100 : 0;
 
   return (
     <div className="border-t bg-card">

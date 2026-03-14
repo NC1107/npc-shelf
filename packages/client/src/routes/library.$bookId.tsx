@@ -15,16 +15,8 @@ import { Separator } from '../components/ui/separator';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/tooltip';
 import { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem } from '../components/ui/dropdown-menu';
 import { api } from '../lib/api';
+import { FORMAT_COLORS } from '../lib/format-colors';
 import type { BookDetail, MatchBreakdown } from '@npc-shelf/shared';
-
-const FORMAT_COLORS: Record<string, string> = {
-  epub: 'bg-blue-600 text-white border-blue-700',
-  pdf: 'bg-red-600 text-white border-red-700',
-  mobi: 'bg-orange-600 text-white border-orange-700',
-  azw3: 'bg-orange-600 text-white border-orange-700',
-  m4b: 'bg-purple-600 text-white border-purple-700',
-  mp3: 'bg-green-600 text-white border-green-700',
-};
 
 export function BookDetailPage() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
@@ -320,9 +312,9 @@ function BookDetailContent({
                   className="h-full w-full object-cover"
                 />
               ) : hasAudio ? (
-                <Headphones className="h-16 w-16 text-muted-foreground" />
+                <Headphones className="h-16 w-16 text-muted-foreground" aria-hidden="true" />
               ) : (
-                <BookOpen className="h-16 w-16 text-muted-foreground" />
+                <BookOpen className="h-16 w-16 text-muted-foreground" aria-hidden="true" />
               )}
             </div>
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
@@ -747,6 +739,7 @@ function BookDetailContent({
             <div className="flex rounded-lg border p-0.5 gap-0.5 w-fit">
               <button
                 onClick={() => setActiveFormat('ebook')}
+                aria-pressed={activeFormat === 'ebook'}
                 className={`px-3 py-1 rounded text-sm transition-colors ${
                   activeFormat === 'ebook'
                     ? 'bg-primary text-primary-foreground'
@@ -757,6 +750,7 @@ function BookDetailContent({
               </button>
               <button
                 onClick={() => setActiveFormat('audiobook')}
+                aria-pressed={activeFormat === 'audiobook'}
                 className={`px-3 py-1 rounded text-sm transition-colors ${
                   activeFormat === 'audiobook'
                     ? 'bg-primary text-primary-foreground'

@@ -106,7 +106,7 @@ function BulkActionBar({
     <div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3">
-          <Badge variant="secondary" className="text-sm">
+          <Badge variant="secondary" className="text-sm" role="status" aria-live="polite">
             {selectedCount} selected
           </Badge>
           <Button variant="ghost" size="sm" onClick={onSelectAll}>
@@ -202,8 +202,8 @@ function FilterPanel({
       <CardContent className="flex flex-wrap gap-3 p-4">
         {filters?.formats && filters.formats.length > 0 && (
           <div className="space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">Format</span>
-            <Select value={format} onChange={(e) => { setLibraryFilters({ libraryFormat: e.target.value, libraryPage: 1 }); }}>
+            <label htmlFor="filter-format" className="text-xs font-medium text-muted-foreground">Format</label>
+            <Select id="filter-format" value={format} onChange={(e) => { setLibraryFilters({ libraryFormat: e.target.value, libraryPage: 1 }); }}>
               <option value="">All formats</option>
               {filters.formats.map((f) => (
                 <option key={f} value={f}>{f.toUpperCase()}</option>
@@ -213,23 +213,25 @@ function FilterPanel({
         )}
         {filters?.authors && filters.authors.length > 0 && (
           <div className="space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">Author</span>
+            <span id="filter-author-label" className="text-xs font-medium text-muted-foreground">Author</span>
             <Combobox
               options={filters.authors.map(a => ({ value: String(a.id), label: a.name }))}
               value={authorId}
               onChange={(v) => setLibraryFilters({ libraryAuthorId: v, libraryPage: 1 })}
               placeholder="All authors"
+              aria-labelledby="filter-author-label"
             />
           </div>
         )}
         {filters?.series && filters.series.length > 0 && (
           <div className="space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">Series</span>
+            <span id="filter-series-label" className="text-xs font-medium text-muted-foreground">Series</span>
             <Combobox
               options={filters.series.map(s => ({ value: String(s.id), label: s.name }))}
               value={seriesId}
               onChange={(v) => setLibraryFilters({ librarySeriesId: v, libraryPage: 1 })}
               placeholder="All series"
+              aria-labelledby="filter-series-label"
             />
           </div>
         )}
@@ -269,7 +271,8 @@ function EmptyState({ hasFilters }: Readonly<{ hasFilters: boolean }>) {
 
 function LoadingSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+    <output aria-busy="true" className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+      <span className="sr-only">Loading books</span>
       {['a','b','c','d','e','f','g','h','i','j','k','l'].map((id) => (
         <div key={id} className="animate-pulse">
           <div className="aspect-[2/3] rounded-lg bg-muted" />
@@ -277,7 +280,7 @@ function LoadingSkeleton() {
           <div className="mt-1 h-3 w-2/3 rounded bg-muted" />
         </div>
       ))}
-    </div>
+    </output>
   );
 }
 
@@ -329,7 +332,7 @@ function LibraryPagination({
   const pageNumbers = generatePageNumbers(page, totalPages);
 
   return (
-    <div className="flex items-center justify-center gap-2 pt-4">
+    <nav aria-label="Pagination" className="flex items-center justify-center gap-2 pt-4">
       <Button
         variant="outline"
         size="sm"
@@ -350,6 +353,7 @@ function LibraryPagination({
               size="sm"
               className="w-9"
               onClick={() => onPageChange(p)}
+              {...(p === page ? { 'aria-current': 'page' as const } : {})}
             >
               {p}
             </Button>
@@ -364,7 +368,7 @@ function LibraryPagination({
       >
         Next
       </Button>
-    </div>
+    </nav>
   );
 }
 
@@ -556,6 +560,7 @@ export function LibraryPage() {
           size="icon"
           onClick={() => setLibraryFilters({ librarySortOrder: sortOrder === 'asc' ? 'desc' : 'asc' })}
           title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+          aria-label={sortOrder === 'asc' ? 'Sort ascending' : 'Sort descending'}
         >
           {sortOrder === 'asc' ? '\u2191' : '\u2193'}
         </Button>

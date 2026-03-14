@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Search as SearchIcon, BookOpen, User, Layers, ArrowRight, Headphones } from 'lucide-react';
@@ -49,11 +49,13 @@ export function SearchPage() {
 
   const hasResults = data && (data.books.length > 0 || data.authors.length > 0 || data.series.length > 0);
 
-  // Split books by format
-  const audiobooks = data?.books.filter(b => b.formats?.some(f => AUDIO_FORMATS.has(f))) || [];
-  const ebooks = data?.books.filter(b => b.formats?.some(f => EBOOK_FORMATS.has(f)) && !b.formats?.some(f => AUDIO_FORMATS.has(f))) || [];
-  // Books with both formats already appear in audiobooks; show them only once
-  const hasMixedFormats = audiobooks.length > 0 && ebooks.length > 0;
+  // Split books by format (memoized to avoid re-filtering on every render)
+  const { audiobooks, ebooks, hasMixedFormats } = useMemo(() => {
+    const books = data?.books || [];
+    const audio = books.filter(b => b.formats?.some(f => AUDIO_FORMATS.has(f)));
+    const ebook = books.filter(b => b.formats?.some(f => EBOOK_FORMATS.has(f)) && !b.formats?.some(f => AUDIO_FORMATS.has(f)));
+    return { audiobooks: audio, ebooks: ebook, hasMixedFormats: audio.length > 0 && ebook.length > 0 };
+  }, [data?.books]);
 
   return (
     <div className="space-y-6">

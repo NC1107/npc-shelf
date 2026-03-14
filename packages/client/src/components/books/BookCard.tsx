@@ -1,25 +1,18 @@
+import React from 'react';
 import { Link } from '@tanstack/react-router';
 import { BookOpen, Headphones } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Progress } from '../ui/progress';
 import { cn } from '../ui/utils';
+import { FORMAT_COLORS } from '../../lib/format-colors';
 import type { Book } from '@npc-shelf/shared';
-
-const FORMAT_COLORS: Record<string, string> = {
-  epub: 'bg-blue-600 text-white border-blue-700',
-  pdf: 'bg-red-600 text-white border-red-700',
-  mobi: 'bg-orange-600 text-white border-orange-700',
-  azw3: 'bg-orange-600 text-white border-orange-700',
-  m4b: 'bg-purple-600 text-white border-purple-700',
-  mp3: 'bg-green-600 text-white border-green-700',
-};
 
 interface BookCardProps {
   book: Book & { authors?: { author: { name: string } }[]; formats?: string[] };
   view?: 'grid' | 'list';
 }
 
-export function BookCard({ book, view = 'grid' }: BookCardProps) {
+export const BookCard = React.memo(function BookCard({ book, view = 'grid' }: BookCardProps) {
   const isAudiobook = book.audioSeconds && book.audioSeconds > 0;
   const progress = (book as any).progressPercent as number | undefined;
 
@@ -38,9 +31,9 @@ export function BookCard({ book, view = 'grid' }: BookCardProps) {
               className="h-full w-full object-cover"
             />
           ) : isAudiobook ? (
-            <Headphones className="h-4 w-4 text-muted-foreground" />
+            <Headphones className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           ) : (
-            <BookOpen className="h-4 w-4 text-muted-foreground" />
+            <BookOpen className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           )}
         </div>
         <div className="min-w-0 flex-1">
@@ -77,9 +70,9 @@ export function BookCard({ book, view = 'grid' }: BookCardProps) {
             loading="lazy"
           />
         ) : isAudiobook ? (
-          <Headphones className="h-8 w-8 text-muted-foreground" />
+          <Headphones className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
         ) : (
-          <BookOpen className="h-8 w-8 text-muted-foreground" />
+          <BookOpen className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
         )}
 
         {/* Format badges */}
@@ -102,7 +95,7 @@ export function BookCard({ book, view = 'grid' }: BookCardProps) {
         {/* Audio duration indicator */}
         {isAudiobook && (
           <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 rounded bg-black/60 px-1 py-0.5 text-[9px] text-white backdrop-blur-sm">
-            <Headphones className="h-2.5 w-2.5" />
+            <Headphones className="h-2.5 w-2.5" aria-hidden="true" />
             {formatDuration(book.audioSeconds!)}
           </div>
         )}
@@ -121,7 +114,7 @@ export function BookCard({ book, view = 'grid' }: BookCardProps) {
       </div>
     </Link>
   );
-}
+});
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);

@@ -43,15 +43,16 @@ export function EpubReader({ url, initialCfi, onLocationChange }: EpubReaderProp
     [onLocationChange],
   );
 
+  // Hex values required — epub.js operates in an iframe, can't use Tailwind/CSS vars
+  const themeColors: Record<string, { color: string; bg: string }> = {
+    light: { color: '#1a1a1a', bg: '#ffffff' },
+    dark: { color: '#e0e0e0', bg: '#1a1a2e' },
+    sepia: { color: '#5b4636', bg: '#f4ecd8' },
+  };
+
   // Apply reader settings to rendition
   useEffect(() => {
     if (!renditionRef.current) return;
-
-    const themeColors: Record<string, { color: string; bg: string }> = {
-      light: { color: '#1a1a1a', bg: '#ffffff' },
-      dark: { color: '#e0e0e0', bg: '#1a1a2e' },
-      sepia: { color: '#5b4636', bg: '#f4ecd8' },
-    };
 
     renditionRef.current.themes.override('font-size', `${fontSize}px`);
     renditionRef.current.themes.override('font-family', fontFamily);
@@ -64,12 +65,6 @@ export function EpubReader({ url, initialCfi, onLocationChange }: EpubReaderProp
       renditionRef.current.themes.override('background', colors.bg);
     }
   }, [fontSize, fontFamily, theme, lineHeight, margins]);
-
-  const themeColors: Record<string, { color: string; bg: string }> = {
-    light: { color: '#1a1a1a', bg: '#ffffff' },
-    dark: { color: '#e0e0e0', bg: '#1a1a2e' },
-    sepia: { color: '#5b4636', bg: '#f4ecd8' },
-  };
 
   // Style ReactReader's wrapper UI (arrows, TOC, container) to match theme
   const readerStyles = useMemo(() => {

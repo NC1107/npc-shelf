@@ -50,7 +50,9 @@ export function LoginPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <label htmlFor="login-password" className="sr-only">Password</label>
             <Input
+              id="login-password"
               type="password"
               placeholder="Password"
               value={password}

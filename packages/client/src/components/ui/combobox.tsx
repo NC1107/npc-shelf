@@ -7,15 +7,16 @@ interface ComboboxOption {
   label: string;
 }
 
-interface ComboboxProps {
+export interface ComboboxProps {
   options: ComboboxOption[];
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  'aria-labelledby'?: string;
 }
 
-export function Combobox({ options, value, onChange, placeholder = 'Select...', className }: ComboboxProps) {
+export function Combobox({ options, value, onChange, placeholder = 'Select...', className, 'aria-labelledby': ariaLabelledBy }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,7 +52,7 @@ export function Combobox({ options, value, onChange, placeholder = 'Select...', 
   }
 
   return (
-    <div ref={containerRef} className={cn('relative', className)}>
+    <div ref={containerRef} className={cn('relative', className)} aria-labelledby={ariaLabelledBy}>
       <div
         className="flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm cursor-pointer min-w-[160px]"
         onClick={() => {

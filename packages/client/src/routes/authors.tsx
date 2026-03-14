@@ -152,7 +152,16 @@ export function AuthorsPage() {
       <Card>
         <CardHeader
           className="cursor-pointer"
+          role="button"
+          tabIndex={0}
+          aria-expanded={showDuplicates}
           onClick={() => setShowDuplicates(!showDuplicates)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setShowDuplicates(!showDuplicates);
+            }
+          }}
         >
           <CardTitle className="flex items-center justify-between text-base">
             <span className="flex items-center gap-2">
@@ -345,6 +354,7 @@ export function AuthorsPage() {
                         size="icon"
                         className="h-7 w-7 shrink-0"
                         onClick={() => startEdit(author)}
+                        aria-label="Edit author"
                       >
                         <Pencil className="h-3 w-3" />
                       </Button>

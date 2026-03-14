@@ -35,13 +35,18 @@ function BackgroundJobsCard() {
   const { data: summary } = useQuery({
     queryKey: ['jobs-summary'],
     queryFn: () => api.get<JobSummary>('/jobs/summary'),
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const s = query.state.data;
+      return (s?.pending ?? 0) + (s?.processing ?? 0) > 0 ? 5000 : 30000;
+    },
   });
+
+  const hasActiveJobs = (summary?.pending ?? 0) + (summary?.processing ?? 0) > 0;
 
   const { data: recentJobs } = useQuery({
     queryKey: ['jobs-recent'],
     queryFn: () => api.get<{ items: Job[] }>('/jobs?pageSize=10'),
-    refetchInterval: 5000,
+    refetchInterval: hasActiveJobs ? 5000 : 30000,
   });
 
   const retryJob = useMutation({
@@ -81,7 +86,7 @@ function BackgroundJobsCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         {summary && (
-          <div className="grid grid-cols-4 gap-3 text-center">
+          <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
             <div className="rounded-lg bg-muted p-2">
               <p className="text-lg font-semibold">{summary.pending}</p>
               <p className="text-xs text-muted-foreground">Pending</p>
@@ -106,10 +111,10 @@ function BackgroundJobsCard() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-background">
                 <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="p-2">Status</th>
-                  <th className="p-2">Type</th>
-                  <th className="p-2">Created</th>
-                  <th className="p-2"></th>
+                  <th scope="col" className="p-2">Status</th>
+                  <th scope="col" className="p-2">Type</th>
+                  <th scope="col" className="p-2">Created</th>
+                  <th scope="col" className="p-2"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -125,9 +130,10 @@ function BackgroundJobsCard() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6"
+                          className="h-8 w-8"
                           onClick={() => retryJob.mutate(job.id)}
                           disabled={retryJob.isPending}
+                          aria-label="Retry job"
                           title={job.error || 'Retry'}
                         >
                           <RotateCcw className="h-3 w-3" />
@@ -370,13 +376,17 @@ export function SettingsPage() {
                   <ChevronUp className="h-4 w-4" />
                 </Button>
               </div>
+              <label htmlFor="lib-name" className="text-sm font-medium">Library name</label>
               <Input
+                id="lib-name"
                 placeholder="Library name"
                 value={newLibName}
                 onChange={(e) => setNewLibName(e.target.value)}
               />
+              <label htmlFor="lib-path" className="text-sm font-medium">Library path</label>
               <div className="flex gap-2">
                 <Input
+                  id="lib-path"
                   placeholder="Path (e.g. /libraries/ebooks)"
                   value={newLibPath}
                   onChange={(e) => setNewLibPath(e.target.value)}
@@ -386,7 +396,9 @@ export function SettingsPage() {
                   <FolderOpen className="h-4 w-4" />
                 </Button>
               </div>
+              <label htmlFor="lib-type" className="text-sm font-medium">Library type</label>
               <select
+                id="lib-type"
                 value={newLibType}
                 onChange={(e) => setNewLibType(e.target.value as 'ebook' | 'audiobook' | 'mixed')}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -482,6 +494,7 @@ export function SettingsPage() {
                       .then(() => queryClient.invalidateQueries({ queryKey: ['app-settings'] }));
                   }}
                   className="sr-only peer"
+                  aria-label="Auto-match metadata on scan"
                 />
                 <div className="w-9 h-5 bg-muted rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-background after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
               </label>
@@ -550,7 +563,9 @@ export function SettingsPage() {
           </div>
 
           <div className="space-y-3">
+            <label htmlFor="kindle-email" className="text-sm font-medium">Kindle email</label>
             <Input
+              id="kindle-email"
               placeholder="Kindle email (e.g. yourname@kindle.com)"
               value={kindleEmail}
               onChange={(e) => setKindleEmail(e.target.value)}
@@ -558,12 +573,25 @@ export function SettingsPage() {
             <Separator />
             <p className="text-xs font-medium text-muted-foreground">SMTP Settings</p>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Input placeholder="SMTP host" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
-              <Input placeholder="SMTP port" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
-              <Input placeholder="SMTP username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
-              <Input placeholder="SMTP password" type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
+              <div className="space-y-1">
+                <label htmlFor="smtp-host" className="text-xs font-medium">SMTP host</label>
+                <Input id="smtp-host" placeholder="SMTP host" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="smtp-port" className="text-xs font-medium">SMTP port</label>
+                <Input id="smtp-port" placeholder="SMTP port" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="smtp-user" className="text-xs font-medium">SMTP username</label>
+                <Input id="smtp-user" placeholder="SMTP username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="smtp-pass" className="text-xs font-medium">SMTP password</label>
+                <Input id="smtp-pass" placeholder="SMTP password" type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
+              </div>
             </div>
-            <Input placeholder="From email" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} />
+            <label htmlFor="from-email" className="text-sm font-medium">From email</label>
+            <Input id="from-email" placeholder="From email" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} />
             <Button
               onClick={() => saveKindleSettings.mutate({
                 kindleEmail,

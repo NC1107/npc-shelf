@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import {
   BookOpen,
@@ -34,6 +35,17 @@ export function Sidebar() {
   const { sidebarOpen, setSidebarOpen } = useUiStore();
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSidebarOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [sidebarOpen, setSidebarOpen]);
 
   return (
     <>
