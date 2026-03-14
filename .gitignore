@@ -13,3 +13,4 @@ data/
 test-library/
 test-cache/
 test-results/
+.vscode/
