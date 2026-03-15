@@ -78,6 +78,14 @@ npm run dev            # concurrent dev server (3001) + client (5173)
 - Scanner uses partial SHA-256 hashing for large audio files
 - `@npc-shelf/shared` constants are the source of truth for magic numbers
 
+## Releasing & Deployment
+
+- **Pushing a git tag** (`vX.Y.Z`) triggers the GitHub Actions release pipeline (`.github/workflows/release.yml`)
+- The pipeline builds the Docker image from `docker/Dockerfile` and pushes to `ghcr.io/nc1107/npc-shelf`
+- Tags produced: `X.Y.Z`, `X.Y`, and `latest`
+- There is no separate "create release" step — **push the tag, the pipeline handles the rest**
+- To deploy a new version: commit, tag, `git push && git push --tags`
+
 ## Testing
 
 - Framework: Vitest with `globals: true` (no need to import describe/it/expect)
