@@ -139,7 +139,7 @@ app.get('/api/health', (_req, res) => {
 
     res.json({
       status: 'ok',
-      version: '0.6.0',
+      version: '0.6.1',
       uptime: process.uptime(),
       database: 'connected',
       books: bookCount,

@@ -9,8 +9,10 @@ import { enqueueJob } from '../services/job-queue.js';
 import { cleanupDirtyTitles } from '../services/metadata-pipeline.js';
 import { isConvertAvailable, SUPPORTED_CONVERSIONS } from '../services/format-converter.js';
 import { enrichBooksWithMeta } from '../utils/book-enricher.js';
+import { parseFilename, cleanTitle } from '../utils/filename-parser.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const { files } = schema;
 
 export const booksRouter = Router();
 
@@ -641,18 +643,34 @@ booksRouter.delete('/:id/match', (req, res) => {
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) { res.status(404).json({ error: 'Book not found' }); return; }
 
+    // Restore title from filename so re-match uses the original source
+    const file = db.select({ path: files.path, filename: files.filename })
+      .from(files)
+      .where(eq(files.bookId, bookId))
+      .get();
+    let restoredTitle: string | undefined;
+    if (file) {
+      const dirPath = file.path.replace(/[\\/][^\\/]+$/, '');
+      const parsed = parseFilename(file.filename, dirPath);
+      const cleaned = cleanTitle(parsed.title);
+      if (cleaned && cleaned.toLowerCase() !== book.title.toLowerCase()) {
+        restoredTitle = cleaned;
+      }
+    }
+
     db.update(schema.books).set({
       hardcoverId: null,
       hardcoverSlug: null,
       matchConfidence: null,
       matchBreakdown: null,
+      ...(restoredTitle ? { title: restoredTitle } : {}),
       updatedAt: new Date().toISOString(),
     }).where(eq(schema.books.id, bookId)).run();
 
     // Remove metadata cache
     db.delete(schema.metadataCache).where(eq(schema.metadataCache.bookId, bookId)).run();
 
-    res.json({ message: 'Match cleared' });
+    res.json({ message: 'Match cleared', restoredTitle: restoredTitle || null });
   } catch (error) {
     console.error('[Books] Clear match error:', error);
     res.status(500).json({ error: 'Internal server error' });
