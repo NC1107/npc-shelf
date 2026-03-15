@@ -4,6 +4,7 @@ import type { MetadataProvider } from '../providers/metadata-provider.js';
 import type { MetadataMatchResult, MetadataSearchResult } from '@npc-shelf/shared';
 import { METADATA } from '@npc-shelf/shared';
 import { stringSimilarity, normalizeForComparison } from '../utils/string-similarity.js';
+import { cleanTitle } from '../utils/filename-parser.js';
 import { downloadAndResizeCover } from './cover.js';
 import { HardcoverProvider } from '../providers/hardcover.js';
 
@@ -173,8 +174,9 @@ export async function enrichBook(bookId: number): Promise<void> {
     .get();
 
   const isbn = book.isbn13 || book.isbn10 || undefined;
+  const searchTitle = cleanTitle(book.title);
   ensureToken();
-  const match = await matchBook(provider, book.title, authorRow?.name, isbn);
+  const match = await matchBook(provider, searchTitle, authorRow?.name, isbn);
 
   if (!match) {
     console.log(`[Metadata] No match found for "${book.title}"`);

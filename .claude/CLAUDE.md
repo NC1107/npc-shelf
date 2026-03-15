@@ -22,6 +22,7 @@ NPC-Shelf is a **self-hosted personal book library manager**. Think Calibre meet
 ### Commit Rules
 - **No co-author lines.** Do not append `Co-Authored-By` to commits. Ever.
 - **Every commit gets a version bump.** When you commit, bump the patch version in all 4 `package.json` files (root, shared, client, server) and tag it `vX.Y.Z`. This is the release process — there is no separate release step.
+- **Always push after completing a task.** After a successful build, test, commit, and tag, run `git push && git push --tags` to deploy. The release pipeline is tag-driven — nothing ships until the tag is pushed.
 - **Commit message style**: Lowercase prefix (`fix:`, `feat:`, `chore:`, `docs:`), concise subject line, bullet-point body if needed. No emoji.
 - **Tag format**: `vX.Y.Z` (e.g., `v0.5.1`)
 
@@ -92,3 +93,5 @@ npm run dev            # concurrent dev server (3001) + client (5173)
 - Tests live in `packages/server/src/**/__tests__/`
 - Always run `npm run build && npm test` before committing
 - E2E: Playwright (in `e2e/`)
+- **Live instance**: `https://shelf.npc-server.top` — use this for manual/Playwright testing against the deployed container
+- **Safe delete rule**: Do NOT delete any books or data on the live instance, except "Austin Family Chronicles" which is a test entry
