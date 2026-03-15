@@ -16,7 +16,8 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../com
 import { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem } from '../components/ui/dropdown-menu';
 import { api } from '../lib/api';
 import { FORMAT_COLORS } from '../lib/format-colors';
-import type { BookDetail, MatchBreakdown, Job, AudioChapter } from '@npc-shelf/shared';
+import { ComparePanel } from '../components/book/ComparePanel';
+import type { BookDetail, MatchBreakdown, Job, AudioChapter, MetadataSearchResult } from '@npc-shelf/shared';
 
 interface RenamePreviewItem {
   fileId: number;
@@ -201,6 +202,14 @@ export function BookDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<BookEditData>({});
   const [showFiles, setShowFiles] = useState(false);
+
+  // Fetch Hardcover details when editing a matched book
+  const { data: hardcoverDetails } = useQuery({
+    queryKey: ['hardcover-details', book?.hardcoverId],
+    queryFn: () => api.get<MetadataSearchResult>(`/metadata/details/${book!.hardcoverId}`),
+    enabled: isEditing && !!book?.hardcoverId,
+    staleTime: 5 * 60 * 1000,
+  });
   const [splitMode, setSplitMode] = useState(false);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<number>>(new Set());
 
@@ -310,6 +319,7 @@ export function BookDetailPage() {
       selectedFileIds={selectedFileIds}
       setSelectedFileIds={setSelectedFileIds}
       convertFormat={convertFormat}
+      hardcoverDetails={hardcoverDetails}
       chapters={chapters}
       editingChapters={editingChapters}
       setEditingChapters={setEditingChapters}
@@ -329,7 +339,7 @@ function BookDetailContent({
   splitFiles, clearMatch, previewRename, executeRename, writeMetadata, renamePreview, setRenamePreview,
   hasRenameSuggestion, onDismissRenameBanner,
   splitMode, setSplitMode, selectedFileIds, setSelectedFileIds,
-  convertFormat, chapters, editingChapters, setEditingChapters, chapterData, setChapterData, saveChapters,
+  convertFormat, hardcoverDetails, chapters, editingChapters, setEditingChapters, chapterData, setChapterData, saveChapters,
 }: any) {
   const [activeFormat, setActiveFormat] = useState<'ebook' | 'audiobook'>(hasAudio ? 'audiobook' : 'ebook');
 
@@ -889,6 +899,33 @@ function BookDetailContent({
                 </div>
               </>
             )
+          )}
+
+          {/* Hardcover comparison panel — only when editing a matched book */}
+          {isEditing && hardcoverDetails && (
+            <ComparePanel
+              editData={editData}
+              setEditData={setEditData}
+              remote={hardcoverDetails}
+              onApplyAll={() => {
+                setEditData({
+                  ...editData,
+                  title: hardcoverDetails.title || editData.title,
+                  subtitle: hardcoverDetails.subtitle || editData.subtitle || '',
+                  description: hardcoverDetails.description || editData.description || '',
+                  publishDate: hardcoverDetails.publishDate || editData.publishDate || '',
+                  pageCount: hardcoverDetails.pageCount || editData.pageCount || '',
+                  isbn13: hardcoverDetails.isbn13 || editData.isbn13 || '',
+                  isbn10: hardcoverDetails.isbn10 || editData.isbn10 || '',
+                  authors: hardcoverDetails.authors?.length
+                    ? hardcoverDetails.authors.map((name: string) => ({ name, role: 'author' }))
+                    : editData.authors,
+                  series: hardcoverDetails.series
+                    ? [{ name: hardcoverDetails.series, position: hardcoverDetails.seriesPosition }]
+                    : editData.series,
+                });
+              }}
+            />
           )}
 
           {/* Details grid */}

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
-import { searchProvider, applyMatch } from '../services/metadata-pipeline.js';
+import { searchProvider, applyMatch, getProvider } from '../services/metadata-pipeline.js';
 
 export const metadataRouter = Router();
 
@@ -60,6 +60,23 @@ metadataRouter.get('/search', async (req, res) => {
     res.json({ results, query: q });
   } catch (error) {
     console.error('[Metadata] Search error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Fetch Hardcover book details by external ID
+metadataRouter.get('/details/:externalId', async (req, res) => {
+  try {
+    const { externalId } = req.params;
+    const provider = getProvider();
+    const details = await provider.getDetails(externalId);
+    if (!details) {
+      res.status(404).json({ error: 'Hardcover book not found' });
+      return;
+    }
+    res.json(details);
+  } catch (error) {
+    console.error('[Metadata] Details error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
