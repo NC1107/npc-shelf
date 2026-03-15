@@ -254,7 +254,7 @@ export function BookDetailPage() {
     );
   }
 
-  const hasEbook = book.hasEbook ?? book.files?.some((f) => ['epub', 'pdf'].includes(f.format));
+  const hasEbook = book.hasEbook ?? book.files?.some((f) => ['epub', 'pdf', 'azw3', 'mobi'].includes(f.format));
   const hasAudio = book.hasAudio ?? book.files?.some((f) => ['m4b', 'mp3'].includes(f.format));
   const hasBothFormats = hasEbook && hasAudio;
   const readingProgress = book.readingProgress;

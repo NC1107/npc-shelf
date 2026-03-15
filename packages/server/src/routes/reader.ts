@@ -1,21 +1,50 @@
 import { Router } from 'express';
 import { eq, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { convertBook, isConvertAvailable } from '../services/format-converter.js';
 import fs from 'node:fs';
 
 export const readerRouter = Router();
 
 // Serve book content for browser reader
-readerRouter.get('/books/:id/content', (req, res) => {
+readerRouter.get('/books/:id/content', async (req, res) => {
   try {
     const bookId = Number.parseInt(req.params.id);
     const formatPref = (req.query.format as string) || 'epub';
 
-    const file = db
+    let file = db
       .select()
       .from(schema.files)
       .where(sql`${schema.files.bookId} = ${bookId} AND ${schema.files.format} = ${formatPref}`)
       .get();
+
+    // On-demand conversion: if epub requested but missing, convert from azw3/mobi
+    if (!file && formatPref === 'epub') {
+      const convertible = db
+        .select()
+        .from(schema.files)
+        .where(sql`${schema.files.bookId} = ${bookId} AND ${schema.files.format} IN ('azw3', 'mobi')`)
+        .get();
+
+      if (convertible) {
+        if (!isConvertAvailable()) {
+          res.status(422).json({ error: 'Calibre is required to read AZW3/MOBI files. Install ebook-convert.' });
+          return;
+        }
+        try {
+          await convertBook(convertible.id, 'epub');
+          file = db
+            .select()
+            .from(schema.files)
+            .where(sql`${schema.files.bookId} = ${bookId} AND ${schema.files.format} = 'epub'`)
+            .get();
+        } catch (err: any) {
+          console.error('[Reader] On-demand conversion failed:', err.message);
+          res.status(500).json({ error: `Conversion failed: ${err.message}` });
+          return;
+        }
+      }
+    }
 
     if (!file || !fs.existsSync(file.path)) {
       res.status(404).json({ error: 'Book file not found' });

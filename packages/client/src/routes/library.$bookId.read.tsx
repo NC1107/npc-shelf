@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useParams, Link } from '@tanstack/react-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, Settings, Maximize, Minimize } from 'lucide-react';
+import { ArrowLeft, Settings, Maximize, Minimize, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { EpubReader } from '../components/reader/EpubReader';
 import { PdfReader } from '../components/reader/PdfReader';
@@ -89,15 +89,59 @@ export function ReadPage() {
   // Determine which format to read
   const epubFile = book?.files?.find((f) => f.format === 'epub');
   const pdfFile = book?.files?.find((f) => f.format === 'pdf');
+  const convertibleFile = book?.files?.find((f) => f.format === 'azw3' || f.format === 'mobi');
   let readerFormat: 'epub' | 'pdf' | null = null;
   if (epubFile) readerFormat = 'epub';
   else if (pdfFile) readerFormat = 'pdf';
+  else if (convertibleFile) readerFormat = 'epub'; // server converts azw3/mobi to epub on demand
   const contentUrl = readerFormat ? `/api/reader/books/${bookId}/content?format=${readerFormat}` : null;
+
+  // Track content loading for conversion spinner
+  const [contentReady, setContentReady] = useState(!convertibleFile || !!epubFile);
+  const needsConversion = !epubFile && !pdfFile && !!convertibleFile;
+
+  // Prefetch content to detect conversion delay
+  const { isError: contentError, error: contentErrorData } = useQuery({
+    queryKey: ['reader-content-check', bookId, readerFormat],
+    queryFn: async () => {
+      const res = await fetch(contentUrl!, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      setContentReady(true);
+      return true;
+    },
+    enabled: needsConversion && !!contentUrl,
+    retry: false,
+    staleTime: Infinity,
+  });
 
   if (!contentUrl || !readerFormat) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-muted-foreground">No readable file found for this book.</p>
+      </div>
+    );
+  }
+
+  if (needsConversion && !contentReady) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3">
+        {contentError ? (
+          <>
+            <p className="text-destructive">{(contentErrorData as Error)?.message || 'Conversion failed'}</p>
+            <Link to="/library/$bookId" params={{ bookId }}>
+              <Button variant="outline">Back to Book</Button>
+            </Link>
+          </>
+        ) : (
+          <>
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <p className="text-muted-foreground">Converting to EPUB...</p>
+            <p className="text-xs text-muted-foreground">This may take 10-30 seconds</p>
+          </>
+        )}
       </div>
     );
   }
