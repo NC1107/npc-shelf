@@ -131,6 +131,17 @@ export function BookDetailPage() {
   });
 
   const [renamePreview, setRenamePreview] = useState<RenamePreviewItem[] | null>(null);
+  const [renameBannerDismissed, setRenameBannerDismissed] = useState(false);
+
+  // Lazy check for rename suggestions when book has a Hardcover match
+  const { data: renameSuggestion } = useQuery({
+    queryKey: ['rename-suggestion', bookId],
+    queryFn: () => api.post<RenamePreviewItem[]>(`/books/${bookId}/rename/preview`),
+    enabled: !!book?.hardcoverId && !renameBannerDismissed && !renamePreview,
+    staleTime: Infinity,
+  });
+  const hasRenameSuggestion = !renameBannerDismissed && !renamePreview &&
+    renameSuggestion?.some((p: any) => p.status === 'rename');
 
   const previewRename = useMutation({
     mutationFn: () => api.post<RenamePreviewItem[]>(`/books/${bookId}/rename/preview`),
@@ -292,6 +303,8 @@ export function BookDetailPage() {
       writeMetadata={writeMetadata}
       renamePreview={renamePreview}
       setRenamePreview={setRenamePreview}
+      hasRenameSuggestion={hasRenameSuggestion}
+      onDismissRenameBanner={() => setRenameBannerDismissed(true)}
       splitMode={splitMode}
       setSplitMode={setSplitMode}
       selectedFileIds={selectedFileIds}
@@ -314,6 +327,7 @@ function BookDetailContent({
   navigate, startEditing, cancelEditing, saveEdit,
   sendToKindle, matchMetadata, matchPolling, deleteBook, mergeAudiobook, mergeJob, uploadCover,
   splitFiles, clearMatch, previewRename, executeRename, writeMetadata, renamePreview, setRenamePreview,
+  hasRenameSuggestion, onDismissRenameBanner,
   splitMode, setSplitMode, selectedFileIds, setSelectedFileIds,
   convertFormat, chapters, editingChapters, setEditingChapters, chapterData, setChapterData, saveChapters,
 }: any) {
@@ -787,6 +801,35 @@ function BookDetailContent({
               Delete
             </Button>
           </div>
+
+          {/* Rename suggestion banner */}
+          {hasRenameSuggestion && (
+            <div className="flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
+              <span className="flex items-center gap-2">
+                <FolderSync className="h-4 w-4" />
+                Files can be renamed to match metadata
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => previewRename.mutate()}
+                  disabled={previewRename.isPending}
+                >
+                  {previewRename.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  Preview Rename
+                </Button>
+                <button
+                  className="text-blue-400 hover:text-blue-600 dark:text-blue-500 dark:hover:text-blue-300"
+                  onClick={onDismissRenameBanner}
+                  aria-label="Dismiss"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Format toggle — only controls progress/description display below */}
           {hasBothFormats && (
