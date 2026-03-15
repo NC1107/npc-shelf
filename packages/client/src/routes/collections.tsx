@@ -75,7 +75,13 @@ export function CollectionsPage() {
             <div key={i} className="h-32 animate-pulse rounded-lg bg-muted" />
           ))}
         </div>
-      ) : collections && collections.length > 0 ? (
+      ) : !collections || collections.length === 0 ? (
+        <div className="py-12 text-center">
+          <FolderOpen className="mx-auto h-12 w-12 text-muted-foreground" />
+          <p className="mt-3 text-lg font-medium">No collections yet</p>
+          <p className="text-sm text-muted-foreground">Create a collection to organize your books.</p>
+        </div>
+      ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {collections.map((col) => (
             <Link
@@ -112,12 +118,6 @@ export function CollectionsPage() {
               </div>
             </Link>
           ))}
-        </div>
-      ) : (
-        <div className="py-12 text-center">
-          <FolderOpen className="mx-auto h-12 w-12 text-muted-foreground" />
-          <p className="mt-3 text-lg font-medium">No collections yet</p>
-          <p className="text-sm text-muted-foreground">Create a collection to organize your books.</p>
         </div>
       )}
     </div>

@@ -86,7 +86,9 @@ export function ReadPage() {
   // Determine which format to read
   const epubFile = book?.files?.find((f) => f.format === 'epub');
   const pdfFile = book?.files?.find((f) => f.format === 'pdf');
-  const readerFormat = epubFile ? 'epub' : pdfFile ? 'pdf' : null;
+  let readerFormat: 'epub' | 'pdf' | null = null;
+  if (epubFile) readerFormat = 'epub';
+  else if (pdfFile) readerFormat = 'pdf';
   const contentUrl = readerFormat ? `/api/reader/books/${bookId}/content?format=${readerFormat}` : null;
 
   if (!contentUrl || !readerFormat) {
@@ -158,7 +160,16 @@ export function ReadPage() {
           <>
             <div
               className="absolute inset-0 z-10"
+              role="button"
+              tabIndex={0}
+              aria-label="Close settings"
               onClick={() => setShowSettings(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setShowSettings(false);
+                }
+              }}
             />
             <div className="absolute right-4 top-2 z-20 rounded-lg border bg-card shadow-lg">
               <ReaderSettings />

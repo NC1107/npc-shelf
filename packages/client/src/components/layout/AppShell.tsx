@@ -27,15 +27,15 @@ export function AppShell({ children }: AppShellProps) {
         {showBanner && (
           <div className="flex items-center gap-2 border-b bg-primary/10 px-4 py-1.5 text-xs">
             <Loader2 className="h-3 w-3 animate-spin" />
-            {scanStatus.status === 'pending'
-              ? 'Scan queued...'
-              : scanStatus.status === 'scanning'
-                ? `Scanning: ${scanStatus.filesProcessed}/${scanStatus.filesFound} files`
-                : scanStatus.status === 'complete'
-                  ? `Scan complete: ${scanStatus.booksAdded} added, ${scanStatus.booksUpdated} updated`
-                  : scanStatus.status === 'error'
-                    ? 'Scan failed'
-                    : null}
+            {(() => {
+              switch (scanStatus.status) {
+                case 'pending': return 'Scan queued...';
+                case 'scanning': return `Scanning: ${scanStatus.filesProcessed}/${scanStatus.filesFound} files`;
+                case 'complete': return `Scan complete: ${scanStatus.booksAdded} added, ${scanStatus.booksUpdated} updated`;
+                case 'error': return 'Scan failed';
+                default: return null;
+              }
+            })()}
           </div>
         )}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">

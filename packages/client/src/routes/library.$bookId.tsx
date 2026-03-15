@@ -307,6 +307,10 @@ function BookDetailContent({
 }: any) {
   const [activeFormat, setActiveFormat] = useState<'ebook' | 'audiobook'>(hasAudio ? 'audiobook' : 'ebook');
 
+  const coverFallbackIcon = hasAudio
+    ? <Headphones className="h-16 w-16 text-muted-foreground" aria-hidden="true" />
+    : <BookOpen className="h-16 w-16 text-muted-foreground" aria-hidden="true" />;
+
   return (
     <div className="space-y-6">
       <Link
@@ -338,10 +342,8 @@ function BookDetailContent({
                   alt={book.title}
                   className="h-full w-full object-cover"
                 />
-              ) : hasAudio ? (
-                <Headphones className="h-16 w-16 text-muted-foreground" aria-hidden="true" />
               ) : (
-                <BookOpen className="h-16 w-16 text-muted-foreground" aria-hidden="true" />
+                coverFallbackIcon
               )}
             </div>
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
@@ -404,7 +406,7 @@ function BookDetailContent({
             <div className="space-y-1">
               <span className="text-sm text-muted-foreground">Authors</span>
               {(editData.authors || []).map((a: any, i: number) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={i} className="flex items-center gap-2"> {/* NOSONAR - editable list without stable IDs */}
                   <input
                     className="flex-1 rounded border bg-background px-2 py-1 text-sm"
                     value={a.name}
@@ -446,46 +448,48 @@ function BookDetailContent({
                 + Add author
               </button>
             </div>
-          ) : book.authors && book.authors.length > 0 ? (
-            <div className="flex items-center gap-3">
-              {book.authors.some((a: any) => a.author.photoUrl) && (
-                <div className="flex -space-x-2">
-                  {book.authors.filter((a: any) => a.author.photoUrl).map((a: any) => (
-                    <img
-                      key={a.author.id}
-                      src={a.author.photoUrl}
-                      alt={a.author.name}
-                      className="h-8 w-8 rounded-full border-2 border-background object-cover"
-                    />
+          ) : (
+            book.authors && book.authors.length > 0 && (
+              <div className="flex items-center gap-3">
+                {book.authors.some((a: any) => a.author.photoUrl) && (
+                  <div className="flex -space-x-2">
+                    {book.authors.filter((a: any) => a.author.photoUrl).map((a: any) => (
+                      <img
+                        key={a.author.id}
+                        src={a.author.photoUrl}
+                        alt={a.author.name}
+                        className="h-8 w-8 rounded-full border-2 border-background object-cover"
+                      />
+                    ))}
+                  </div>
+                )}
+                <p className="text-lg text-muted-foreground">
+                  by{' '}
+                  {book.authors.map((a: any, i: number) => (
+                    <span key={a.author.id || i}>
+                      {i > 0 && ', '}
+                      <Link
+                        to="/library"
+                        search={{ authorId: String(a.author.id) }}
+                        className="font-medium text-foreground hover:underline"
+                      >
+                        {a.author.name}
+                      </Link>
+                      {a.role !== 'author' && (
+                        <span className="text-sm"> ({a.role})</span>
+                      )}
+                    </span>
                   ))}
-                </div>
-              )}
-              <p className="text-lg text-muted-foreground">
-                by{' '}
-                {book.authors.map((a: any, i: number) => (
-                  <span key={a.author.id || i}>
-                    {i > 0 && ', '}
-                    <Link
-                      to="/library"
-                      search={{ authorId: String(a.author.id) }}
-                      className="font-medium text-foreground hover:underline"
-                    >
-                      {a.author.name}
-                    </Link>
-                    {a.role !== 'author' && (
-                      <span className="text-sm"> ({a.role})</span>
-                    )}
-                  </span>
-                ))}
-              </p>
-            </div>
-          ) : null}
+                </p>
+              </div>
+            )
+          )}
 
           {isEditing ? (
             <div className="space-y-1">
               <span className="text-sm text-muted-foreground">Series</span>
               {(editData.series || []).map((s: any, i: number) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={i} className="flex items-center gap-2"> {/* NOSONAR - editable list without stable IDs */}
                   <input
                     className="flex-1 rounded border bg-background px-2 py-1 text-sm"
                     value={s.name}
@@ -525,16 +529,18 @@ function BookDetailContent({
                 + Add series
               </button>
             </div>
-          ) : book.series && book.series.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {book.series.map((s: any) => (
-                <Badge key={s.series.id || s.series.name} variant="secondary">
-                  {s.series.name}
-                  {s.position && <span className="ml-1 opacity-70">#{s.position}</span>}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
+          ) : (
+            book.series && book.series.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {book.series.map((s: any) => (
+                  <Badge key={s.series.id || s.series.name} variant="secondary">
+                    {s.series.name}
+                    {s.position && <span className="ml-1 opacity-70">#{s.position}</span>}
+                  </Badge>
+                ))}
+              </div>
+            )
+          )}
 
           {/* Progress */}
           {(!hasBothFormats || activeFormat === 'ebook') && readingProgress && readingProgress.progressPercent > 0 && (
@@ -547,26 +553,35 @@ function BookDetailContent({
             </div>
           )}
 
-          {(!hasBothFormats || activeFormat === 'audiobook') && audioProgress && audioProgress.totalElapsedSeconds > 0 ? (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Listening progress</span>
-                <span className="font-medium">
-                  {formatDuration(audioProgress.totalElapsedSeconds)} / {formatDuration(audioProgress.totalDurationSeconds || book.audioTotalDuration)}
-                </span>
-              </div>
-              <Progress
-                value={(audioProgress.totalDurationSeconds || book.audioTotalDuration) > 0
-                  ? (audioProgress.totalElapsedSeconds / (audioProgress.totalDurationSeconds || book.audioTotalDuration)) * 100
-                  : 0}
-              />
-            </div>
-          ) : (!hasBothFormats || activeFormat === 'audiobook') && book.audioTotalDuration > 0 ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Headphones className="h-4 w-4" />
-              <span>Total: {formatDuration(book.audioTotalDuration)}</span>
-            </div>
-          ) : null}
+          {(() => {
+            const showAudio = !hasBothFormats || activeFormat === 'audiobook';
+            if (showAudio && audioProgress && audioProgress.totalElapsedSeconds > 0) {
+              return (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Listening progress</span>
+                    <span className="font-medium">
+                      {formatDuration(audioProgress.totalElapsedSeconds)} / {formatDuration(audioProgress.totalDurationSeconds || book.audioTotalDuration)}
+                    </span>
+                  </div>
+                  <Progress
+                    value={(audioProgress.totalDurationSeconds || book.audioTotalDuration) > 0
+                      ? (audioProgress.totalElapsedSeconds / (audioProgress.totalDurationSeconds || book.audioTotalDuration)) * 100
+                      : 0}
+                  />
+                </div>
+              );
+            }
+            if (showAudio && book.audioTotalDuration > 0) {
+              return (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Headphones className="h-4 w-4" />
+                  <span>Total: {formatDuration(book.audioTotalDuration)}</span>
+                </div>
+              );
+            }
+            return null;
+          })()}
 
           {/* Action buttons — always visible */}
           <div className="flex flex-wrap gap-2">
@@ -607,7 +622,7 @@ function BookDetailContent({
                 ) : (
                   <Send className="h-4 w-4" />
                 )}
-                {sendToKindle.isSuccess ? 'Sent!' : sendToKindle.isError ? 'Failed' : 'Send to Kindle'}
+                {(() => { if (sendToKindle.isSuccess) return 'Sent!'; if (sendToKindle.isError) return 'Failed'; return 'Send to Kindle'; })()}
               </Button>
             )}
             <Button
@@ -620,7 +635,7 @@ function BookDetailContent({
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              {matchMetadata.isSuccess ? 'Queued!' : matchMetadata.isError ? 'Failed' : book.hardcoverId ? 'Re-match' : 'Match Metadata'}
+              {(() => { if (matchMetadata.isSuccess) return 'Queued!'; if (matchMetadata.isError) return 'Failed'; if (book.hardcoverId) return 'Re-match'; return 'Match Metadata'; })()}
             </Button>
             {isEditing ? (
               <>
@@ -686,7 +701,7 @@ function BookDetailContent({
                     disabled={writeMetadata.isPending}
                   >
                     <PenLine className="h-4 w-4" />
-                    {writeMetadata.isPending ? 'Writing...' : writeMetadata.isSuccess ? 'Done!' : 'Write Metadata to Files'}
+                    {(() => { if (writeMetadata.isPending) return 'Writing...'; if (writeMetadata.isSuccess) return 'Done!'; return 'Write Metadata to Files'; })()}
                   </DropdownItem>
                   {book.files?.some((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format)) && (
                     <DropdownItem
@@ -703,7 +718,7 @@ function BookDetailContent({
                       disabled={convertFormat.isPending}
                     >
                       <RefreshCw className="h-4 w-4" />
-                      {convertFormat.isPending ? 'Converting...' : convertFormat.isSuccess ? 'Queued!' : 'Convert Format'}
+                      {(() => { if (convertFormat.isPending) return 'Converting...'; if (convertFormat.isSuccess) return 'Queued!'; return 'Convert Format'; })()}
                     </DropdownItem>
                   )}
                   {book.hardcoverId && (
@@ -805,19 +820,21 @@ function BookDetailContent({
                 />
               </div>
             </>
-          ) : book.description ? (
-            <>
-              <Separator />
-              <div>
-                <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Description
-                </h2>
-                <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">
-                  <p>{book.description}</p>
+          ) : (
+            book.description && (
+              <>
+                <Separator />
+                <div>
+                  <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    Description
+                  </h2>
+                  <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">
+                    <p>{book.description}</p>
+                  </div>
                 </div>
-              </div>
-            </>
-          ) : null}
+              </>
+            )
+          )}
 
           {/* Details grid */}
           <Separator />
@@ -867,7 +884,13 @@ function BookDetailContent({
                 {book.audioTrackCount > 1 && (
                   <DetailItem icon={Music} label="Tracks" value={`${book.audioTrackCount} tracks`} />
                 )}
-                {book.matchConfidence != null && (
+                {book.matchConfidence != null && (() => {
+                  let confidenceColor: string;
+                  let confidenceLabel: string;
+                  if (book.matchConfidence >= 0.8) { confidenceColor = 'border-green-500 text-green-700 dark:text-green-400'; confidenceLabel = 'High'; }
+                  else if (book.matchConfidence >= 0.5) { confidenceColor = 'border-yellow-500 text-yellow-700 dark:text-yellow-400'; confidenceLabel = 'Medium'; }
+                  else { confidenceColor = 'border-red-500 text-red-700 dark:text-red-400'; confidenceLabel = 'Low'; }
+                  return (
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="text-muted-foreground">Match:</span>
@@ -876,15 +899,9 @@ function BookDetailContent({
                         <TooltipTrigger asChild>
                           <Badge
                             variant="outline"
-                            className={`cursor-help ${
-                              book.matchConfidence >= 0.8
-                                ? 'border-green-500 text-green-700 dark:text-green-400'
-                                : book.matchConfidence >= 0.5
-                                  ? 'border-yellow-500 text-yellow-700 dark:text-yellow-400'
-                                  : 'border-red-500 text-red-700 dark:text-red-400'
-                            }`}
+                            className={`cursor-help ${confidenceColor}`}
                           >
-                            {book.matchConfidence >= 0.8 ? 'High' : book.matchConfidence >= 0.5 ? 'Medium' : 'Low'}
+                            {confidenceLabel}
                             {' '}({Math.round(book.matchConfidence * 100)}%)
                           </Badge>
                         </TooltipTrigger>
@@ -894,7 +911,8 @@ function BookDetailContent({
                       </Tooltip>
                     </TooltipProvider>
                   </div>
-                )}
+                  );
+                })()}
                 {(book.hardcoverSlug || book.hardcoverId) && (
                   <div className="flex items-center gap-2">
                     <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -1033,10 +1051,20 @@ function BookDetailContent({
                         <div
                           key={file.id}
                           className={`rounded border bg-muted/50 p-2 text-xs space-y-1 ${splitMode ? 'cursor-pointer hover:border-primary' : ''} ${selectedFileIds.has(file.id) ? 'border-primary bg-primary/5' : ''}`}
+                          role={splitMode ? 'button' : undefined}
+                          tabIndex={splitMode ? 0 : undefined}
                           onClick={splitMode ? () => {
                             const next = new Set(selectedFileIds);
                             if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
                             setSelectedFileIds(next);
+                          } : undefined}
+                          onKeyDown={splitMode ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              const next = new Set(selectedFileIds);
+                              if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
+                              setSelectedFileIds(next);
+                            }
                           } : undefined}
                         >
                           <div className="flex items-center gap-2">
@@ -1084,14 +1112,30 @@ function BookDetailContent({
             </div>
           </div>
           <div className="space-y-2 text-xs">
-            {renamePreview.map((p: any) => (
-              <div key={p.fileId} className={`rounded border p-2 ${p.status === 'rename' ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950' : p.status === 'conflict' ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950' : 'border-muted bg-muted/30'}`}>
-                <div className="text-muted-foreground line-through">{p.currentPath}</div>
-                <div className={p.status === 'rename' ? 'text-blue-700 dark:text-blue-300 font-medium' : p.status === 'conflict' ? 'text-red-700 dark:text-red-300' : 'text-muted-foreground'}>
-                  {p.status === 'conflict' ? `CONFLICT: ${p.newPath}` : p.status === 'unchanged' ? '(unchanged)' : p.newPath}
+            {renamePreview.map((p: any) => {
+              let borderClass: string;
+              let textClass: string;
+              let displayText: string;
+              if (p.status === 'rename') {
+                borderClass = 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950';
+                textClass = 'text-blue-700 dark:text-blue-300 font-medium';
+                displayText = p.newPath;
+              } else if (p.status === 'conflict') {
+                borderClass = 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950';
+                textClass = 'text-red-700 dark:text-red-300';
+                displayText = `CONFLICT: ${p.newPath}`;
+              } else {
+                borderClass = 'border-muted bg-muted/30';
+                textClass = 'text-muted-foreground';
+                displayText = '(unchanged)';
+              }
+              return (
+                <div key={p.fileId} className={`rounded border p-2 ${borderClass}`}>
+                  <div className="text-muted-foreground line-through">{p.currentPath}</div>
+                  <div className={textClass}>{displayText}</div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

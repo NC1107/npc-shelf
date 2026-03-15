@@ -64,7 +64,7 @@ export function DirectoryBrowser({ open, onOpenChange, onSelect }: DirectoryBrow
               const pathUpTo = breadcrumbs.slice(0, i + 1).join('/');
               const fullPath = data.currentPath.startsWith('/') ? '/' + pathUpTo : pathUpTo;
               return (
-                <span key={i} className="flex items-center gap-1">
+                <span key={fullPath} className="flex items-center gap-1">
                   <ChevronRight className="h-3 w-3 shrink-0" />
                   <button
                     className="shrink-0 hover:text-foreground"

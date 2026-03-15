@@ -346,7 +346,7 @@ export function SettingsPage() {
                       {scanStatus.errors.length > 0 && (
                         <div className="max-h-24 overflow-y-auto rounded bg-muted p-2 text-xs text-muted-foreground">
                           {scanStatus.errors.slice(0, 10).map((err, i) => (
-                            <p key={i}>{err}</p>
+                            <p key={`err-${i}`}>{err}</p> // NOSONAR - error strings may not be unique
                           ))}
                           {scanStatus.errors.length > 10 && (
                             <p>...and {scanStatus.errors.length - 10} more errors</p>

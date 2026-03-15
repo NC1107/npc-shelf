@@ -16,6 +16,14 @@ export const BookCard = React.memo(function BookCard({ book, view = 'grid' }: Bo
   const isAudiobook = book.audioSeconds && book.audioSeconds > 0;
   const progress = book.progressPercent;
 
+  const fallbackIcon = isAudiobook
+    ? <Headphones className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+    : <BookOpen className="h-4 w-4 text-muted-foreground" aria-hidden="true" />;
+
+  const fallbackIconLarge = isAudiobook
+    ? <Headphones className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+    : <BookOpen className="h-8 w-8 text-muted-foreground" aria-hidden="true" />;
+
   if (view === 'list') {
     return (
       <Link
@@ -30,10 +38,8 @@ export const BookCard = React.memo(function BookCard({ book, view = 'grid' }: Bo
               alt={book.title}
               className="h-full w-full object-cover"
             />
-          ) : isAudiobook ? (
-            <Headphones className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           ) : (
-            <BookOpen className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            fallbackIcon
           )}
         </div>
         <div className="min-w-0 flex-1">
@@ -69,10 +75,8 @@ export const BookCard = React.memo(function BookCard({ book, view = 'grid' }: Bo
             className="h-full w-full object-cover transition-transform group-hover:scale-105"
             loading="lazy"
           />
-        ) : isAudiobook ? (
-          <Headphones className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
         ) : (
-          <BookOpen className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          fallbackIconLarge
         )}
 
         {/* Format badges */}

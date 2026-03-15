@@ -183,10 +183,14 @@ export function AuthorsPage() {
               <div className="flex items-center justify-center py-6">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-            ) : duplicates && duplicates.length > 0 ? (
+            ) : !duplicates || duplicates.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No potential duplicates found.
+              </p>
+            ) : (
               duplicates.map((group, groupIndex) => (
                 <div
-                  key={groupIndex}
+                  key={group.authors.map((a) => a.id).join('-')}
                   className="rounded-lg border p-3 space-y-2"
                 >
                   <div className="flex items-center justify-between">
@@ -263,10 +267,6 @@ export function AuthorsPage() {
                   )}
                 </div>
               ))
-            ) : (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                No potential duplicates found.
-              </p>
             )}
           </CardContent>
         )}
@@ -281,7 +281,19 @@ export function AuthorsPage() {
             <div key={i} className="h-20 animate-pulse rounded-lg bg-muted" />
           ))}
         </div>
-      ) : filteredAuthors.length > 0 ? (
+      ) : filteredAuthors.length === 0 ? (
+        <div className="py-12 text-center">
+          <Users className="mx-auto h-12 w-12 text-muted-foreground" />
+          <p className="mt-3 text-lg font-medium">
+            {search ? 'No authors match your search' : 'No authors found'}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {search
+              ? 'Try a different search term.'
+              : 'Authors are added automatically when books are scanned.'}
+          </p>
+        </div>
+      ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {filteredAuthors.map((author) => (
             <div
@@ -370,18 +382,6 @@ export function AuthorsPage() {
               )}
             </div>
           ))}
-        </div>
-      ) : (
-        <div className="py-12 text-center">
-          <Users className="mx-auto h-12 w-12 text-muted-foreground" />
-          <p className="mt-3 text-lg font-medium">
-            {search ? 'No authors match your search' : 'No authors found'}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {search
-              ? 'Try a different search term.'
-              : 'Authors are added automatically when books are scanned.'}
-          </p>
         </div>
       )}
     </div>

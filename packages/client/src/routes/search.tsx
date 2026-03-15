@@ -79,7 +79,7 @@ export function SearchPage() {
       {isLoading && query.length >= 2 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="animate-pulse">
+            <div key={`skeleton-${i}`} className="animate-pulse"> {/* NOSONAR - static skeleton placeholders */}
               <div className="aspect-[2/3] rounded-lg bg-muted" />
               <div className="mt-2 h-4 rounded bg-muted" />
             </div>

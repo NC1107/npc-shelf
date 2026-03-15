@@ -55,9 +55,18 @@ export function Combobox({ options, value, onChange, placeholder = 'Select...', 
     <div ref={containerRef} className={cn('relative', className)} aria-labelledby={ariaLabelledBy}>
       <div
         className="flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm cursor-pointer min-w-[160px]"
+        role="button"
+        tabIndex={0}
         onClick={() => {
           setOpen(!open);
           if (!open) setTimeout(() => inputRef.current?.focus(), 0);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setOpen(!open);
+            if (!open) setTimeout(() => inputRef.current?.focus(), 0);
+          }
         }}
       >
         {open ? (

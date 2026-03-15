@@ -16,6 +16,30 @@ const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const;
 const SLEEP_OPTIONS = [null, 5, 10, 15, 30, 45, 60, 90] as const;
 const PROGRESS_SAVE_INTERVAL_MS = 15_000;
 
+function TrackOrEmptyList({ tracks, currentTrackIndex, onSwitchTrack }: { tracks: AudioTrack[] | undefined; currentTrackIndex: number; onSwitchTrack: (i: number) => void }) {
+  if (tracks && tracks.length > 1) {
+    return (
+      <div className="max-h-64 overflow-y-auto">
+        {tracks.map((track, i) => (
+          <button
+            key={track.id || i}
+            onClick={() => onSwitchTrack(i)}
+            className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm hover:bg-muted/50 transition-colors ${
+              i === currentTrackIndex ? 'bg-primary/10 font-medium' : ''
+            }`}
+          >
+            <span className="truncate">{track.title || `Track ${i + 1}`}</span>
+            <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+              {formatTime(track.durationSeconds)}
+            </span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+  return <p className="p-4 text-center text-sm text-muted-foreground">No chapters available</p>;
+}
+
 export function ListenPage() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
   const [showChapters, setShowChapters] = useState(false);
@@ -303,10 +327,20 @@ export function ListenPage() {
       <div className="space-y-1">
         <div
           className="group relative h-2 cursor-pointer rounded-full bg-muted"
+          role="slider"
+          tabIndex={0}
+          aria-label="Track progress"
+          aria-valuenow={Math.round(progressPercent)}
+          aria-valuemin={0}
+          aria-valuemax={100}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const pct = (e.clientX - rect.left) / rect.width;
             AudioEngine.seek(pct * trackDuration);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowRight') AudioEngine.seek(Math.min(trackDuration, AudioEngine.currentTime + 5));
+            else if (e.key === 'ArrowLeft') AudioEngine.seek(Math.max(0, AudioEngine.currentTime - 5));
           }}
         >
           <div
@@ -461,25 +495,8 @@ export function ListenPage() {
                 </button>
               ))}
             </div>
-          ) : tracks && tracks.length > 1 ? (
-            <div className="max-h-64 overflow-y-auto">
-              {tracks.map((track, i) => (
-                <button
-                  key={track.id || i}
-                  onClick={() => switchTrack(i)}
-                  className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm hover:bg-muted/50 transition-colors ${
-                    i === store.currentTrackIndex ? 'bg-primary/10 font-medium' : ''
-                  }`}
-                >
-                  <span className="truncate">{track.title || `Track ${i + 1}`}</span>
-                  <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-                    {formatTime(track.durationSeconds)}
-                  </span>
-                </button>
-              ))}
-            </div>
           ) : (
-            <p className="p-4 text-center text-sm text-muted-foreground">No chapters available</p>
+            <TrackOrEmptyList tracks={tracks} currentTrackIndex={store.currentTrackIndex} onSwitchTrack={switchTrack} />
           )}
         </div>
       )}

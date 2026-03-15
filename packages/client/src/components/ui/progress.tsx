@@ -9,7 +9,7 @@ const Progress = React.forwardRef<
   return (
     <div
       ref={ref}
-      role="progressbar"
+      role="progressbar" // NOSONAR - styled div from shadcn/ui, intentional for styling control
       aria-valuenow={value}
       aria-valuemin={0}
       aria-valuemax={max}

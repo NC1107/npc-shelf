@@ -27,7 +27,13 @@ export function SeriesPage() {
             <div key={i} className="h-24 animate-pulse rounded-lg bg-muted" />
           ))}
         </div>
-      ) : seriesList && seriesList.length > 0 ? (
+      ) : !seriesList || seriesList.length === 0 ? (
+        <div className="py-12 text-center">
+          <Layers className="mx-auto h-12 w-12 text-muted-foreground" />
+          <p className="mt-3 text-lg font-medium">No series found</p>
+          <p className="text-sm text-muted-foreground">Series are detected from metadata or filenames during library scanning.</p>
+        </div>
+      ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {seriesList.map((series) => (
             <Link
@@ -51,12 +57,6 @@ export function SeriesPage() {
               </div>
             </Link>
           ))}
-        </div>
-      ) : (
-        <div className="py-12 text-center">
-          <Layers className="mx-auto h-12 w-12 text-muted-foreground" />
-          <p className="mt-3 text-lg font-medium">No series found</p>
-          <p className="text-sm text-muted-foreground">Series are detected from metadata or filenames during library scanning.</p>
         </div>
       )}
     </div>

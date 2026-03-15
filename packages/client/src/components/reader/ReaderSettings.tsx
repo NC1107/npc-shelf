@@ -28,7 +28,7 @@ export function ReaderSettings() {
 
       {/* Font Size */}
       <div className="space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">Font Size</label>
+        <span className="text-xs font-medium text-muted-foreground" id="reader-font-size-label">Font Size</span>
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
@@ -52,7 +52,7 @@ export function ReaderSettings() {
 
       {/* Font Family */}
       <div className="space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">Font</label>
+        <span className="text-xs font-medium text-muted-foreground" id="reader-font-family-label">Font</span>
         <div className="flex gap-1.5">
           {FONT_FAMILIES.map((ff) => (
             <Button
@@ -71,7 +71,7 @@ export function ReaderSettings() {
 
       {/* Theme */}
       <div className="space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">Theme</label>
+        <span className="text-xs font-medium text-muted-foreground" id="reader-theme-label">Theme</span>
         <div className="flex gap-1.5">
           {THEMES.map((t) => (
             <button
@@ -87,7 +87,7 @@ export function ReaderSettings() {
 
       {/* Line Height */}
       <div className="space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">Line Height</label>
+        <span className="text-xs font-medium text-muted-foreground" id="reader-line-height-label">Line Height</span>
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
@@ -111,7 +111,7 @@ export function ReaderSettings() {
 
       {/* Margins */}
       <div className="space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">Margins</label>
+        <span className="text-xs font-medium text-muted-foreground" id="reader-margins-label">Margins</span>
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
