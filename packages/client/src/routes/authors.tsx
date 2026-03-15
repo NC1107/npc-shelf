@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Merge,
   User,
+  Wand2,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -78,6 +79,15 @@ export function AuthorsPage() {
     onError: (err) => console.error('Failed to merge authors:', err),
   });
 
+  const autoDedup = useMutation({
+    mutationFn: () => api.post<{ merged: number; groups: number }>('/authors/auto-dedup'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['authors'] });
+      queryClient.invalidateQueries({ queryKey: ['author-duplicates'] });
+    },
+    onError: (err) => console.error('Failed to auto-dedup:', err),
+  });
+
   const filteredAuthors = useMemo(() => {
     if (!authors) return [];
     if (!search.trim()) return authors;
@@ -137,6 +147,25 @@ export function AuthorsPage() {
             <Badge variant="secondary">{authors.length}</Badge>
           )}
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            if (window.confirm('Auto-merge duplicate authors based on normalized names? This cannot be undone.')) {
+              autoDedup.mutate();
+            }
+          }}
+          disabled={autoDedup.isPending}
+        >
+          {autoDedup.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Wand2 className="h-3 w-3" />
+          )}
+          {autoDedup.isSuccess
+            ? `Merged ${(autoDedup.data as any)?.merged || 0} duplicates`
+            : 'Auto-merge Duplicates'}
+        </Button>
       </div>
 
       {/* Search */}

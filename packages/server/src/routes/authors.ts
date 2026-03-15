@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { db, schema, sqlite } from '../db/index.js';
 import { stringSimilarity } from '../utils/string-similarity.js';
+import { normalizeAuthorName } from '../utils/author-utils.js';
 
 export const authorsRouter = Router();
 
@@ -215,6 +216,77 @@ authorsRouter.post('/merge', (req, res) => {
     res.json({ merged: result, removedIds: sourceIds.filter((id) => id !== targetId) });
   } catch (error) {
     console.error('[Authors] Merge error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Auto-dedup: normalize all names, group duplicates, merge into the one with most books
+authorsRouter.post('/auto-dedup', (_req, res) => {
+  try {
+    const allAuthors = db.select().from(schema.authors).all();
+
+    // Get book counts
+    const bookCountRows = db
+      .all<{ authorId: number; count: number }>(
+        sql`SELECT author_id as authorId, COUNT(*) as count FROM book_authors GROUP BY author_id`,
+      );
+    const bookCountMap = new Map(bookCountRows.map((r) => [r.authorId, r.count]));
+
+    // Group by normalized name
+    const groups = new Map<string, typeof allAuthors>();
+    for (const author of allAuthors) {
+      const normalized = normalizeAuthorName(author.name).toLowerCase();
+      const existing = groups.get(normalized);
+      if (existing) {
+        existing.push(author);
+      } else {
+        groups.set(normalized, [author]);
+      }
+    }
+
+    let merged = 0;
+    let groupCount = 0;
+
+    const doMerge = sqlite.transaction(() => {
+      for (const [, group] of groups) {
+        if (group.length <= 1) continue;
+        groupCount++;
+
+        // Pick the author with the most books as target
+        const sorted = [...group].sort((a, b) =>
+          (bookCountMap.get(b.id) || 0) - (bookCountMap.get(a.id) || 0),
+        );
+        const target = sorted[0];
+
+        for (let i = 1; i < sorted.length; i++) {
+          const source = sorted[i];
+
+          // Reassign book-author links
+          const links = db
+            .select()
+            .from(schema.bookAuthors)
+            .where(eq(schema.bookAuthors.authorId, source.id))
+            .all();
+
+          for (const link of links) {
+            db.insert(schema.bookAuthors)
+              .values({ bookId: link.bookId, authorId: target.id, role: link.role })
+              .onConflictDoNothing()
+              .run();
+          }
+
+          db.delete(schema.bookAuthors).where(eq(schema.bookAuthors.authorId, source.id)).run();
+          db.delete(schema.authors).where(eq(schema.authors.id, source.id)).run();
+          merged++;
+        }
+      }
+    });
+
+    doMerge();
+
+    res.json({ merged, groups: groupCount });
+  } catch (error) {
+    console.error('[Authors] Auto-dedup error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
