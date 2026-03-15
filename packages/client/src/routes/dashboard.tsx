@@ -4,7 +4,7 @@ import { BookOpen, Library, Headphones, Clock, Users, ArrowRight } from 'lucide-
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { BookCard } from '../components/books/BookCard';
 import { api } from '../lib/api';
-import type { PaginatedResponse, Book, Library as LibraryType } from '@npc-shelf/shared';
+import type { PaginatedResponse, Book } from '@npc-shelf/shared';
 import type { LucideIcon } from 'lucide-react';
 
 /** Book with optional fields returned by the list endpoint. */
@@ -31,11 +31,6 @@ export function DashboardPage() {
   const { data: recentBooks } = useQuery({
     queryKey: ['books', 'recent'],
     queryFn: () => api.get<PaginatedResponse<BookListItem>>('/books?sortBy=createdAt&sortOrder=desc&pageSize=12'),
-  });
-
-  const { data: libraries } = useQuery({
-    queryKey: ['libraries'],
-    queryFn: () => api.get<LibraryType[]>('/libraries'),
   });
 
   return (
@@ -111,39 +106,6 @@ export function DashboardPage() {
         )}
       </section>
 
-      {/* Libraries summary */}
-      {libraries && libraries.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">Libraries</h2>
-            <Link
-              to="/settings"
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Manage
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {libraries.map((lib) => (
-              <Card key={lib.id}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                      <Library className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium truncate">{lib.name}</p>
-                      <p className="text-xs text-muted-foreground truncate">{lib.path}</p>
-                    </div>
-                    <span className="text-xs text-muted-foreground capitalize">{lib.type}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

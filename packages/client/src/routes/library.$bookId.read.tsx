@@ -67,11 +67,14 @@ export function ReadPage() {
   );
 
   const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen();
+    const el = containerRef.current;
+    if (!el) return;
+    const doc = document as any;
+    if (!document.fullscreenElement && !doc.webkitFullscreenElement) {
+      (el.requestFullscreen || (el as any).webkitRequestFullscreen)?.call(el);
       setIsFullscreen(true);
     } else {
-      document.exitFullscreen();
+      (document.exitFullscreen || doc.webkitExitFullscreen)?.call(document);
       setIsFullscreen(false);
     }
   }, []);

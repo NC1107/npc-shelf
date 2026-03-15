@@ -65,7 +65,14 @@ function resolveAuthorTitle(
 
 export function parseFilename(filename: string, dirPath?: string): ParsedFilename {
   // Remove extension
-  const name = filename.replace(/\.[^.]+$/, '').trim();
+  let name = filename.replace(/\.[^.]+$/, '').trim();
+
+  // Detect dot-separated naming: 3+ dots and no spaces → convert dots to spaces
+  if (!name.includes(' ') && (name.match(/\./g) || []).length >= 3) {
+    name = name.replace(/\./g, ' ');
+    // Normalize bare hyphens between words to spaced dashes for author-title splitting
+    name = name.replace(/(\w)-(\w)/g, '$1 - $2');
+  }
 
   let title = name;
   let author: string | null = null;
@@ -132,6 +139,10 @@ export function cleanTitle(title: string): string {
   cleaned = cleaned.replace(/^\[.*?\]\s*-\s*/, '');
   // Strip year prefix like (1941)
   cleaned = cleaned.replace(/^\(\d{4}\)\s*/, '');
+  // Strip scene group tags: eBook-XXX at end
+  cleaned = cleaned.replace(/\s+eBook-\w+$/i, '');
+  // Strip standalone format/release words (not in parens)
+  cleaned = cleaned.replace(/\b(?:RETAIL|EPUB|AZW3|MOBI|PDF)\b/gi, '');
   // Clean up resulting double spaces and trim
   cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
   return cleaned || title;

@@ -40,11 +40,22 @@ export function BookDetailPage() {
     onError: (err) => console.error('Failed to send to Kindle:', err),
   });
 
+  const [matchPolling, setMatchPolling] = useState(false);
+
   const matchMetadata = useMutation({
     mutationFn: () => api.post(`/metadata/match/${bookId}`),
     onSuccess: () => {
-      // Refetch after a delay to let the job process
-      setTimeout(() => queryClient.invalidateQueries({ queryKey: ['book', bookId] }), 3000);
+      setMatchPolling(true);
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        await queryClient.invalidateQueries({ queryKey: ['book', bookId] });
+        const updated = queryClient.getQueryData<BookDetail>(['book', bookId]);
+        if (updated?.updatedAt !== book?.updatedAt || attempts >= 15) {
+          clearInterval(poll);
+          setMatchPolling(false);
+        }
+      }, 2000);
     },
   });
 
@@ -269,6 +280,7 @@ export function BookDetailPage() {
       saveEdit={saveEdit}
       sendToKindle={sendToKindle}
       matchMetadata={matchMetadata}
+      matchPolling={matchPolling}
       deleteBook={deleteBook}
       mergeAudiobook={mergeAudiobook}
       mergeJob={mergeJob}
@@ -300,7 +312,7 @@ function BookDetailContent({
   readingProgress, audioProgress,
   isEditing, editData, setEditData, showFiles, setShowFiles,
   navigate, startEditing, cancelEditing, saveEdit,
-  sendToKindle, matchMetadata, deleteBook, mergeAudiobook, mergeJob, uploadCover,
+  sendToKindle, matchMetadata, matchPolling, deleteBook, mergeAudiobook, mergeJob, uploadCover,
   splitFiles, clearMatch, previewRename, executeRename, writeMetadata, renamePreview, setRenamePreview,
   splitMode, setSplitMode, selectedFileIds, setSelectedFileIds,
   convertFormat, chapters, editingChapters, setEditingChapters, chapterData, setChapterData, saveChapters,
@@ -628,14 +640,14 @@ function BookDetailContent({
             <Button
               variant="outline"
               onClick={() => matchMetadata.mutate()}
-              disabled={matchMetadata.isPending}
+              disabled={matchMetadata.isPending || matchPolling}
             >
-              {matchMetadata.isPending ? (
+              {(matchMetadata.isPending || matchPolling) ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              {(() => { if (matchMetadata.isSuccess) return 'Queued!'; if (matchMetadata.isError) return 'Failed'; if (book.hardcoverId) return 'Re-match'; return 'Match Metadata'; })()}
+              {(() => { if (matchMetadata.isPending || matchPolling) return 'Matching...'; if (matchMetadata.isError) return 'Failed'; if (book.hardcoverId) return 'Re-match'; return 'Match Metadata'; })()}
             </Button>
             {isEditing ? (
               <>
@@ -1145,7 +1157,16 @@ function BookDetailContent({
 
 function MatchBreakdownTooltip({ breakdown, confidence }: { breakdown: MatchBreakdown | null; confidence: number }) {
   if (!breakdown) {
-    return <span>Match confidence: {Math.round(confidence * 100)}%</span>;
+    return (
+      <div className="space-y-1 text-xs">
+        <div className="font-semibold">Match Confidence: {Math.round(confidence * 100)}%</div>
+        <div className="opacity-70">
+          {confidence >= 0.8 ? 'Strong match via ISBN or title+author' :
+           confidence >= 0.5 ? 'Moderate — verify title and author' :
+           'Weak match — consider re-matching'}
+        </div>
+      </div>
+    );
   }
 
   const titleContrib = breakdown.titleSimilarity * breakdown.titleWeight;

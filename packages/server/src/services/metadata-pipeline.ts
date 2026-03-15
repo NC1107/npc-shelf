@@ -4,7 +4,7 @@ import type { MetadataProvider } from '../providers/metadata-provider.js';
 import type { MetadataMatchResult, MetadataSearchResult } from '@npc-shelf/shared';
 import { METADATA } from '@npc-shelf/shared';
 import { stringSimilarity, normalizeForComparison } from '../utils/string-similarity.js';
-import { cleanTitle } from '../utils/filename-parser.js';
+import { cleanTitle, parseFilename } from '../utils/filename-parser.js';
 import { downloadAndResizeCover } from './cover.js';
 import { HardcoverProvider } from '../providers/hardcover.js';
 
@@ -174,7 +174,26 @@ export async function enrichBook(bookId: number): Promise<void> {
     .get();
 
   const isbn = book.isbn13 || book.isbn10 || undefined;
-  const searchTitle = cleanTitle(book.title);
+  let searchTitle = cleanTitle(book.title);
+
+  // When stored title is garbage (equals author name, has format artifacts, etc.),
+  // extract a search title from the filename instead
+  if (isDirtyTitle(book.title, bookId)) {
+    const file = db.select({ path: schema.files.path, filename: schema.files.filename })
+      .from(schema.files)
+      .where(eq(schema.files.bookId, bookId))
+      .get();
+    if (file) {
+      const dirPath = file.path.replace(/[\\/][^\\/]+$/, '');
+      const parsed = parseFilename(file.filename, dirPath);
+      const fileTitle = cleanTitle(parsed.title);
+      if (fileTitle.toLowerCase() !== (authorRow?.name || '').toLowerCase()) {
+        searchTitle = fileTitle;
+        console.log(`[Metadata] Using filename title "${searchTitle}" instead of dirty "${book.title}"`);
+      }
+    }
+  }
+
   ensureToken();
   const match = await matchBook(provider, searchTitle, authorRow?.name, isbn);
 
@@ -188,11 +207,13 @@ export async function enrichBook(bookId: number): Promise<void> {
   // If we matched via search (no slug), fetch details to get slug + all series
   let slug = match.slug;
   let allSeries = match.allSeries;
+  let canonicalTitle = match.title;
   if (!slug) {
     const details = await provider.getDetails(match.externalId);
     if (details) {
       slug = details.slug;
       allSeries = details.allSeries;
+      if (details.title) canonicalTitle = details.title;
     }
   }
 
@@ -212,10 +233,10 @@ export async function enrichBook(bookId: number): Promise<void> {
   if (!book.pageCount && match.pageCount) updates.pageCount = match.pageCount;
   if (!book.isbn10 && match.isbn10) updates.isbn10 = match.isbn10;
 
-  // Update title from Hardcover match if current title looks wrong
-  if (match.title && isDirtyTitle(book.title, bookId)) {
-    updates.title = match.title;
-    console.log(`[Metadata] Fixed title "${book.title}" -> "${match.title}"`);
+  // Use canonical title (from books_by_pk) when fixing dirty titles
+  if (canonicalTitle && isDirtyTitle(book.title, bookId)) {
+    updates.title = canonicalTitle;
+    console.log(`[Metadata] Fixed title "${book.title}" -> "${canonicalTitle}"`);
   }
 
   db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
@@ -402,6 +423,7 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
  * Re-fetches the correct title from Hardcover for each dirty book.
  */
 export async function cleanupDirtyTitles(): Promise<{ fixed: number; total: number }> {
+  // Phase 1: Fix matched books by fetching canonical title from Hardcover
   const matched = db
     .select({
       id: schema.books.id,
@@ -432,7 +454,48 @@ export async function cleanupDirtyTitles(): Promise<{ fixed: number; total: numb
     }
   }
 
-  return { fixed, total: matched.length };
+  // Phase 2: Fix unmatched dirty books using filename, then re-queue enrichment
+  const unmatched = db
+    .select({
+      id: schema.books.id,
+      title: schema.books.title,
+    })
+    .from(schema.books)
+    .where(isNull(schema.books.hardcoverId))
+    .all();
+
+  for (const book of unmatched) {
+    if (!isDirtyTitle(book.title, book.id)) continue;
+
+    const file = db.select({ path: schema.files.path, filename: schema.files.filename })
+      .from(schema.files)
+      .where(eq(schema.files.bookId, book.id))
+      .get();
+    if (!file) continue;
+
+    const dirPath = file.path.replace(/[\\/][^\\/]+$/, '');
+    const parsed = parseFilename(file.filename, dirPath);
+    const fileTitle = cleanTitle(parsed.title);
+
+    if (fileTitle && fileTitle.toLowerCase() !== book.title.toLowerCase()) {
+      db.update(schema.books)
+        .set({ title: fileTitle, updatedAt: new Date().toISOString() })
+        .where(eq(schema.books.id, book.id))
+        .run();
+      console.log(`[Cleanup] Fixed unmatched title: "${book.title}" -> "${fileTitle}"`);
+      fixed++;
+
+      // Re-queue metadata matching for this book
+      try {
+        db.insert(schema.jobQueue).values({
+          jobType: 'match_metadata',
+          payload: JSON.stringify({ bookId: book.id }),
+        }).run();
+      } catch { /* ignore duplicate queue entries */ }
+    }
+  }
+
+  return { fixed, total: matched.length + unmatched.filter(b => isDirtyTitle(b.title, b.id)).length };
 }
 
 /**

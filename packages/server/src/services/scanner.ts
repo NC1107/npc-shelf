@@ -66,16 +66,21 @@ export async function scanLibrary(libraryId: number): Promise<ScanStatus> {
     status.filesFound = diskFiles.length;
     activeScanStatuses.set(libraryId, { ...status });
 
-    // Process each BookCandidate
-    for (const candidate of candidates) {
-      try {
-        const result = await persistCandidate(candidate, libraryId, status);
-        if (result === 'added') status.booksAdded++;
-        else if (result === 'updated') status.booksUpdated++;
-        status.filesProcessed += candidate.files.length;
-      } catch (err: any) {
-        status.errors.push(`${candidate.resolvedTitle}: ${err.message}`);
-        status.filesProcessed += candidate.files.length;
+    // Process candidates in parallel batches for I/O throughput
+    const SCAN_CONCURRENCY = 5;
+    for (let i = 0; i < candidates.length; i += SCAN_CONCURRENCY) {
+      const batch = candidates.slice(i, i + SCAN_CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(c => persistCandidate(c, libraryId, status)),
+      );
+      for (const [idx, result] of results.entries()) {
+        if (result.status === 'fulfilled') {
+          if (result.value === 'added') status.booksAdded++;
+          else if (result.value === 'updated') status.booksUpdated++;
+        } else {
+          status.errors.push(`${batch[idx].resolvedTitle}: ${result.reason?.message}`);
+        }
+        status.filesProcessed += batch[idx].files.length;
       }
       activeScanStatuses.set(libraryId, { ...status });
     }
@@ -156,8 +161,16 @@ async function persistCandidate(
 
   // Merge embedded metadata with pipeline-resolved metadata
   // Embedded takes priority for title/author if higher quality than filename/directory
-  const title = embedded.title || candidate.resolvedTitle;
+  let title = embedded.title || candidate.resolvedTitle;
   const authorName = embedded.author || candidate.resolvedAuthor;
+
+  // Reject embedded title when it equals the author name (garbage metadata)
+  if (embedded.title && authorName) {
+    if (embedded.title.toLowerCase().trim() === authorName.toLowerCase().trim()) {
+      title = candidate.resolvedTitle;
+      console.log(`[Scanner] Rejected embedded title "${embedded.title}" (equals author), using "${title}"`);
+    }
+  }
   const description = embedded.description || null;
   const language = embedded.language || null;
   const publisher = embedded.publisher || null;
@@ -222,10 +235,14 @@ async function persistCandidate(
     .returning()
     .get();
 
-  // Create file records
+  // Create file records — parallelize hashing for I/O throughput
+  const hashes = await Promise.all(
+    candidate.files.map(f => computeHash(f.path, f.extension)),
+  );
   const fileRecords: { fileId: number; file: FileCandidate }[] = [];
-  for (const file of candidate.files) {
-    const hash = await computeHash(file.path, file.extension);
+  for (let fi = 0; fi < candidate.files.length; fi++) {
+    const file = candidate.files[fi];
+    const hash = hashes[fi];
     const format = file.extension as 'epub' | 'pdf' | 'mobi' | 'azw3' | 'm4b' | 'mp3';
     const mimeType = MIME_TYPES[format] || 'application/octet-stream';
 

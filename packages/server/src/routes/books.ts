@@ -209,6 +209,17 @@ booksRouter.get('/filters', (_req, res) => {
   }
 });
 
+// Detect duplicate books — must be before /:id to avoid matching "duplicates" as a book ID
+booksRouter.get('/duplicates', (_req, res) => {
+  try {
+    const groups = detectDuplicates();
+    res.json(groups);
+  } catch (error) {
+    console.error('[Books] Duplicates error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get book detail
 booksRouter.get('/:id', (req, res) => {
   try {
@@ -644,17 +655,6 @@ booksRouter.delete('/:id/match', (req, res) => {
     res.json({ message: 'Match cleared' });
   } catch (error) {
     console.error('[Books] Clear match error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Detect duplicate books
-booksRouter.get('/duplicates', (_req, res) => {
-  try {
-    const groups = detectDuplicates();
-    res.json(groups);
-  } catch (error) {
-    console.error('[Books] Duplicates error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

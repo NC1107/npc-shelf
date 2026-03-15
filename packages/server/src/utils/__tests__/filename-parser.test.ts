@@ -99,6 +99,46 @@ describe('cleanTitle', () => {
   });
 });
 
+describe('parseFilename — dot-separated names', () => {
+  it('converts dots to spaces and splits author-title', () => {
+    const result = parseFilename(
+      'George.Orwell-George.Orwell.A.Life.In.Letters.2011.RETAIL.EPUB.eBook-CTO.epub',
+    );
+    expect(result.author).toBe('George Orwell');
+    expect(result.title).toMatch(/George Orwell A Life In Letters/);
+  });
+
+  it('converts dots for simple author-title pattern', () => {
+    const result = parseFilename(
+      'Brandon.Sanderson-The.Way.of.Kings.epub',
+    );
+    expect(result.author).toBe('Brandon Sanderson');
+    expect(result.title).toBe('The Way of Kings');
+  });
+
+  it('leaves filenames with spaces unchanged', () => {
+    const result = parseFilename('Brandon Sanderson - The Way of Kings.epub');
+    expect(result.author).toBe('Brandon Sanderson');
+    expect(result.title).toBe('The Way of Kings');
+  });
+});
+
+describe('cleanTitle — scene tags', () => {
+  it('strips eBook-XXX scene group tags', () => {
+    expect(cleanTitle('George Orwell A Life In Letters 2011 RETAIL EPUB eBook-CTO')).toBe(
+      'George Orwell A Life In Letters 2011',
+    );
+  });
+
+  it('strips standalone RETAIL/EPUB/etc words', () => {
+    expect(cleanTitle('Some Book RETAIL EPUB')).toBe('Some Book');
+  });
+
+  it('does not strip format words inside parentheses (handled separately)', () => {
+    expect(cleanTitle('Some Book (epub)')).toBe('Some Book');
+  });
+});
+
 describe('parseFilenameEnhanced', () => {
   it('extracts series from bracket prefix', () => {
     const result = parseFilenameEnhanced({

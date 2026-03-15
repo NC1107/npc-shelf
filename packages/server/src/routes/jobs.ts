@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, sql, and, lte } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { getRecentLogs, subscribe } from '../services/log-buffer.js';
 
 export const jobsRouter = Router();
 
@@ -143,4 +144,30 @@ jobsRouter.delete('/purge', (req, res) => {
     console.error('[Jobs] Purge error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Recent log entries (JSON)
+jobsRouter.get('/logs', (req, res) => {
+  try {
+    const count = Math.min(500, Math.max(1, Number.parseInt(req.query.count as string) || 100));
+    res.json(getRecentLogs(count));
+  } catch (error) {
+    console.error('[Jobs] Logs error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Real-time log stream (SSE)
+jobsRouter.get('/logs/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  const unsubscribe = subscribe((entry) => {
+    res.write(`data: ${JSON.stringify(entry)}\n\n`);
+  });
+
+  req.on('close', () => unsubscribe());
 });

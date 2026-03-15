@@ -134,7 +134,7 @@ export class HardcoverProvider implements MetadataProvider {
       const q = author ? `${title} ${author}` : title;
       const data = await this.requestWithRetry<SearchResponse>(SEARCH_QUERY, {
         q,
-        perPage: 10,
+        perPage: 5,
       });
       return parseSearchResults(data.search.results);
     } catch (err: any) {

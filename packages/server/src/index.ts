@@ -30,6 +30,10 @@ import { mergeAudiobook, isFfmpegAvailable } from './services/audio-merge.js';
 import { isCalibreAvailable } from './services/metadata-writer.js';
 import { convertBook } from './services/format-converter.js';
 import { initializeWatchers, stopAllWatchers } from './services/file-watcher.js';
+import { installLogCapture } from './services/log-buffer.js';
+
+// Capture console output into ring buffer for log viewer
+installLogCapture();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -135,7 +139,7 @@ app.get('/api/health', (_req, res) => {
 
     res.json({
       status: 'ok',
-      version: '0.5.4',
+      version: '0.6.0',
       uptime: process.uptime(),
       database: 'connected',
       books: bookCount,
