@@ -29,17 +29,18 @@ metadataRouter.post('/match/:bookId', (req, res) => {
   }
 });
 
-// Batch match all unmatched books
-metadataRouter.post('/match-all', (_req, res) => {
+// Batch match all unmatched books (force=true clears existing matches first)
+metadataRouter.post('/match-all', (req, res) => {
   try {
+    const force = req.body?.force === true;
     db.insert(schema.jobQueue)
       .values({
         jobType: 'match_all_metadata',
-        payload: '{}',
+        payload: JSON.stringify({ force }),
       })
       .run();
 
-    res.json({ message: 'Batch metadata match queued' });
+    res.json({ message: force ? 'Force re-match of all books queued' : 'Batch metadata match queued' });
   } catch (error) {
     console.error('[Metadata] Match all error:', error);
     res.status(500).json({ error: 'Internal server error' });

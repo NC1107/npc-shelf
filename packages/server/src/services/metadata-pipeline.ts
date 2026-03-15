@@ -496,9 +496,31 @@ export async function enrichBook(bookId: number): Promise<void> {
 
 /**
  * Batch match all unmatched books.
+ * When force=true, clears all existing matches first and re-scores everything.
  * Deduplicates queries: books sharing the same normalized title+author search once.
  */
-export async function enrichAllUnmatched(): Promise<{ matched: number; total: number }> {
+export async function enrichAllUnmatched(force = false): Promise<{ matched: number; total: number }> {
+  if (force) {
+    // Clear all existing metadata matches so everything gets re-scored
+    const allMatched = db
+      .select({ id: schema.books.id })
+      .from(schema.books)
+      .where(isNotNull(schema.books.hardcoverId))
+      .all();
+    console.log(`[Metadata] Force mode: clearing ${allMatched.length} existing matches`);
+    for (const book of allMatched) {
+      db.update(schema.books).set({
+        hardcoverId: null,
+        hardcoverSlug: null,
+        matchConfidence: null,
+        matchBreakdown: null,
+        needsReview: 0,
+      }).where(eq(schema.books.id, book.id)).run();
+    }
+    // Also clear metadata cache so we get fresh data
+    db.delete(schema.metadataCache).run();
+  }
+
   const unmatched = db
     .select({ id: schema.books.id })
     .from(schema.books)

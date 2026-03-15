@@ -61,9 +61,10 @@ registerJobHandler('match_metadata', async (payload) => {
   await enrichBook(bookId);
 });
 
-registerJobHandler('match_all_metadata', async () => {
-  console.log('[Jobs] Starting batch metadata match');
-  const result = await enrichAllUnmatched();
+registerJobHandler('match_all_metadata', async (payload) => {
+  const force = payload.force === true;
+  console.log(`[Jobs] Starting batch metadata match (force=${force})`);
+  const result = await enrichAllUnmatched(force);
   console.log(`[Jobs] Batch match complete: ${result.matched}/${result.total} matched`);
 });
 
