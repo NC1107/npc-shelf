@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { sql, eq } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { enrichBooksWithMeta } from '../utils/book-enricher.js';
 
 export const searchRouter = Router();
 
@@ -13,7 +14,7 @@ searchRouter.get('/', (req, res) => {
       return;
     }
 
-    const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
+    const limit = Math.min(50, Number.parseInt(req.query.limit as string) || 20);
 
     // Search books via FTS5 — transform multi-word queries for proper FTS5 syntax
     // "brandon sanderson" → '"brandon"* "sanderson"*' (implicit AND with prefix matching)
@@ -42,7 +43,7 @@ searchRouter.get('/', (req, res) => {
       authorBookIds = db
         .select({ bookId: schema.bookAuthors.bookId })
         .from(schema.bookAuthors)
-        .where(sql`${schema.bookAuthors.authorId} IN (${sql.join(authorIds.map(id => sql`${id}`), sql`, `)})`)
+        .where(inArray(schema.bookAuthors.authorId, authorIds))
         .all()
         .map(r => r.bookId);
     }
@@ -54,27 +55,12 @@ searchRouter.get('/', (req, res) => {
         ? db
             .select()
             .from(schema.books)
-            .where(sql`${schema.books.id} IN (${sql.join(bookIds.map(id => sql`${id}`), sql`, `)})`)
+            .where(inArray(schema.books.id, bookIds))
             .all()
         : [];
 
     // Enrich books with formats and authors for display
-    const books = rawBooks.map(book => {
-      const formats = db.selectDistinct({ format: schema.files.format })
-        .from(schema.files).where(eq(schema.files.bookId, book.id)).all()
-        .map(f => f.format);
-      const authorRows = db
-        .select({ name: schema.authors.name })
-        .from(schema.bookAuthors)
-        .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
-        .where(eq(schema.bookAuthors.bookId, book.id))
-        .all();
-      return {
-        ...book,
-        formats,
-        authors: authorRows.map(a => ({ author: { name: a.name } })),
-      };
-    });
+    const books = enrichBooksWithMeta(rawBooks);
 
     // Search authors by name
     const authors = db

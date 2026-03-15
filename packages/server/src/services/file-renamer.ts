@@ -55,7 +55,7 @@ function getBookData(bookId: number) {
 }
 
 function sanitizeSegment(s: string): string {
-  const cleaned = sanitize(s).replace(/\s+/g, ' ').trim();
+  const cleaned = sanitize(s).replaceAll(/\s+/g, ' ').trim();
   return cleaned.slice(0, 200) || 'Unknown';
 }
 
@@ -77,11 +77,12 @@ function resolveTemplate(
   const isAudio = AUDIO_FORMATS.has(ext);
   const template = isAudio ? AUDIOBOOK_TEMPLATE : EBOOK_TEMPLATE;
 
-  const seriesPrefix = bookData.series
-    ? bookData.seriesPosition
+  let seriesPrefix = '';
+  if (bookData.series) {
+    seriesPrefix = bookData.seriesPosition
       ? `${sanitizeSegment(bookData.series)} ${String(bookData.seriesPosition).padStart(2, '0')} - `
-      : `${sanitizeSegment(bookData.series)} - `
-    : '';
+      : `${sanitizeSegment(bookData.series)} - `;
+  }
 
   const vars: Record<string, string> = {
     author: sanitizeSegment(bookData.author),

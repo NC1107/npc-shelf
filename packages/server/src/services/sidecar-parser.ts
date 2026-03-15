@@ -84,30 +84,30 @@ function parseOpfFile(filePath: string): Partial<SidecarMetadata> | null {
 
     // dc:title
     const titleMatch = content.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
-    if (titleMatch) result.title = titleMatch[1]!.trim();
+    if (titleMatch) result.title = titleMatch[1].trim();
 
     // dc:creator (author)
     const creatorMatch = content.match(/<dc:creator[^>]*>([^<]+)<\/dc:creator>/i);
-    if (creatorMatch) result.author = creatorMatch[1]!.trim();
+    if (creatorMatch) result.author = creatorMatch[1].trim();
 
     // narrator — various conventions
     const narratorMatch = content.match(
       /<meta\s+name=["'](?:lazylibrarian:narrator|narrator|calibre:narrator)["']\s+content=["']([^"']+)["']/i,
     );
-    if (narratorMatch) result.narrator = narratorMatch[1]!.trim();
+    if (narratorMatch) result.narrator = narratorMatch[1].trim();
 
     // dc:subject (tags)
     const subjectRegex = /<dc:subject[^>]*>([^<]+)<\/dc:subject>/gi;
     let subjectMatch;
     while ((subjectMatch = subjectRegex.exec(content)) !== null) {
-      result.tags!.push(subjectMatch[1]!.trim());
+      (result.tags ??= []).push(subjectMatch[1].trim());
     }
 
     // Series — calibre convention
     const seriesMatch = content.match(
       /<meta\s+name=["']calibre:series["']\s+content=["']([^"']+)["']/i,
     );
-    if (seriesMatch) result.series = seriesMatch[1]!.trim();
+    if (seriesMatch) result.series = seriesMatch[1].trim();
 
     return result;
   } catch {
@@ -134,18 +134,18 @@ function parseMetadataJson(filePath: string): Partial<SidecarMetadata> | null {
     if (data.series) {
       if (Array.isArray(data.series)) {
         const parsed = data.series.map((s: string) => {
-          const match = String(s).match(/^(.+?)\s*#(\d+(?:\.\d+)?)$/);
-          if (match) return { name: match[1]!.trim(), position: parseFloat(match[2]!) };
+          const match = /^(.+?)\s*#(\d+(?:\.\d+)?)$/.exec(String(s));
+          if (match) return { name: match[1].trim(), position: Number.parseFloat(match[2]) };
           return { name: String(s).trim(), position: null };
         });
         result.seriesList = parsed;
         result.series = parsed[0]?.name || null;
       } else {
         const seriesStr = String(data.series);
-        const match = seriesStr.match(/^(.+?)\s*#(\d+(?:\.\d+)?)$/);
+        const match = /^(.+?)\s*#(\d+(?:\.\d+)?)$/.exec(seriesStr);
         if (match) {
-          result.seriesList = [{ name: match[1]!.trim(), position: parseFloat(match[2]!) }];
-          result.series = match[1]!.trim();
+          result.seriesList = [{ name: match[1].trim(), position: Number.parseFloat(match[2]) }];
+          result.series = match[1].trim();
         } else {
           result.seriesList = [{ name: seriesStr, position: null }];
           result.series = seriesStr;

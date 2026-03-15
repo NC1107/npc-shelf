@@ -1,5 +1,4 @@
 import { create } from 'xmlbuilder2';
-import { MIME_TYPES } from '@npc-shelf/shared';
 
 interface OpdsBookEntry {
   id: number;
@@ -140,7 +139,7 @@ export function generateBooksFeed(
   totalPages: number,
 ): string {
   const feed = createFeed(id, title, selfHref, 'acquisition');
-  addPagination(feed, selfHref.split('?')[0]!, page, totalPages);
+  addPagination(feed, selfHref.split('?')[0], page, totalPages);
 
   for (const book of books) {
     addBookEntry(feed, book);

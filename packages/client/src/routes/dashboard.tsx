@@ -4,7 +4,15 @@ import { BookOpen, Library, Headphones, Clock, Users, ArrowRight } from 'lucide-
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { BookCard } from '../components/books/BookCard';
 import { api } from '../lib/api';
-import type { PaginatedResponse, Book } from '@npc-shelf/shared';
+import type { PaginatedResponse, Book, Library as LibraryType } from '@npc-shelf/shared';
+import type { LucideIcon } from 'lucide-react';
+
+/** Book with optional fields returned by the list endpoint. */
+interface BookListItem extends Book {
+  authors?: { author: { name: string } }[];
+  formats?: string[];
+  progressPercent?: number;
+}
 
 interface LibraryStats {
   totalBooks: number;
@@ -22,12 +30,12 @@ export function DashboardPage() {
 
   const { data: recentBooks } = useQuery({
     queryKey: ['books', 'recent'],
-    queryFn: () => api.get<PaginatedResponse<Book>>('/books?sortBy=createdAt&sortOrder=desc&pageSize=12'),
+    queryFn: () => api.get<PaginatedResponse<BookListItem>>('/books?sortBy=createdAt&sortOrder=desc&pageSize=12'),
   });
 
   const { data: libraries } = useQuery({
     queryKey: ['libraries'],
-    queryFn: () => api.get<any[]>('/libraries'),
+    queryFn: () => api.get<LibraryType[]>('/libraries'),
   });
 
   return (
@@ -83,7 +91,7 @@ export function DashboardPage() {
         {recentBooks?.items && recentBooks.items.length > 0 ? (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {recentBooks.items.map((book) => (
-              <BookCard key={book.id} book={book as any} view="grid" />
+              <BookCard key={book.id} book={book} view="grid" />
             ))}
           </div>
         ) : (
@@ -117,7 +125,7 @@ export function DashboardPage() {
             </Link>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {libraries.map((lib: any) => (
+            {libraries.map((lib) => (
               <Card key={lib.id}>
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
@@ -140,7 +148,7 @@ export function DashboardPage() {
   );
 }
 
-function StatCard({ title, value, icon: Icon }: { title: string; value: number; icon: any }) {
+function StatCard({ title, value, icon: Icon }: { title: string; value: number; icon: LucideIcon }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">

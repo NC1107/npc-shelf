@@ -49,7 +49,7 @@ librariesRouter.get('/browse', (req, res) => {
     const parentPath = path.dirname(normalizedPath);
     res.json({
       currentPath: normalizedPath,
-      parent: parentPath !== normalizedPath ? parentPath : null,
+      parent: parentPath === normalizedPath ? null : parentPath,
       directories,
       audioFiles,
       ebookFiles,
@@ -106,7 +106,7 @@ librariesRouter.post('/', (req, res) => {
 // Update library
 librariesRouter.put('/:id', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id);
     const { name, type, scanEnabled } = req.body;
 
     const existing = db.select().from(schema.libraries).where(eq(schema.libraries.id, id)).get();
@@ -136,7 +136,7 @@ librariesRouter.put('/:id', (req, res) => {
 // Delete library
 librariesRouter.delete('/:id', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id);
     const existing = db.select().from(schema.libraries).where(eq(schema.libraries.id, id)).get();
     if (!existing) {
       res.status(404).json({ error: 'Library not found' });
@@ -154,7 +154,7 @@ librariesRouter.delete('/:id', (req, res) => {
 // Trigger scan
 librariesRouter.post('/:id/scan', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id);
     const library = db.select().from(schema.libraries).where(eq(schema.libraries.id, id)).get();
     if (!library) {
       res.status(404).json({ error: 'Library not found' });
@@ -179,7 +179,7 @@ librariesRouter.post('/:id/scan', (req, res) => {
 // Scan status — SSE stream for real-time progress, falls back to JSON poll
 librariesRouter.get('/:id/scan/status', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id);
     const library = db.select().from(schema.libraries).where(eq(schema.libraries.id, id)).get();
     if (!library) {
       res.status(404).json({ error: 'Library not found' });
@@ -231,9 +231,14 @@ librariesRouter.get('/:id/scan/status', (req, res) => {
             return payload.libraryId === id && (j.status === 'pending' || j.status === 'processing');
           });
 
+        let status: string = 'idle';
+        if (activeJob) {
+          status = activeJob.status === 'processing' ? 'scanning' : 'pending';
+        }
+
         res.json({
           libraryId: id,
-          status: activeJob ? (activeJob.status === 'processing' ? 'scanning' : 'pending') : 'idle',
+          status,
           filesFound: 0,
           filesProcessed: 0,
           booksAdded: 0,

@@ -8,7 +8,7 @@ import { Separator } from '../components/ui/separator';
 import { DirectoryBrowser } from '../components/DirectoryBrowser';
 import { api } from '../lib/api';
 import { useScanStore } from '../stores/scanStore';
-import type { Library as LibraryType } from '@npc-shelf/shared';
+import type { Library as LibraryType, KindleSettings } from '@npc-shelf/shared';
 
 interface JobSummary {
   pending: number;
@@ -223,7 +223,7 @@ export function SettingsPage() {
 
   const { data: kindleSettings } = useQuery({
     queryKey: ['kindle-settings'],
-    queryFn: () => api.get<any>('/kindle/settings'),
+    queryFn: () => api.get<Partial<KindleSettings>>('/kindle/settings'),
   });
 
   useEffect(() => {
@@ -237,7 +237,7 @@ export function SettingsPage() {
   }, [kindleSettings]);
 
   const saveKindleSettings = useMutation({
-    mutationFn: (data: any) => api.put('/kindle/settings', data),
+    mutationFn: (data: Partial<KindleSettings>) => api.put('/kindle/settings', data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kindle-settings'] }),
   });
 

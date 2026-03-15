@@ -7,8 +7,8 @@ export const jobsRouter = Router();
 // List recent jobs (paginated, filterable by status)
 jobsRouter.get('/', (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+    const page = Math.max(1, Number.parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number.parseInt(req.query.pageSize as string) || 20));
     const status = req.query.status as string | undefined;
 
     const conditions = status ? eq(schema.jobQueue.status, status as 'pending' | 'processing' | 'completed' | 'failed') : undefined;
@@ -69,8 +69,8 @@ jobsRouter.get('/summary', (_req, res) => {
 // Get active/recent jobs for a specific book
 jobsRouter.get('/book/:bookId', (req, res) => {
   try {
-    const bookId = parseInt(req.params.bookId);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.bookId);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
 
     const items = db
       .select()
@@ -92,8 +92,8 @@ jobsRouter.get('/book/:bookId', (req, res) => {
 // Retry a failed job
 jobsRouter.post('/:id/retry', (req, res) => {
   try {
-    const jobId = parseInt(req.params.id);
-    if (isNaN(jobId)) { res.status(400).json({ error: 'Invalid job ID' }); return; }
+    const jobId = Number.parseInt(req.params.id);
+    if (Number.isNaN(jobId)) { res.status(400).json({ error: 'Invalid job ID' }); return; }
 
     const job = db.select().from(schema.jobQueue).where(eq(schema.jobQueue.id, jobId)).get();
     if (!job) {
@@ -126,7 +126,7 @@ jobsRouter.post('/:id/retry', (req, res) => {
 // Purge old completed/failed jobs
 jobsRouter.delete('/purge', (req, res) => {
   try {
-    const days = Math.max(1, parseInt(req.query.days as string) || 7);
+    const days = Math.max(1, Number.parseInt(req.query.days as string) || 7);
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
     const result = db.delete(schema.jobQueue)

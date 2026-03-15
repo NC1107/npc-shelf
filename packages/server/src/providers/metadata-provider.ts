@@ -1,4 +1,4 @@
-import type { MetadataSearchResult, MetadataMatchResult } from '@npc-shelf/shared';
+import type { MetadataSearchResult } from '@npc-shelf/shared';
 
 /**
  * Pluggable metadata provider interface.

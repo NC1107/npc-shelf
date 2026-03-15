@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { db, schema, sqlite } from '../db/index.js';
 import { stringSimilarity } from '../utils/string-similarity.js';
 
@@ -11,17 +11,16 @@ authorsRouter.get('/', (req, res) => {
     const q = (req.query.q as string)?.trim().toLowerCase();
     const allAuthors = db.select().from(schema.authors).orderBy(schema.authors.sortName).all();
 
+    // Single GROUP BY query for all book counts
+    const bookCountRows = db
+      .all<{ authorId: number; count: number }>(
+        sql`SELECT author_id as authorId, COUNT(*) as count FROM book_authors GROUP BY author_id`,
+      );
+    const bookCountMap = new Map(bookCountRows.map((r) => [r.authorId, r.count]));
+
     const results = allAuthors
       .filter((a) => !q || a.name.toLowerCase().includes(q) || a.sortName.toLowerCase().includes(q))
-      .map((a) => {
-        const bookCount =
-          db
-            .select({ count: sql<number>`count(*)` })
-            .from(schema.bookAuthors)
-            .where(eq(schema.bookAuthors.authorId, a.id))
-            .get()?.count || 0;
-        return { ...a, bookCount };
-      });
+      .map((a) => ({ ...a, bookCount: bookCountMap.get(a.id) || 0 }));
 
     res.json(results);
   } catch (error) {
@@ -91,8 +90,8 @@ authorsRouter.get('/duplicates', (_req, res) => {
 // Get author detail with books
 authorsRouter.get('/:id', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
+    const id = Number.parseInt(req.params.id);
+    if (Number.isNaN(id)) {
       res.status(400).json({ error: 'Invalid author ID' });
       return;
     }
@@ -112,13 +111,18 @@ authorsRouter.get('/:id', (req, res) => {
       .where(eq(schema.bookAuthors.authorId, id))
       .all();
 
-    const books = bookEntries
-      .map((entry) => {
-        const book = db.select().from(schema.books).where(eq(schema.books.id, entry.bookId)).get();
-        if (!book) return null;
-        return { ...book, role: entry.role };
-      })
-      .filter(Boolean);
+    const bookIds = bookEntries.map((e) => e.bookId);
+    const roleByBookId = new Map(bookEntries.map((e) => [e.bookId, e.role]));
+
+    const rawBooks = bookIds.length > 0
+      ? db
+          .select()
+          .from(schema.books)
+          .where(inArray(schema.books.id, bookIds))
+          .all()
+      : [];
+
+    const books = rawBooks.map((book) => ({ ...book, role: roleByBookId.get(book.id) }));
 
     res.json({ ...author, books });
   } catch (error) {
@@ -130,8 +134,8 @@ authorsRouter.get('/:id', (req, res) => {
 // Edit author
 authorsRouter.put('/:id', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
+    const id = Number.parseInt(req.params.id);
+    if (Number.isNaN(id)) {
       res.status(400).json({ error: 'Invalid author ID' });
       return;
     }

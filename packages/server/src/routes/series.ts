@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { enrichBooksWithMeta } from '../utils/book-enricher.js';
 
 export const seriesRouter = Router();
 
@@ -30,7 +31,8 @@ seriesRouter.get('/', (_req, res) => {
 // Get series with books
 seriesRouter.get('/:id', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: 'Invalid ID' }); return; }
     const series = db.select().from(schema.series).where(eq(schema.series.id, id)).get();
     if (!series) {
       res.status(404).json({ error: 'Series not found' });
@@ -46,30 +48,23 @@ seriesRouter.get('/:id', (req, res) => {
       .where(eq(schema.bookSeries.seriesId, id))
       .all();
 
-    const books = bookEntries.map((entry) => {
-      const book = db.select().from(schema.books).where(eq(schema.books.id, entry.bookId)).get();
-      if (!book) return null;
+    // Batch-fetch all books for this series
+    const bookIds = bookEntries.map((e) => e.bookId);
+    const rawBooks = bookIds.length > 0
+      ? db
+          .select()
+          .from(schema.books)
+          .where(inArray(schema.books.id, bookIds))
+          .all()
+      : [];
 
-      const authors = db
-        .select({ name: schema.authors.name })
-        .from(schema.bookAuthors)
-        .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
-        .where(eq(schema.bookAuthors.bookId, book.id))
-        .all();
+    // Build position lookup from bookEntries
+    const positionByBookId = new Map(bookEntries.map((e) => [e.bookId, e.position]));
 
-      const formats = db
-        .selectDistinct({ format: schema.files.format })
-        .from(schema.files)
-        .where(eq(schema.files.bookId, book.id))
-        .all();
-
-      return {
-        ...book,
-        position: entry.position,
-        authors: authors.map((a) => ({ author: { name: a.name } })),
-        formats: formats.map((f) => f.format),
-      };
-    }).filter(Boolean).sort((a: any, b: any) => (a.position || 999) - (b.position || 999));
+    const enriched = enrichBooksWithMeta(rawBooks);
+    const books = enriched
+      .map((book) => ({ ...book, position: positionByBookId.get(book.id) ?? null }))
+      .sort((a, b) => (a.position || 999) - (b.position || 999));
 
     res.json({ ...series, books });
   } catch (error) {

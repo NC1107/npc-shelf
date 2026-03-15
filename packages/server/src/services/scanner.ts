@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
@@ -151,7 +150,8 @@ async function persistCandidate(
   }
 
   // Extract embedded metadata from the first (or only) file
-  const primaryFile = candidate.files[0]!;
+  const primaryFile = candidate.files[0];
+  if (!primaryFile) return 'skipped';
   const embedded = await extractEmbeddedMetadata(primaryFile.path, primaryFile.extension);
 
   // Merge embedded metadata with pipeline-resolved metadata
@@ -215,8 +215,8 @@ async function persistCandidate(
       language,
       publisher,
       publishDate,
-      isbn13: isbn && isbn.length === 13 ? isbn : null,
-      isbn10: isbn && isbn.length === 10 ? isbn : null,
+      isbn13: isbn?.length === 13 ? isbn : null,
+      isbn10: isbn?.length === 10 ? isbn : null,
       audioSeconds: totalDuration,
     })
     .returning()
@@ -279,11 +279,14 @@ async function persistCandidate(
   }
 
   // Series — support multiple
-  const seriesList = candidate.resolvedSeriesList.length > 0
-    ? candidate.resolvedSeriesList
-    : candidate.resolvedSeries
-      ? [{ name: candidate.resolvedSeries, position: candidate.resolvedSeriesPosition }]
-      : [];
+  let seriesList: { name: string; position: number | null }[];
+  if (candidate.resolvedSeriesList.length > 0) {
+    seriesList = candidate.resolvedSeriesList;
+  } else if (candidate.resolvedSeries) {
+    seriesList = [{ name: candidate.resolvedSeries, position: candidate.resolvedSeriesPosition }];
+  } else {
+    seriesList = [];
+  }
 
   for (const s of seriesList) {
     const seriesId = findOrCreateSeries(s.name);
@@ -309,7 +312,8 @@ async function persistCandidate(
     const audioRecords = fileRecords.filter(r => r.file.isAudio);
     let cumulativeOffset = 0;
     for (let i = 0; i < audioRecords.length; i++) {
-      const rec = audioRecords[i]!;
+      const rec = audioRecords[i];
+      if (!rec) continue;
       let trackDuration = 0;
 
       if (i === 0 && embedded.duration) {
@@ -406,8 +410,8 @@ async function syncAudioTracks(candidate: BookCandidate, bookId: number): Promis
 
   let cumulativeOffset = 0;
   for (let i = 0; i < candidate.files.length; i++) {
-    const file = candidate.files[i]!;
-    if (!file.isAudio) continue;
+    const file = candidate.files[i];
+    if (!file?.isAudio) continue;
 
     const fileRecord = db.select().from(schema.files).where(eq(schema.files.path, file.path)).get();
     if (!fileRecord) continue;
@@ -492,7 +496,7 @@ async function extractEmbeddedMetadata(filePath: string, format: string): Promis
       const epub = await parseEpub(filePath);
       return {
         title: epub.title || null,
-        author: epub.creators.length > 0 ? epub.creators[0]!.name : null,
+        author: epub.creators[0]?.name ?? null,
         creators: epub.creators.length > 0 ? epub.creators : null,
         description: epub.description,
         language: epub.language,

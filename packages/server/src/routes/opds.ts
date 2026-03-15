@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq, sql, desc, like } from 'drizzle-orm';
+import { eq, inArray, sql, desc } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { opdsAuthMiddleware } from '../middleware/opds-auth.js';
 import {
@@ -55,7 +55,7 @@ opdsRouter.get('/opensearch.xml', (_req, res) => {
 // Recent books (acquisition feed, paginated)
 opdsRouter.get('/recent', (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const page = Math.max(1, Number.parseInt(req.query.page as string) || 1);
     const offset = (page - 1) * PAGE_SIZE;
 
     const total = db.select({ count: sql<number>`count(*)` }).from(schema.books).get()?.count || 0;
@@ -107,7 +107,7 @@ opdsRouter.get('/authors', (_req, res) => {
 // Books by author (acquisition feed)
 opdsRouter.get('/authors/:id', (req, res) => {
   try {
-    const authorId = parseInt(req.params.id);
+    const authorId = Number.parseInt(req.params.id);
     const author = db.select().from(schema.authors).where(eq(schema.authors.id, authorId)).get();
     if (!author) {
       res.status(404).send('Author not found');
@@ -122,7 +122,7 @@ opdsRouter.get('/authors/:id', (req, res) => {
       .map((r) => r.bookId);
 
     const bookRows = bookIds.length > 0
-      ? db.select().from(schema.books).where(sql`${schema.books.id} IN (${sql.join(bookIds.map(id => sql`${id}`), sql`, `)})`) .all()
+      ? db.select().from(schema.books).where(inArray(schema.books.id, bookIds)).all()
       : [];
 
     const books = getBookEntries(bookRows);
@@ -170,7 +170,7 @@ opdsRouter.get('/series', (_req, res) => {
 // Books in series (acquisition feed)
 opdsRouter.get('/series/:id', (req, res) => {
   try {
-    const seriesId = parseInt(req.params.id);
+    const seriesId = Number.parseInt(req.params.id);
     const series = db.select().from(schema.series).where(eq(schema.series.id, seriesId)).get();
     if (!series) {
       res.status(404).send('Series not found');
@@ -185,7 +185,7 @@ opdsRouter.get('/series/:id', (req, res) => {
       .map((r) => r.bookId);
 
     const bookRows = bookIds.length > 0
-      ? db.select().from(schema.books).where(sql`${schema.books.id} IN (${sql.join(bookIds.map(id => sql`${id}`), sql`, `)})`).all()
+      ? db.select().from(schema.books).where(inArray(schema.books.id, bookIds)).all()
       : [];
 
     const books = getBookEntries(bookRows);

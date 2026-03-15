@@ -52,7 +52,7 @@ export async function parseAudioMetadata(filePath: string): Promise<AudioMetadat
 
     // Extract cover image
     if (metadata.common.picture && metadata.common.picture.length > 0) {
-      result.coverImage = Buffer.from(metadata.common.picture[0]!.data);
+      result.coverImage = Buffer.from(metadata.common.picture[0].data);
     }
 
     // For M4B files, extract chapters via ffprobe
@@ -85,8 +85,8 @@ async function extractChaptersWithFfprobe(filePath: string): Promise<AudioChapte
 
     return data.chapters.map((ch: any, index: number) => ({
       title: ch.tags?.title || `Chapter ${index + 1}`,
-      startTime: parseFloat(ch.start_time) || 0,
-      endTime: parseFloat(ch.end_time) || 0,
+      startTime: Number.parseFloat(ch.start_time) || 0,
+      endTime: Number.parseFloat(ch.end_time) || 0,
     }));
   } catch (err: any) {
     if (err.code === 'ENOENT') {

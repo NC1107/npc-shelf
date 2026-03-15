@@ -241,7 +241,7 @@ export interface KindleDelivery {
 
 // ===== Jobs =====
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
-export type JobType = 'scan_library' | 'match_metadata' | 'match_all_metadata' | 'download_cover' | 'merge_audiobook';
+export type JobType = 'scan_library' | 'match_metadata' | 'match_all_metadata' | 'backfill_covers' | 'merge_audiobook' | 'convert_format';
 
 export interface Job {
   id: number;
@@ -263,18 +263,6 @@ export interface PaginatedResponse<T> {
   page: number;
   pageSize: number;
   totalPages: number;
-}
-
-export interface ApiError {
-  error: string;
-  message: string;
-  statusCode: number;
-}
-
-export interface HealthResponse {
-  status: 'ok';
-  version: string;
-  uptime: number;
 }
 
 // ===== Settings =====

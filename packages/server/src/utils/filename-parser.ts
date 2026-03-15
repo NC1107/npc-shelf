@@ -74,22 +74,22 @@ export function parseFilename(filename: string, dirPath?: string): ParsedFilenam
   let seriesPosition: number | null = null;
 
   // Extract series info: "Title (Series #2)"
-  const seriesMatch = name.match(SERIES_PATTERN);
+  const seriesMatch = SERIES_PATTERN.exec(name);
   if (seriesMatch) {
     seriesName = seriesMatch[1].trim();
-    seriesPosition = parseFloat(seriesMatch[2]);
+    seriesPosition = Number.parseFloat(seriesMatch[2]);
     title = name.replace(SERIES_PATTERN, '').trim();
   }
 
   // Extract year: "Title (2023)"
-  const yearMatch = title.match(YEAR_PATTERN);
+  const yearMatch = YEAR_PATTERN.exec(title);
   if (yearMatch) {
     year = yearMatch[1];
     title = title.replace(YEAR_PATTERN, '').trim();
   }
 
   // "Author - Title" or "Title - Author" pattern
-  const dashMatch = title.match(AUTHOR_TITLE_DASH);
+  const dashMatch = AUTHOR_TITLE_DASH.exec(title);
   if (dashMatch) {
     const resolved = resolveAuthorTitle(dashMatch[1].trim(), dashMatch[2].trim(), dirPath);
     author = resolved.author;
@@ -103,8 +103,8 @@ export function parseFilename(filename: string, dirPath?: string): ParsedFilenam
   }
 
   // Clean up underscores and extra whitespace
-  title = title.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
-  if (author) author = author.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  title = title.replaceAll('_', ' ').replaceAll(/\s+/g, ' ').trim();
+  if (author) author = author.replaceAll('_', ' ').replaceAll(/\s+/g, ' ').trim();
 
   return { title, author, year, seriesName, seriesPosition };
 }
@@ -141,9 +141,9 @@ export function parseFilenameEnhanced(file: { filename: string; extension: strin
   let trackNumber: number | null = null;
 
   // Detect leading track numbers: "001 - Title.m4b"
-  const trackMatch = name.match(TRACK_NUMBER_PATTERN);
+  const trackMatch = TRACK_NUMBER_PATTERN.exec(name);
   if (trackMatch) {
-    trackNumber = parseInt(trackMatch[1]!, 10);
+    trackNumber = Number.parseInt(trackMatch[1], 10);
     name = name.slice(trackMatch[0].length).trim();
   }
 

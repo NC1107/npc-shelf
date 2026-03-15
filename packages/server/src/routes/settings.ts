@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { updateProviderToken } from '../services/metadata-pipeline.js';
 

@@ -4,15 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { Button } from '../ui/button';
 import { useAudioStore } from '../../stores/audioStore';
 import { AudioEngine } from '../../lib/AudioEngine';
-
-function formatTime(seconds: number): string {
-  if (!seconds || !isFinite(seconds)) return '0:00';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
+import { formatTime } from '../../lib/format';
 
 export function AudioMiniPlayer() {
   const { bookId, bookTitle, bookAuthor, coverUrl, positionSeconds, totalDurationSeconds, isPlaying, setPlaying, stop, currentTrackIndex } =

@@ -129,7 +129,7 @@ async function processNextJob(): Promise<boolean> {
     const newStatus = job.attempts + 1 >= job.maxAttempts ? 'failed' : 'pending';
     db.update(schema.jobQueue)
       .set({
-        status: newStatus as 'pending' | 'failed',
+        status: newStatus,
         error: errorMsg,
         updatedAt: new Date().toISOString(),
       })

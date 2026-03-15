@@ -2,6 +2,7 @@
   "name": "npc-shelf",
   "version": "0.5.0",
   "private": true,
+  "type": "module",
   "description": "Self-hosted book library platform for ebooks and audiobooks",
   "workspaces": [
     "packages/shared",
@@ -17,7 +18,7 @@
     "build:server": "npm run build --workspace=packages/server",
     "build:client": "npm run build --workspace=packages/client",
     "start": "npm run start --workspace=packages/server",
-    "lint": "eslint packages/*/src --ext .ts,.tsx",
+    "lint": "eslint packages/shared/src packages/server/src packages/client/src",
     "format": "prettier --write \"packages/*/src/**/*.{ts,tsx,css}\"",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -28,8 +29,11 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.58.2",
     "@vitest/coverage-v8": "^4.1.0",
+    "eslint": "^10.0.3",
+    "typescript-eslint": "^8.57.0",
     "vitest": "^4.1.0"
   }
 }

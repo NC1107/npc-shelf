@@ -6,7 +6,6 @@ import NodeID3 from 'node-id3';
 import { PDFDocument } from 'pdf-lib';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import path from 'node:path';
 
 interface WriteResult {
   fileId: number;
@@ -203,8 +202,7 @@ function writeM4bMetadata(fileId: number, filePath: string, meta: BookMeta): Wri
   if (meta.title) { metadataArgs.push('-metadata', `title=${meta.title}`); fieldsWritten.push('title'); }
   if (meta.authors.length > 0) {
     const author = meta.authors.join(', ');
-    metadataArgs.push('-metadata', `artist=${author}`);
-    metadataArgs.push('-metadata', `album_artist=${author}`);
+    metadataArgs.push('-metadata', `artist=${author}`, '-metadata', `album_artist=${author}`);
     fieldsWritten.push('artist');
   }
   if (meta.series) { metadataArgs.push('-metadata', `album=${meta.series}`); fieldsWritten.push('album'); }

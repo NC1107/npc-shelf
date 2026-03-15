@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq, sql, desc } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { sendToKindle } from '../services/kindle.js';
 import fs from 'node:fs';
@@ -9,7 +9,8 @@ export const kindleRouter = Router();
 // Send book to Kindle
 kindleRouter.post('/send/:bookId', async (req, res) => {
   try {
-    const bookId = parseInt(req.params.bookId);
+    const bookId = Number.parseInt(req.params.bookId);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const userId = req.user!.userId;
 
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
@@ -36,7 +37,7 @@ kindleRouter.post('/send/:bookId', async (req, res) => {
 
     const smtpConfig = {
       host: getSettings('smtpHost'),
-      port: parseInt(getSettings('smtpPort') || '587'),
+      port: Number.parseInt(getSettings('smtpPort') || '587'),
       user: getSettings('smtpUser'),
       pass: getSettings('smtpPass'),
       from: getSettings('fromEmail'),
@@ -111,7 +112,7 @@ kindleRouter.get('/settings', (req, res) => {
     res.json({
       kindleEmail: settings?.kindleEmail || '',
       smtpHost: getSettings('smtpHost'),
-      smtpPort: parseInt(getSettings('smtpPort') || '587'),
+      smtpPort: Number.parseInt(getSettings('smtpPort') || '587'),
       smtpUser: getSettings('smtpUser'),
       fromEmail: getSettings('fromEmail'),
       configured: !!(getSettings('smtpHost') && getSettings('smtpUser')),

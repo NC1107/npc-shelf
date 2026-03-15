@@ -6,7 +6,7 @@ import type { MetadataSearchResult } from '@npc-shelf/shared';
 class TokenBucket {
   private tokens: number;
   private lastRefill: number;
-  constructor(private maxTokens: number, private refillRate: number) {
+  constructor(private readonly maxTokens: number, private readonly refillRate: number) {
     this.tokens = maxTokens;
     this.lastRefill = Date.now();
   }
@@ -83,7 +83,7 @@ const AUTHOR_BY_PK_QUERY = gql`
 export class HardcoverProvider implements MetadataProvider {
   name = 'hardcover';
   private client: GraphQLClient;
-  private bucket = new TokenBucket(60, 1); // 60 tokens, refill 1/sec
+  private readonly bucket = new TokenBucket(60, 1); // 60 tokens, refill 1/sec
 
   constructor(apiToken?: string) {
     this.client = new GraphQLClient('https://api.hardcover.app/v1/graphql', {
@@ -147,7 +147,7 @@ export class HardcoverProvider implements MetadataProvider {
     try {
       const data = await this.requestWithRetry<{ books_by_pk: HardcoverBook | null }>(
         BOOK_BY_PK_QUERY,
-        { id: parseInt(externalId) },
+        { id: Number.parseInt(externalId) },
       );
       return data.books_by_pk ? mapBookToResult(data.books_by_pk) : null;
     } catch (err: any) {
@@ -160,7 +160,7 @@ export class HardcoverProvider implements MetadataProvider {
     try {
       const data = await this.requestWithRetry<{ books_by_pk: HardcoverBook | null }>(
         BOOK_BY_PK_QUERY,
-        { id: parseInt(bookId) },
+        { id: Number.parseInt(bookId) },
       );
       return data.books_by_pk?.contributions.map(c => ({ id: c.author.id, name: c.author.name })) || [];
     } catch (err: any) {
@@ -173,7 +173,7 @@ export class HardcoverProvider implements MetadataProvider {
     try {
       const data = await this.requestWithRetry<{
         authors_by_pk: { id: number; name: string; bio: string | null; image: { url: string } | null } | null;
-      }>(AUTHOR_BY_PK_QUERY, { id: parseInt(authorId) });
+      }>(AUTHOR_BY_PK_QUERY, { id: Number.parseInt(authorId) });
       if (!data.authors_by_pk) return null;
       return {
         id: data.authors_by_pk.id,
@@ -191,7 +191,7 @@ export class HardcoverProvider implements MetadataProvider {
     try {
       const data = await this.requestWithRetry<{
         series_by_pk: { id: number; name: string; description: string | null } | null;
-      }>(SERIES_BY_PK_QUERY, { id: parseInt(seriesId) });
+      }>(SERIES_BY_PK_QUERY, { id: Number.parseInt(seriesId) });
       if (!data.series_by_pk) return null;
       return {
         id: data.series_by_pk.id,
@@ -288,8 +288,8 @@ function mapBookToResult(book: HardcoverBook): MetadataSearchResult {
     pageCount: book.pages || null,
     isbn10: null,
     tags: book.cached_tags || null,
-    series: book.book_series.length > 0 ? book.book_series[0]!.series.name : null,
-    seriesPosition: book.book_series.length > 0 ? book.book_series[0]!.position : null,
+    series: book.book_series[0]?.series.name ?? null,
+    seriesPosition: book.book_series[0]?.position ?? null,
     slug: book.slug || null,
     allSeries: book.book_series.map((bs) => ({
       name: bs.series.name,

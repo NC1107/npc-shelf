@@ -1,4 +1,4 @@
-import { eq, sql, asc } from 'drizzle-orm';
+import { eq, inArray, asc } from 'drizzle-orm';
 import { db, schema, sqlite } from '../db/index.js';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -47,7 +47,7 @@ export async function mergeAudiobook(bookId: number): Promise<string> {
   const files = db
     .select()
     .from(schema.files)
-    .where(sql`${schema.files.id} IN (${sql.join(fileIds.map(id => sql`${id}`), sql`, `)})`)
+    .where(inArray(schema.files.id, fileIds))
     .all();
 
   const fileMap = new Map(files.map(f => [f.id, f]));
@@ -62,9 +62,9 @@ export async function mergeAudiobook(bookId: number): Promise<string> {
   }
 
   // Determine output path — save next to original files
-  const firstFile = trackFiles[0]!.file;
+  const firstFile = trackFiles[0].file;
   const outputDir = path.dirname(firstFile.path);
-  const safeTitle = book.title.replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+  const safeTitle = book.title.replaceAll(/[<>:"/\\|?*]/g, '_').substring(0, 100);
   const outputPath = path.join(outputDir, `${safeTitle} [merged].m4b`);
 
   // Create ffmpeg concat list in temp dir
@@ -74,7 +74,7 @@ export async function mergeAudiobook(bookId: number): Promise<string> {
   try {
     // Write concat list
     const concatContent = trackFiles
-      .map(tf => `file '${tf.path.replace(/'/g, "'\\''")}'`)
+      .map(tf => `file '${tf.path.replaceAll("'", "'\\''")}'`)
       .join('\n');
     fs.writeFileSync(concatListPath, concatContent, 'utf-8');
 

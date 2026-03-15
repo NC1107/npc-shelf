@@ -63,6 +63,7 @@ export function AuthorsPage() {
       queryClient.invalidateQueries({ queryKey: ['author-duplicates'] });
       setEditingId(null);
     },
+    onError: (err) => console.error('Failed to edit author:', err),
   });
 
   const mergeAuthors = useMutation({
@@ -74,6 +75,7 @@ export function AuthorsPage() {
       setConfirmingMergeGroup(null);
       setMergeTargetId(null);
     },
+    onError: (err) => console.error('Failed to merge authors:', err),
   });
 
   const filteredAuthors = useMemo(() => {

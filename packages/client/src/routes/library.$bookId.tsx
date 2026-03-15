@@ -16,7 +16,13 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../com
 import { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem } from '../components/ui/dropdown-menu';
 import { api } from '../lib/api';
 import { FORMAT_COLORS } from '../lib/format-colors';
-import type { BookDetail, MatchBreakdown } from '@npc-shelf/shared';
+import type { BookDetail, MatchBreakdown, Job, AudioChapter } from '@npc-shelf/shared';
+
+interface RenamePreviewItem {
+  fileId: number;
+  oldPath: string;
+  newPath: string;
+}
 
 export function BookDetailPage() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
@@ -31,6 +37,7 @@ export function BookDetailPage() {
 
   const sendToKindle = useMutation({
     mutationFn: () => api.post(`/kindle/send/${bookId}`),
+    onError: (err) => console.error('Failed to send to Kindle:', err),
   });
 
   const matchMetadata = useMutation({
@@ -47,25 +54,27 @@ export function BookDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['books'] });
       navigate({ to: '/library' });
     },
+    onError: (err) => console.error('Failed to delete book:', err),
   });
 
   const mergeAudiobook = useMutation({
     mutationFn: () => api.post(`/audiobooks/${bookId}/merge`),
     onSuccess: () => setMergePolling(true),
+    onError: (err) => console.error('Failed to merge audiobook:', err),
   });
 
   const [mergePolling, setMergePolling] = useState(false);
 
   const { data: bookJobs } = useQuery({
     queryKey: ['jobs', 'book', bookId],
-    queryFn: () => api.get<any[]>(`/jobs/book/${bookId}`),
+    queryFn: () => api.get<Job[]>(`/jobs/book/${bookId}`),
     enabled: mergePolling,
     refetchInterval: 2000,
   });
 
   // Derive merge job status from polled jobs
-  const mergeJob = bookJobs?.find((j: any) => j.jobType === 'merge_audiobook');
-  const mergeStatus = mergeJob?.status as string | undefined;
+  const mergeJob = bookJobs?.find((j) => j.jobType === 'merge_audiobook');
+  const mergeStatus = mergeJob?.status;
 
   // Stop polling and refresh book data when merge completes or fails
   useEffect(() => {
@@ -91,6 +100,7 @@ export function BookDetailPage() {
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['book', bookId] }),
+    onError: (err) => console.error('Failed to upload cover:', err),
   });
 
   const splitFiles = useMutation({
@@ -101,6 +111,7 @@ export function BookDetailPage() {
       setSplitMode(false);
       setSelectedFileIds(new Set());
     },
+    onError: (err) => console.error('Failed to split files:', err),
   });
 
   const clearMatch = useMutation({
@@ -108,11 +119,11 @@ export function BookDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['book', bookId] }),
   });
 
-  const [renamePreview, setRenamePreview] = useState<any[] | null>(null);
+  const [renamePreview, setRenamePreview] = useState<RenamePreviewItem[] | null>(null);
 
   const previewRename = useMutation({
-    mutationFn: () => api.post(`/books/${bookId}/rename/preview`),
-    onSuccess: (data: any) => setRenamePreview(data),
+    mutationFn: () => api.post<RenamePreviewItem[]>(`/books/${bookId}/rename/preview`),
+    onSuccess: (data) => setRenamePreview(data),
   });
 
   const executeRename = useMutation({
@@ -125,38 +136,54 @@ export function BookDetailPage() {
 
   const writeMetadata = useMutation({
     mutationFn: () => api.post(`/books/${bookId}/write-metadata`),
+    onError: (err) => console.error('Failed to write metadata:', err),
   });
 
   const convertFormat = useMutation({
     mutationFn: (data: { fileId: number; targetFormat: string }) =>
       api.post(`/books/${bookId}/convert`, data),
+    onError: (err) => console.error('Failed to convert format:', err),
   });
 
   const { data: chapters } = useQuery({
     queryKey: ['chapters', bookId],
-    queryFn: () => api.get<any[]>(`/audiobooks/${bookId}/chapters`),
+    queryFn: () => api.get<AudioChapter[]>(`/audiobooks/${bookId}/chapters`),
     enabled: !!book?.hasAudio,
   });
 
   const [editingChapters, setEditingChapters] = useState(false);
-  const [chapterData, setChapterData] = useState<any[]>([]);
+  const [chapterData, setChapterData] = useState<AudioChapter[]>([]);
 
   const saveChapters = useMutation({
-    mutationFn: (data: any[]) => api.put(`/audiobooks/${bookId}/chapters`, { chapters: data }),
+    mutationFn: (data: AudioChapter[]) => api.put(`/audiobooks/${bookId}/chapters`, { chapters: data }),
     onSuccess: () => {
       setEditingChapters(false);
       queryClient.invalidateQueries({ queryKey: ['chapters', bookId] });
     },
   });
 
+  interface BookEditData {
+    title?: string;
+    subtitle?: string;
+    description?: string;
+    publisher?: string;
+    publishDate?: string;
+    language?: string;
+    pageCount?: number | string;
+    isbn10?: string;
+    isbn13?: string;
+    authors?: { name: string; role: string }[];
+    series?: { name: string; position: number | null }[];
+  }
+
   const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState<Record<string, any>>({});
+  const [editData, setEditData] = useState<BookEditData>({});
   const [showFiles, setShowFiles] = useState(false);
   const [splitMode, setSplitMode] = useState(false);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<number>>(new Set());
 
   const saveEdit = useMutation({
-    mutationFn: (data: Record<string, any>) => api.put(`/books/${bookId}`, data),
+    mutationFn: (data: BookEditData) => api.put(`/books/${bookId}`, data),
     onSuccess: () => {
       setIsEditing(false);
       setEditData({});
@@ -176,8 +203,8 @@ export function BookDetailPage() {
       pageCount: book.pageCount || '',
       isbn10: book.isbn10 || '',
       isbn13: book.isbn13 || '',
-      authors: book.authors?.map((a: any) => ({ name: a.author.name, role: a.role })) || [{ name: '', role: 'author' }],
-      series: book.series?.map((s: any) => ({ name: s.series.name, position: s.position })) || [],
+      authors: book.authors?.map((a) => ({ name: a.author.name, role: a.role })) || [{ name: '', role: 'author' }],
+      series: book.series?.map((s) => ({ name: s.series.name, position: s.position })) || [],
     });
     setIsEditing(true);
   }

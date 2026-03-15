@@ -8,7 +8,7 @@ export const readerRouter = Router();
 // Serve book content for browser reader
 readerRouter.get('/books/:id/content', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
+    const bookId = Number.parseInt(req.params.id);
     const formatPref = (req.query.format as string) || 'epub';
 
     const file = db
@@ -36,7 +36,7 @@ readerRouter.get('/books/:id/content', (req, res) => {
 // Get reading progress
 readerRouter.get('/books/:id/progress', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
+    const bookId = Number.parseInt(req.params.id);
     const userId = req.user!.userId;
 
     const progress = db
@@ -57,7 +57,7 @@ readerRouter.get('/books/:id/progress', (req, res) => {
 // Update reading progress
 readerRouter.put('/books/:id/progress', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
+    const bookId = Number.parseInt(req.params.id);
     const userId = req.user!.userId;
     const { format, cfi, pageNumber, totalPages, progressPercent } = req.body;
 

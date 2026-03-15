@@ -8,13 +8,13 @@ import { FORMAT_COLORS } from '../../lib/format-colors';
 import type { Book } from '@npc-shelf/shared';
 
 interface BookCardProps {
-  book: Book & { authors?: { author: { name: string } }[]; formats?: string[] };
+  book: Book & { authors?: { author: { name: string } }[]; formats?: string[]; progressPercent?: number };
   view?: 'grid' | 'list';
 }
 
 export const BookCard = React.memo(function BookCard({ book, view = 'grid' }: BookCardProps) {
   const isAudiobook = book.audioSeconds && book.audioSeconds > 0;
-  const progress = (book as any).progressPercent as number | undefined;
+  const progress = book.progressPercent;
 
   if (view === 'list') {
     return (

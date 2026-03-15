@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { enrichBooksWithMeta } from '../utils/book-enricher.js';
 
 export const collectionsRouter = Router();
 
@@ -54,7 +55,8 @@ collectionsRouter.post('/', (req, res) => {
 // Get collection with books
 collectionsRouter.get('/:id', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: 'Invalid ID' }); return; }
     const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
     if (!collection) {
       res.status(404).json({ error: 'Collection not found' });
@@ -70,29 +72,12 @@ collectionsRouter.get('/:id', (req, res) => {
 
     let books: any[] = [];
     if (bookIds.length > 0) {
-      books = db
+      const rawBooks = db
         .select()
         .from(schema.books)
-        .where(sql`${schema.books.id} IN (${sql.join(bookIds.map(bid => sql`${bid}`), sql`, `)})`)
-        .all()
-        .map((book) => {
-          const authors = db
-            .select({ name: schema.authors.name })
-            .from(schema.bookAuthors)
-            .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
-            .where(eq(schema.bookAuthors.bookId, book.id))
-            .all();
-          const formats = db
-            .selectDistinct({ format: schema.files.format })
-            .from(schema.files)
-            .where(eq(schema.files.bookId, book.id))
-            .all();
-          return {
-            ...book,
-            authors: authors.map((a) => ({ author: { name: a.name } })),
-            formats: formats.map((f) => f.format),
-          };
-        });
+        .where(inArray(schema.books.id, bookIds))
+        .all();
+      books = enrichBooksWithMeta(rawBooks);
     }
 
     res.json({ ...collection, books });
@@ -105,7 +90,8 @@ collectionsRouter.get('/:id', (req, res) => {
 // Update collection
 collectionsRouter.put('/:id', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: 'Invalid ID' }); return; }
     const { name, description } = req.body;
 
     const updated = db
@@ -132,7 +118,8 @@ collectionsRouter.put('/:id', (req, res) => {
 // Delete collection
 collectionsRouter.delete('/:id', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: 'Invalid ID' }); return; }
     db.delete(schema.collections).where(eq(schema.collections.id, id)).run();
     res.json({ message: 'Collection deleted' });
   } catch (error) {
@@ -144,7 +131,8 @@ collectionsRouter.delete('/:id', (req, res) => {
 // Add books to collection
 collectionsRouter.post('/:id/books', (req, res) => {
   try {
-    const collectionId = parseInt(req.params.id);
+    const collectionId = Number.parseInt(req.params.id);
+    if (Number.isNaN(collectionId)) { res.status(400).json({ error: 'Invalid ID' }); return; }
     const { bookIds } = req.body;
 
     if (!Array.isArray(bookIds) || bookIds.length === 0) {
@@ -169,8 +157,10 @@ collectionsRouter.post('/:id/books', (req, res) => {
 // Remove book from collection
 collectionsRouter.delete('/:id/books/:bookId', (req, res) => {
   try {
-    const collectionId = parseInt(req.params.id);
-    const bookId = parseInt(req.params.bookId);
+    const collectionId = Number.parseInt(req.params.id);
+    if (Number.isNaN(collectionId)) { res.status(400).json({ error: 'Invalid ID' }); return; }
+    const bookId = Number.parseInt(req.params.bookId);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
 
     db.delete(schema.bookCollections)
       .where(

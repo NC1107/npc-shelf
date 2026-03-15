@@ -44,7 +44,7 @@ export function normalizeForComparison(text: string): string {
   return text
     .toLowerCase()
     .replace(/^(the|a|an)\s+/i, '')
-    .replace(/[^\w\s]/g, '')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/[^\w\s]/g, '')
+    .replaceAll(/\s+/g, ' ')
     .trim();
 }

@@ -7,21 +7,14 @@ import {
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { api } from '../lib/api';
+import { formatTime } from '../lib/format';
 import { AudioEngine } from '../lib/AudioEngine';
 import { useAudioStore } from '../stores/audioStore';
 import type { BookDetail, AudioProgress, AudioTrack, AudioChapter } from '@npc-shelf/shared';
 
-function formatTime(seconds: number): string {
-  if (!seconds || !isFinite(seconds)) return '0:00';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
-const SLEEP_OPTIONS = [null, 5, 10, 15, 30, 45, 60, 90];
+const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const;
+const SLEEP_OPTIONS = [null, 5, 10, 15, 30, 45, 60, 90] as const;
+const PROGRESS_SAVE_INTERVAL_MS = 15_000;
 
 export function ListenPage() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
@@ -117,7 +110,7 @@ export function ListenPage() {
 
       // Save every 15 seconds of real playback time
       const now = Date.now();
-      if (now - lastSaveTimeRef.current >= 15000) {
+      if (now - lastSaveTimeRef.current >= PROGRESS_SAVE_INTERVAL_MS) {
         lastSaveTimeRef.current = now;
         const totalElapsed = calculateTotalElapsed(store.currentTrackIndex, time);
         saveProgress.mutate({

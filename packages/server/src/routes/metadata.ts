@@ -8,7 +8,7 @@ export const metadataRouter = Router();
 // Trigger metadata match for a book
 metadataRouter.post('/match/:bookId', (req, res) => {
   try {
-    const bookId = parseInt(req.params.bookId);
+    const bookId = Number.parseInt(req.params.bookId);
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) {
       res.status(404).json({ error: 'Book not found' });
@@ -66,7 +66,7 @@ metadataRouter.get('/search', async (req, res) => {
 // Apply a specific match to a book (manual matching)
 metadataRouter.post('/apply/:bookId', async (req, res) => {
   try {
-    const bookId = parseInt(req.params.bookId);
+    const bookId = Number.parseInt(req.params.bookId);
     const { externalId } = req.body;
     if (!externalId) {
       res.status(400).json({ error: 'externalId is required' });
@@ -92,7 +92,7 @@ metadataRouter.post('/apply/:bookId', async (req, res) => {
 // Manual metadata edit
 metadataRouter.put('/books/:id/metadata', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
+    const bookId = Number.parseInt(req.params.id);
     const { title, subtitle, description, language, publisher, publishDate, pageCount, isbn10, isbn13 } = req.body;
 
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
@@ -128,7 +128,7 @@ metadataRouter.put('/books/:id/metadata', (req, res) => {
 // Export metadata as JSON sidecar
 metadataRouter.post('/books/:id/export', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
+    const bookId = Number.parseInt(req.params.id);
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) {
       res.status(404).json({ error: 'Book not found' });

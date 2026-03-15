@@ -99,7 +99,7 @@ export function SearchPage() {
               </h2>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {data.books.map((book) => (
-                  <BookCard key={book.id} book={book as any} view="grid" />
+                  <BookCard key={book.id} book={book} view="grid" />
                 ))}
               </div>
             </section>
@@ -114,7 +114,7 @@ export function SearchPage() {
               </h2>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {audiobooks.map((book) => (
-                  <BookCard key={book.id} book={book as any} view="grid" />
+                  <BookCard key={book.id} book={book} view="grid" />
                 ))}
               </div>
             </section>
@@ -129,7 +129,7 @@ export function SearchPage() {
               </h2>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {ebooks.map((book) => (
-                  <BookCard key={book.id} book={book as any} view="grid" />
+                  <BookCard key={book.id} book={book} view="grid" />
                 ))}
               </div>
             </section>

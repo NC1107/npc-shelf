@@ -4,6 +4,11 @@ import { ArrowLeft, X } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { BookCard } from '../components/books/BookCard';
 import { api } from '../lib/api';
+import type { Book, Collection } from '@npc-shelf/shared';
+
+interface CollectionDetail extends Collection {
+  books: (Book & { authors?: { author: { name: string } }[]; formats?: string[] })[];
+}
 
 export function CollectionDetailPage() {
   const { collectionId } = useParams({ strict: false }) as { collectionId: string };
@@ -11,7 +16,7 @@ export function CollectionDetailPage() {
 
   const { data: collection, isLoading } = useQuery({
     queryKey: ['collection', collectionId],
-    queryFn: () => api.get<any>(`/collections/${collectionId}`),
+    queryFn: () => api.get<CollectionDetail>(`/collections/${collectionId}`),
     enabled: !!collectionId,
   });
 
@@ -58,7 +63,7 @@ export function CollectionDetailPage() {
 
       {collection.books && collection.books.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {collection.books.map((book: any) => (
+          {collection.books.map((book) => (
             <div key={book.id} className="group relative">
               <BookCard book={book} />
               <Button

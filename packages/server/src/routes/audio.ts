@@ -4,15 +4,16 @@ import { db, schema, sqlite } from '../db/index.js';
 import { enqueueJob, hasActiveJob } from '../services/job-queue.js';
 import { isFfmpegAvailable } from '../services/audio-merge.js';
 import fs from 'node:fs';
-import path from 'node:path';
 
 export const audioRouter = Router();
 
 // Stream audio track (supports HTTP Range)
 audioRouter.get('/:id/stream/:trackIndex', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    const trackIndex = parseInt(req.params.trackIndex);
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const trackIndex = Number.parseInt(req.params.trackIndex);
+    if (Number.isNaN(trackIndex)) { res.status(400).json({ error: 'Invalid track index' }); return; }
 
     const track = db
       .select()
@@ -44,8 +45,8 @@ audioRouter.get('/:id/stream/:trackIndex', (req, res) => {
 
     if (range) {
       const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const start = Number.parseInt(parts[0], 10);
+      const end = parts[1] ? Number.parseInt(parts[1], 10) : fileSize - 1;
       const chunkSize = end - start + 1;
 
       res.writeHead(206, {
@@ -74,7 +75,8 @@ audioRouter.get('/:id/stream/:trackIndex', (req, res) => {
 // Get tracks for a book
 audioRouter.get('/:id/tracks', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const tracks = db
       .select()
       .from(schema.audioTracks)
@@ -90,7 +92,8 @@ audioRouter.get('/:id/tracks', (req, res) => {
 // Get chapters
 audioRouter.get('/:id/chapters', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const chapters = db
       .select()
       .from(schema.audioChapters)
@@ -106,8 +109,8 @@ audioRouter.get('/:id/chapters', (req, res) => {
 // Update chapters
 audioRouter.put('/:id/chapters', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
 
     const { chapters } = req.body as {
       chapters?: { title: string; startTime: number; endTime: number; trackIndex: number }[];
@@ -147,7 +150,8 @@ audioRouter.put('/:id/chapters', (req, res) => {
 // Get progress
 audioRouter.get('/:id/progress', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const userId = req.user!.userId;
 
     const progress = db
@@ -168,7 +172,8 @@ audioRouter.get('/:id/progress', (req, res) => {
 // Update progress
 audioRouter.put('/:id/progress', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const userId = req.user!.userId;
     const { currentTrackIndex, positionSeconds, totalElapsedSeconds, totalDurationSeconds, playbackRate, isFinished } = req.body;
 
@@ -218,8 +223,8 @@ audioRouter.put('/:id/progress', (req, res) => {
 // Merge split audiobook into single M4B
 audioRouter.post('/:id/merge', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
 
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) { res.status(404).json({ error: 'Book not found' }); return; }

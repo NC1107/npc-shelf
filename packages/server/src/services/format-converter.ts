@@ -26,7 +26,7 @@ export async function convertBook(fileId: number, targetFormat: string): Promise
   if (!fs.existsSync(file.path)) throw new Error('Source file not found on disk');
 
   const allowed = SUPPORTED_CONVERSIONS[file.format];
-  if (!allowed || !allowed.includes(targetFormat)) {
+  if (!allowed?.includes(targetFormat)) {
     throw new Error(`Conversion from ${file.format} to ${targetFormat} is not supported`);
   }
 
@@ -49,7 +49,7 @@ export async function convertBook(fileId: number, targetFormat: string): Promise
   } catch (err: any) {
     // Clean up partial output
     try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
-    throw new Error(`ebook-convert failed: ${err.message}`);
+    throw new Error(`ebook-convert failed: ${err.message}`, { cause: err });
   }
 
   if (!fs.existsSync(outputPath)) {

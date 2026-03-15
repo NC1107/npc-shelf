@@ -1,4 +1,4 @@
-import { eq, sql, isNull } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { MetadataProvider } from '../providers/metadata-provider.js';
 import type { MetadataMatchResult, MetadataSearchResult } from '@npc-shelf/shared';
@@ -8,7 +8,7 @@ import { downloadAndResizeCover } from './cover.js';
 import { HardcoverProvider } from '../providers/hardcover.js';
 
 // Singleton provider — re-initialized when API token changes
-let provider: HardcoverProvider = new HardcoverProvider(
+const provider: HardcoverProvider = new HardcoverProvider(
   process.env.HARDCOVER_API_TOKEN,
 );
 let tokenLoaded = false;
@@ -56,9 +56,10 @@ export async function matchBook(
   // Step 1: Search by ISBN (highest confidence)
   if (isbn) {
     const results = await prov.searchByIsbn(isbn);
-    if (results.length > 0) {
+    const isbnMatch = results[0];
+    if (isbnMatch) {
       return {
-        ...results[0]!,
+        ...isbnMatch,
         confidence: METADATA.HIGH_CONFIDENCE_THRESHOLD,
         provider: prov.name,
       };
@@ -75,10 +76,11 @@ export async function matchBook(
       normalizeForComparison(title),
       normalizeForComparison(result.title),
     );
-    const authorSim = author && result.authors.length > 0
+    const firstAuthor = result.authors[0];
+    const authorSim = author && firstAuthor
       ? stringSimilarity(
           normalizeForComparison(author),
-          normalizeForComparison(result.authors[0]!),
+          normalizeForComparison(firstAuthor),
         )
       : 0;
 
@@ -112,7 +114,8 @@ export async function matchBook(
     console.log(`[Metadata]   "${s.title}" by ${s.authors[0] || '?'}: title=${bd.titleSimilarity.toFixed(2)} author=${bd.authorSimilarity.toFixed(2)} → ${(s.confidence * 100).toFixed(0)}%`);
   }
 
-  const best = scored[0]!;
+  const best = scored[0];
+  if (!best) return null;
 
   // Hard floor: reject if title similarity is too low (prevents garbage matches)
   if (best.matchBreakdown.titleSimilarity < 0.3) {
@@ -209,9 +212,7 @@ export async function enrichBook(bookId: number): Promise<void> {
     if (allSeries && allSeries.length > 0) {
       for (const s of allSeries) {
         let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, s.name)).get();
-        if (!seriesRow) {
-          seriesRow = db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
-        }
+        seriesRow ??= db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
         db.insert(schema.bookSeries)
           .values({ bookId, seriesId: seriesRow.id, position: s.position })
           .onConflictDoNothing()
@@ -232,9 +233,7 @@ export async function enrichBook(bookId: number): Promise<void> {
       }
     } else if (match.series) {
       let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, match.series)).get();
-      if (!seriesRow) {
-        seriesRow = db.insert(schema.series).values({ name: match.series }).returning().get();
-      }
+      seriesRow ??= db.insert(schema.series).values({ name: match.series }).returning().get();
       db.insert(schema.bookSeries)
         .values({ bookId, seriesId: seriesRow.id, position: match.seriesPosition })
         .onConflictDoNothing()
@@ -261,9 +260,7 @@ export async function enrichBook(bookId: number): Promise<void> {
   if (match.tags && match.tags.length > 0) {
     for (const tagName of match.tags) {
       let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get();
-      if (!tag) {
-        tag = db.insert(schema.tags).values({ name: tagName, source: 'hardcover' }).returning().get();
-      }
+      tag ??= db.insert(schema.tags).values({ name: tagName, source: 'hardcover' }).returning().get();
       db.insert(schema.bookTags)
         .values({ bookId, tagId: tag.id })
         .onConflictDoNothing()
@@ -316,7 +313,7 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
   const updates: Record<string, any> = {
     hardcoverId: externalId,
     hardcoverSlug: details.slug || null,
-    matchConfidence: 1.0,
+    matchConfidence: 1,
     updatedAt: new Date().toISOString(),
   };
 
@@ -339,9 +336,7 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
   if (details.allSeries && details.allSeries.length > 0) {
     for (const s of details.allSeries) {
       let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, s.name)).get();
-      if (!seriesRow) {
-        seriesRow = db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
-      }
+      seriesRow ??= db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
       db.insert(schema.bookSeries)
         .values({ bookId, seriesId: seriesRow.id, position: s.position })
         .onConflictDoNothing()
@@ -365,9 +360,7 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
   if (details.tags && details.tags.length > 0) {
     for (const tagName of details.tags) {
       let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get();
-      if (!tag) {
-        tag = db.insert(schema.tags).values({ name: tagName, source: 'hardcover' }).returning().get();
-      }
+      tag ??= db.insert(schema.tags).values({ name: tagName, source: 'hardcover' }).returning().get();
       db.insert(schema.bookTags)
         .values({ bookId, tagId: tag.id })
         .onConflictDoNothing()

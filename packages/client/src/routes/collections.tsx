@@ -45,16 +45,20 @@ export function CollectionsPage() {
       {/* Create new collection */}
       <div className="flex gap-2">
         <Input
+          id="collection-name"
           placeholder="Collection name"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           className="max-w-xs"
+          aria-label="Collection name"
         />
         <Input
+          id="collection-description"
           placeholder="Description (optional)"
           value={newDesc}
           onChange={(e) => setNewDesc(e.target.value)}
           className="max-w-xs"
+          aria-label="Collection description"
         />
         <Button
           onClick={() => createCollection.mutate({ name: newName, description: newDesc || undefined })}

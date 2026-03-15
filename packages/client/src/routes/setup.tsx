@@ -61,19 +61,29 @@ export function SetupPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Input
-              type="password"
-              placeholder="Password (min 8 characters)"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoFocus
-            />
-            <Input
-              type="password"
-              placeholder="Confirm password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-            />
+            <div className="space-y-1">
+              <label htmlFor="setup-password" className="sr-only">Password</label>
+              <Input
+                id="setup-password"
+                type="password"
+                placeholder="Password (min 8 characters)"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoFocus
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="setup-confirm-password" className="sr-only">Confirm password</label>
+              <Input
+                id="setup-confirm-password"
+                type="password"
+                placeholder="Confirm password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading || !password || !confirmPassword}>
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}

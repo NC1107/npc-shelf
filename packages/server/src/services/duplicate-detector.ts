@@ -1,4 +1,4 @@
-import { eq, and, isNotNull, ne } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { stringSimilarity, normalizeForComparison } from '../utils/string-similarity.js';
 
@@ -119,7 +119,7 @@ function detectHashDuplicates(booksMap: Map<number, BookWithAuthors>): Duplicate
       .map((b) => ({ id: b.id, title: b.title, authors: b.authors }));
 
     if (books.length >= 2) {
-      groups.push({ books, method: 'hash', similarity: 1.0 });
+      groups.push({ books, method: 'hash', similarity: 1 });
     }
   }
 
@@ -184,8 +184,8 @@ function detectTitleAuthorDuplicates(allBooks: BookWithAuthors[]): DuplicateGrou
   const groups: DuplicateGroup[] = [];
   for (const pairKey of candidatePairs) {
     const [iStr, jStr] = pairKey.split(':');
-    const i = parseInt(iStr, 10);
-    const j = parseInt(jStr, 10);
+    const i = Number.parseInt(iStr, 10);
+    const j = Number.parseInt(jStr, 10);
     const bookA = allBooks[i];
     const bookB = allBooks[j];
 
@@ -246,7 +246,7 @@ function detectIsbnDuplicates(allBooks: BookWithAuthors[]): DuplicateGroup[] {
     groups.push({
       books: books.map((b) => ({ id: b.id, title: b.title, authors: b.authors })),
       method: 'isbn',
-      similarity: 1.0,
+      similarity: 1,
     });
   }
 

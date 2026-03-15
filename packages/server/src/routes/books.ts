@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { eq, desc, asc, sql, like } from 'drizzle-orm';
+import { eq, desc, asc, inArray, sql } from 'drizzle-orm';
 import { db, schema, sqlite } from '../db/index.js';
+import fs from 'node:fs';
 import multer from 'multer';
 import { extractAndCacheCover } from '../services/cover.js';
 import { detectDuplicates } from '../services/duplicate-detector.js';
 import { enqueueJob } from '../services/job-queue.js';
 import { isConvertAvailable, SUPPORTED_CONVERSIONS } from '../services/format-converter.js';
+import { enrichBooksWithMeta } from '../utils/book-enricher.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -58,8 +60,8 @@ booksRouter.get('/stats', (_req, res) => {
 // List books (paginated, filterable, searchable)
 booksRouter.get('/', (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 24));
+    const page = Math.max(1, Number.parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number.parseInt(req.query.pageSize as string) || 24));
     const sortBy = (req.query.sortBy as string) || 'title';
     const sortOrder = (req.query.sortOrder as string) === 'desc' ? 'desc' : 'asc';
     const q = req.query.q as string | undefined;
@@ -106,7 +108,7 @@ booksRouter.get('/', (req, res) => {
       const authorResults = db
         .select({ bookId: schema.bookAuthors.bookId })
         .from(schema.bookAuthors)
-        .where(eq(schema.bookAuthors.authorId, parseInt(authorId)))
+        .where(eq(schema.bookAuthors.authorId, Number.parseInt(authorId)))
         .all();
       const authorBookIds = authorResults.map((r) => r.bookId);
       bookIds = bookIds
@@ -119,7 +121,7 @@ booksRouter.get('/', (req, res) => {
       const seriesResults = db
         .select({ bookId: schema.bookSeries.bookId })
         .from(schema.bookSeries)
-        .where(eq(schema.bookSeries.seriesId, parseInt(seriesId)))
+        .where(eq(schema.bookSeries.seriesId, Number.parseInt(seriesId)))
         .all();
       const seriesBookIds = seriesResults.map((r) => r.bookId);
       bookIds = bookIds
@@ -144,20 +146,22 @@ booksRouter.get('/', (req, res) => {
         res.json({ items: [], total: 0, page, pageSize, totalPages: 0 });
         return;
       }
-      query = query.where(sql`${schema.books.id} IN (${sql.join(bookIds.map(id => sql`${id}`), sql`, `)})`);
+      query = query.where(inArray(schema.books.id, bookIds));
     }
 
     // Count total
-    const countResult = bookIds !== undefined
-      ? { count: bookIds.length }
-      : db.select({ count: sql<number>`count(*)` }).from(schema.books).get()!;
+    const countResult = bookIds === undefined
+      ? db.select({ count: sql<number>`count(*)` }).from(schema.books).get()!
+      : { count: bookIds.length };
     const total = countResult.count;
     const totalPages = Math.ceil(total / pageSize);
 
     // Sort
-    const orderColumn = sortBy === 'createdAt' ? schema.books.createdAt
-      : sortBy === 'updatedAt' ? schema.books.updatedAt
-      : schema.books.title;
+    const sortColumnsMap: Record<string, any> = {
+      createdAt: schema.books.createdAt,
+      updatedAt: schema.books.updatedAt,
+    };
+    const orderColumn = sortColumnsMap[sortBy as string] ?? schema.books.title;
     const orderFn = sortOrder === 'desc' ? desc : asc;
 
     const rawItems = query
@@ -167,26 +171,7 @@ booksRouter.get('/', (req, res) => {
       .all();
 
     // Enrich with authors and formats for BookCard display
-    const items = rawItems.map((book) => {
-      const authorRows = db
-        .select({ name: schema.authors.name })
-        .from(schema.bookAuthors)
-        .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
-        .where(eq(schema.bookAuthors.bookId, book.id))
-        .all();
-
-      const formatRows = db
-        .selectDistinct({ format: schema.files.format })
-        .from(schema.files)
-        .where(eq(schema.files.bookId, book.id))
-        .all();
-
-      return {
-        ...book,
-        authors: authorRows.map((a) => ({ author: { name: a.name } })),
-        formats: formatRows.map((f) => f.format),
-      };
-    });
+    const items = enrichBooksWithMeta(rawItems);
 
     res.json({ items, total, page, pageSize, totalPages });
   } catch (error) {
@@ -226,8 +211,8 @@ booksRouter.get('/filters', (_req, res) => {
 // Get book detail
 booksRouter.get('/:id', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) {
       res.status(404).json({ error: 'Book not found' });
@@ -314,7 +299,7 @@ booksRouter.get('/:id', (req, res) => {
     // Parse match breakdown JSON
     let matchBreakdown = null;
     if (book.matchBreakdown) {
-      try { matchBreakdown = JSON.parse(book.matchBreakdown as string); } catch { /* ignore */ }
+      try { matchBreakdown = JSON.parse(book.matchBreakdown); } catch { /* ignore */ }
     }
 
     res.json({
@@ -340,8 +325,8 @@ booksRouter.get('/:id', (req, res) => {
 // Get cover image
 booksRouter.get('/:id/cover/:size', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const size = req.params.size as 'thumb' | 'medium' | 'full';
     if (!['thumb', 'medium', 'full'].includes(size)) {
       res.status(400).json({ error: 'Invalid size. Use thumb, medium, or full' });
@@ -359,7 +344,6 @@ booksRouter.get('/:id/cover/:size', (req, res) => {
 
     res.setHeader('Cache-Control', 'public, max-age=86400');
 
-    const fs = require('node:fs');
     if (fs.existsSync(coverFile)) {
       res.setHeader('Content-Type', 'image/webp');
       res.sendFile(coverFile, { root: process.cwd() });
@@ -378,8 +362,8 @@ booksRouter.get('/:id/cover/:size', (req, res) => {
 // Upload custom cover image
 booksRouter.post('/:id/cover', upload.single('cover'), async (req, res) => {
   try {
-    const bookId = parseInt(req.params.id as string);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id as string);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
 
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) { res.status(404).json({ error: 'Book not found' }); return; }
@@ -407,8 +391,8 @@ booksRouter.post('/:id/cover', upload.single('cover'), async (req, res) => {
 // Download book file
 booksRouter.get('/:id/file', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const formatPref = req.query.format as string | undefined;
 
     let file;
@@ -417,16 +401,13 @@ booksRouter.get('/:id/file', (req, res) => {
         .where(sql`${schema.files.bookId} = ${bookId} AND ${schema.files.format} = ${formatPref}`)
         .get();
     }
-    if (!file) {
-      file = db.select().from(schema.files).where(eq(schema.files.bookId, bookId)).get();
-    }
+    file ??= db.select().from(schema.files).where(eq(schema.files.bookId, bookId)).get();
 
     if (!file) {
       res.status(404).json({ error: 'No file found' });
       return;
     }
 
-    const fs = require('node:fs');
     if (!fs.existsSync(file.path)) {
       res.status(404).json({ error: 'File not found on disk' });
       return;
@@ -445,8 +426,8 @@ booksRouter.get('/:id/file', (req, res) => {
 // Update book metadata (including authors and series)
 booksRouter.put('/:id', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) { res.status(404).json({ error: 'Book not found' }); return; }
 
@@ -500,9 +481,7 @@ booksRouter.put('/:id', (req, res) => {
 
         // Find or create series
         let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, name)).get();
-        if (!seriesRow) {
-          seriesRow = db.insert(schema.series).values({ name }).returning().get();
-        }
+        seriesRow ??= db.insert(schema.series).values({ name }).returning().get();
 
         db.insert(schema.bookSeries)
           .values({ bookId, seriesId: seriesRow.id, position: s.position ?? null })
@@ -522,8 +501,8 @@ booksRouter.put('/:id', (req, res) => {
 // Split files from a book into a new book
 booksRouter.post('/:id/split', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
 
     const { fileIds } = req.body as { fileIds?: number[] };
     if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
@@ -597,11 +576,11 @@ booksRouter.post('/:id/split', (req, res) => {
 // Reassign a file to a different book
 booksRouter.put('/files/:fileId/reassign', (req, res) => {
   try {
-    const fileId = parseInt(req.params.fileId);
-    if (isNaN(fileId)) { res.status(400).json({ error: 'Invalid file ID' }); return; }
+    const fileId = Number.parseInt(req.params.fileId);
+    if (Number.isNaN(fileId)) { res.status(400).json({ error: 'Invalid file ID' }); return; }
 
     const { targetBookId } = req.body as { targetBookId?: number };
-    if (!targetBookId || isNaN(targetBookId)) {
+    if (!targetBookId || Number.isNaN(targetBookId)) {
       res.status(400).json({ error: 'targetBookId is required' });
       return;
     }
@@ -644,8 +623,8 @@ booksRouter.put('/files/:fileId/reassign', (req, res) => {
 // Delete book match (clear Hardcover metadata)
 booksRouter.delete('/:id/match', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
 
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) { res.status(404).json({ error: 'Book not found' }); return; }
@@ -683,7 +662,7 @@ booksRouter.get('/duplicates', (_req, res) => {
 booksRouter.post('/merge', (req, res) => {
   try {
     const { sourceBookId, targetBookId } = req.body as { sourceBookId?: number; targetBookId?: number };
-    if (!sourceBookId || !targetBookId || isNaN(sourceBookId) || isNaN(targetBookId)) {
+    if (!sourceBookId || !targetBookId || Number.isNaN(sourceBookId) || Number.isNaN(targetBookId)) {
       res.status(400).json({ error: 'sourceBookId and targetBookId are required' });
       return;
     }
@@ -795,9 +774,7 @@ booksRouter.post('/bulk/tag', (req, res) => {
           const name = tagName.trim();
           if (!name) continue;
           let tag = db.select().from(schema.tags).where(eq(schema.tags.name, name)).get();
-          if (!tag) {
-            tag = db.insert(schema.tags).values({ name }).returning().get();
-          }
+          tag ??= db.insert(schema.tags).values({ name }).returning().get();
           for (const bookId of bookIds) {
             db.insert(schema.bookTags)
               .values({ bookId, tagId: tag.id })
@@ -907,8 +884,8 @@ booksRouter.post('/bulk/series', (req, res) => {
 // Convert book file to another format
 booksRouter.post('/:id/convert', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
 
     const { fileId, targetFormat } = req.body as { fileId?: number; targetFormat?: string };
     if (!fileId || !targetFormat) {
@@ -923,13 +900,13 @@ booksRouter.post('/:id/convert', (req, res) => {
 
     // Verify file belongs to this book
     const file = db.select().from(schema.files).where(eq(schema.files.id, fileId)).get();
-    if (!file || file.bookId !== bookId) {
+    if (file?.bookId !== bookId) {
       res.status(404).json({ error: 'File not found on this book' });
       return;
     }
 
     const allowed = SUPPORTED_CONVERSIONS[file.format];
-    if (!allowed || !allowed.includes(targetFormat)) {
+    if (!allowed?.includes(targetFormat)) {
       res.status(400).json({ error: `Cannot convert ${file.format} to ${targetFormat}` });
       return;
     }
@@ -945,8 +922,8 @@ booksRouter.post('/:id/convert', (req, res) => {
 // Delete book (from index only, not disk)
 booksRouter.delete('/:id', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
     if (!book) {
       res.status(404).json({ error: 'Book not found' });

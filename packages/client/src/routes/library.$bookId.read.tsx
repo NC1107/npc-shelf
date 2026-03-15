@@ -9,6 +9,11 @@ import { ReaderSettings } from '../components/reader/ReaderSettings';
 import { api } from '../lib/api';
 import type { BookDetail, ReadingProgress } from '@npc-shelf/shared';
 
+/** How long the toolbar stays visible after mouse/touch activity (ms). */
+const TOOLBAR_AUTO_HIDE_MS = 4_000;
+/** Debounce delay for saving reading progress (ms). */
+const PROGRESS_SAVE_DEBOUNCE_MS = 2_000;
+
 export function ReadPage() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
   const [showSettings, setShowSettings] = useState(false);
@@ -41,7 +46,7 @@ export function ReadPage() {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         saveProgress.mutate({ format: 'epub', cfi, progressPercent });
-      }, 2000);
+      }, PROGRESS_SAVE_DEBOUNCE_MS);
     },
     [saveProgress],
   );
@@ -56,7 +61,7 @@ export function ReadPage() {
           totalPages,
           progressPercent: totalPages > 0 ? page / totalPages : 0,
         });
-      }, 2000);
+      }, PROGRESS_SAVE_DEBOUNCE_MS);
     },
     [saveProgress],
   );
@@ -75,7 +80,7 @@ export function ReadPage() {
   const resetToolbarTimer = useCallback(() => {
     setShowToolbar(true);
     if (toolbarTimer.current) clearTimeout(toolbarTimer.current);
-    toolbarTimer.current = setTimeout(() => setShowToolbar(false), 4000);
+    toolbarTimer.current = setTimeout(() => setShowToolbar(false), TOOLBAR_AUTO_HIDE_MS);
   }, []);
 
   // Determine which format to read

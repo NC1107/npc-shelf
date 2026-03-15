@@ -36,7 +36,7 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
 
     const opfPathMatch = containerXml.match(/full-path="([^"]+)"/);
     if (!opfPathMatch) return result;
-    const opfPath = opfPathMatch[1]!;
+    const opfPath = opfPathMatch[1];
     const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
 
     // 2. Parse the OPF content
@@ -45,7 +45,7 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
 
     // Title
     const titleMatch = opfContent.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
-    if (titleMatch) result.title = decodeEntities(titleMatch[1]!.trim());
+    if (titleMatch) result.title = decodeEntities(titleMatch[1].trim());
 
     // Creators (authors, narrators, editors)
     const creatorRegex = /<dc:creator[^>]*>([^<]+)<\/dc:creator>/gi;
@@ -55,8 +55,8 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
     let match: RegExpExecArray | null;
     const roleMatches = new Set<string>();
     while ((match = roleRegex.exec(opfContent)) !== null) {
-      const role = mapOpfRole(match[1]!);
-      const name = decodeEntities(match[2]!.trim());
+      const role = mapOpfRole(match[1]);
+      const name = decodeEntities(match[2].trim());
       result.creators.push({ name, role });
       roleMatches.add(name);
     }
@@ -64,7 +64,7 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
     // Fall back to unattributed creators
     if (result.creators.length === 0) {
       while ((match = creatorRegex.exec(opfContent)) !== null) {
-        const name = decodeEntities(match[1]!.trim());
+        const name = decodeEntities(match[1].trim());
         if (!roleMatches.has(name)) {
           result.creators.push({ name, role: 'author' });
         }
@@ -73,30 +73,30 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
 
     // Language
     const langMatch = opfContent.match(/<dc:language[^>]*>([^<]+)<\/dc:language>/i);
-    if (langMatch) result.language = langMatch[1]!.trim();
+    if (langMatch) result.language = langMatch[1].trim();
 
     // Publisher
     const pubMatch = opfContent.match(/<dc:publisher[^>]*>([^<]+)<\/dc:publisher>/i);
-    if (pubMatch) result.publisher = decodeEntities(pubMatch[1]!.trim());
+    if (pubMatch) result.publisher = decodeEntities(pubMatch[1].trim());
 
     // Date
     const dateMatch = opfContent.match(/<dc:date[^>]*>([^<]+)<\/dc:date>/i);
-    if (dateMatch) result.date = dateMatch[1]!.trim();
+    if (dateMatch) result.date = dateMatch[1].trim();
 
     // Description
     const descMatch = opfContent.match(/<dc:description[^>]*>([\s\S]*?)<\/dc:description>/i);
     if (descMatch) {
-      result.description = decodeEntities(descMatch[1]!.trim().replace(/<[^>]+>/g, ''));
+      result.description = decodeEntities(descMatch[1].trim().replaceAll(/<[^>]+>/g, ''));
     }
 
     // ISBN — look in dc:identifier with isbn scheme or opf:scheme
     const identRegex = /<dc:identifier[^>]*>([^<]+)<\/dc:identifier>/gi;
     while ((match = identRegex.exec(opfContent)) !== null) {
-      const fullTag = match[0]!;
-      const value = match[1]!.trim();
-      const isIsbn = /isbn/i.test(fullTag) || /^(97[89])?\d{9}[\dXx]$/.test(value.replace(/[-\s]/g, ''));
+      const fullTag = match[0];
+      const value = match[1].trim();
+      const isIsbn = /isbn/i.test(fullTag) || /^(97[89])?\d{9}[\dXx]$/.test(value.replaceAll(/[-\s]/g, ''));
       if (isIsbn) {
-        result.isbn = value.replace(/[-\s]/g, '');
+        result.isbn = value.replaceAll(/[-\s]/g, '');
         break;
       }
     }
@@ -104,7 +104,7 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
     // Subjects/tags
     const subjectRegex = /<dc:subject[^>]*>([^<]+)<\/dc:subject>/gi;
     while ((match = subjectRegex.exec(opfContent)) !== null) {
-      result.subjects.push(decodeEntities(match[1]!.trim()));
+      result.subjects.push(decodeEntities(match[1].trim()));
     }
 
     // 3. Extract cover image
@@ -113,14 +113,14 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
       || opfContent.match(/<meta\s+content="([^"]+)"\s+name="cover"/i);
 
     if (coverMeta) {
-      const coverId = coverMeta[1]!;
+      const coverId = coverMeta[1];
       // Find the item with this id
       const itemRegex = new RegExp(`<item[^>]+id="${escapeRegex(coverId)}"[^>]*>`, 'i');
       const itemMatch = opfContent.match(itemRegex);
       if (itemMatch) {
-        const hrefMatch = itemMatch[0]!.match(/href="([^"]+)"/);
+        const hrefMatch = itemMatch[0].match(/href="([^"]+)"/);
         if (hrefMatch) {
-          const coverPath = opfDir + hrefMatch[1]!;
+          const coverPath = opfDir + hrefMatch[1];
           const coverFile = zip.file(coverPath) || zip.file(decodeURIComponent(coverPath));
           if (coverFile) {
             result.coverImage = Buffer.from(await coverFile.async('arraybuffer'));
@@ -133,9 +133,9 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
     if (!result.coverImage) {
       const epub3Cover = opfContent.match(/<item[^>]+properties="[^"]*cover-image[^"]*"[^>]*>/i);
       if (epub3Cover) {
-        const hrefMatch = epub3Cover[0]!.match(/href="([^"]+)"/);
+        const hrefMatch = epub3Cover[0].match(/href="([^"]+)"/);
         if (hrefMatch) {
-          const coverPath = opfDir + hrefMatch[1]!;
+          const coverPath = opfDir + hrefMatch[1];
           const coverFile = zip.file(coverPath) || zip.file(decodeURIComponent(coverPath));
           if (coverFile) {
             result.coverImage = Buffer.from(await coverFile.async('arraybuffer'));
@@ -152,12 +152,12 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
 
 function decodeEntities(text: string): string {
   return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/g, "'");
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+    .replaceAll('&#x27;', "'");
 }
 
 function mapOpfRole(role: string): string {
@@ -170,5 +170,5 @@ function mapOpfRole(role: string): string {
 }
 
 function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return str.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

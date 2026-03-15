@@ -34,7 +34,7 @@ import { initializeWatchers, stopAllWatchers } from './services/file-watcher.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '3001', 10);
+const PORT = Number.parseInt(process.env.PORT || '3001', 10);
 
 // Initialize database
 initializeDatabase();
@@ -105,7 +105,7 @@ app.get('/api/health', (_req, res) => {
   try {
     // Verify DB is responsive
     const dbCheck = sqlite.prepare('SELECT 1 as ok').get() as { ok: number } | undefined;
-    if (!dbCheck || dbCheck.ok !== 1) {
+    if (dbCheck?.ok !== 1) {
       res.status(503).json({ status: 'error', error: 'Database check failed' });
       return;
     }
@@ -146,8 +146,8 @@ app.get('/api/health', (_req, res) => {
 // are served without auth. This must be registered BEFORE the protected books router.
 app.get('/api/books/:id/cover/:size', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const size = req.params.size;
     if (!['thumb', 'medium', 'full'].includes(size)) {
       res.status(400).json({ error: 'Invalid size' });
@@ -186,8 +186,8 @@ app.get('/api/books/:id/cover/:size', (req, res) => {
 // Public file download — window.open() can't send Bearer tokens
 app.get('/api/books/:id/file', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const formatPref = req.query.format as string | undefined;
 
     let file: any;
@@ -217,9 +217,9 @@ app.get('/api/books/:id/file', (req, res) => {
 // Public audio stream — <audio> elements can't send Bearer tokens
 app.get('/api/audiobooks/:id/stream/:trackIndex', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    const trackIndex = parseInt(req.params.trackIndex);
-    if (isNaN(bookId) || isNaN(trackIndex)) {
+    const bookId = Number.parseInt(req.params.id);
+    const trackIndex = Number.parseInt(req.params.trackIndex);
+    if (Number.isNaN(bookId) || Number.isNaN(trackIndex)) {
       res.status(400).json({ error: 'Invalid parameters' });
       return;
     }
@@ -241,8 +241,8 @@ app.get('/api/audiobooks/:id/stream/:trackIndex', (req, res) => {
 
     if (range) {
       const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0]!, 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const start = Number.parseInt(parts[0], 10);
+      const end = parts[1] ? Number.parseInt(parts[1], 10) : fileSize - 1;
       const chunkSize = end - start + 1;
 
       res.writeHead(206, {
@@ -269,8 +269,8 @@ app.get('/api/audiobooks/:id/stream/:trackIndex', (req, res) => {
 // Public reader content — ReactReader/pdfjs can't send Bearer tokens
 app.get('/api/reader/books/:id/content', (req, res) => {
   try {
-    const bookId = parseInt(req.params.id);
-    if (isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
+    const bookId = Number.parseInt(req.params.id);
+    if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const formatPref = (req.query.format as string) || 'epub';
 
     const file = sqlite.prepare(
