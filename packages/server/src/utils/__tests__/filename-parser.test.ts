@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFilename, cleanTitle, parseFilenameEnhanced } from '../filename-parser.js';
+import { parseFilename, cleanTitle, parseFilenameEnhanced, normalizeFilename } from '../filename-parser.js';
 
 describe('parseFilename', () => {
   it('parses "Author - Title" format', () => {
@@ -136,6 +136,74 @@ describe('cleanTitle — scene tags', () => {
 
   it('does not strip format words inside parentheses (handled separately)', () => {
     expect(cleanTitle('Some Book (epub)')).toBe('Some Book');
+  });
+});
+
+describe('normalizeFilename', () => {
+  it('strips file extension', () => {
+    expect(normalizeFilename('Book Title.epub')).toBe('Book Title');
+    expect(normalizeFilename('My Book.m4b')).toBe('My Book');
+  });
+
+  it('converts dots to spaces for dot-separated names', () => {
+    expect(normalizeFilename('Brandon.Sanderson-The.Way.of.Kings.epub')).toMatch(/Brandon Sanderson/);
+  });
+
+  it('preserves underscores (cleaned post-parse)', () => {
+    expect(normalizeFilename('Some_Book_Title.epub')).toBe('Some_Book_Title');
+  });
+
+  it('normalizes smart quotes', () => {
+    expect(normalizeFilename('\u201CQuoted\u201D Book.epub')).toBe('"Quoted" Book');
+    expect(normalizeFilename('It\u2019s Here.epub')).toBe("It's Here");
+  });
+
+  it('normalizes em-dashes', () => {
+    expect(normalizeFilename('Title \u2014 Subtitle.epub')).toBe('Title - Subtitle');
+    expect(normalizeFilename('Title \u2013 Subtitle.epub')).toBe('Title - Subtitle');
+  });
+
+  it('applies NFKC unicode normalization', () => {
+    expect(normalizeFilename('\uFB01ction.epub')).toBe('fiction');
+  });
+
+  it('collapses whitespace', () => {
+    expect(normalizeFilename('Too   Many   Spaces.epub')).toBe('Too Many Spaces');
+  });
+
+  it('strips bracketed release tags', () => {
+    expect(normalizeFilename('Book Title [EPUB].epub')).toBe('Book Title');
+    expect(normalizeFilename('Title [retail] [v2].pdf')).toBe('Title');
+  });
+});
+
+describe('parseFilename — enhanced series patterns', () => {
+  it('parses "Title (Series Book N) - Author" with dir hint', () => {
+    const result = parseFilename(
+      'Rhythm of War (The Stormlight Archive Book 4) - Brandon Sanderson.epub',
+      '/library/Brandon Sanderson/Stormlight',
+    );
+    expect(result.title).toBe('Rhythm of War');
+    expect(result.author).toBe('Brandon Sanderson');
+    expect(result.seriesName).toBe('The Stormlight Archive');
+    expect(result.seriesPosition).toBe(4);
+  });
+
+  it('parses "Title (Series #N) - Author" with dir hint', () => {
+    const result = parseFilename(
+      'The Final Empire (Mistborn #1) - Brandon Sanderson.epub',
+      '/library/Brandon Sanderson/Books',
+    );
+    expect(result.title).toBe('The Final Empire');
+    expect(result.author).toBe('Brandon Sanderson');
+    expect(result.seriesName).toBe('Mistborn');
+    expect(result.seriesPosition).toBe(1);
+  });
+
+  it('extracts series info even without dir hint', () => {
+    const result = parseFilename('Rhythm of War (The Stormlight Archive Book 4) - Brandon Sanderson.epub');
+    expect(result.seriesName).toBe('The Stormlight Archive');
+    expect(result.seriesPosition).toBe(4);
   });
 });
 

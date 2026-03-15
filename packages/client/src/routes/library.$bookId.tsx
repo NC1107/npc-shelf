@@ -1169,6 +1169,31 @@ function MatchBreakdownTooltip({ breakdown, confidence }: { breakdown: MatchBrea
     );
   }
 
+  // New point-based breakdown (has `total` field)
+  if (breakdown.total != null) {
+    return (
+      <div className="space-y-1.5 text-xs">
+        <div className="font-semibold">Match Breakdown</div>
+        <div>Title: {Math.round(breakdown.titleScore ?? 0)}/50</div>
+        <div>Author: {Math.round(breakdown.authorScore ?? 0)}/30</div>
+        {(breakdown.seriesBonus ?? 0) > 0 && <div>Series: +{breakdown.seriesBonus}</div>}
+        {(breakdown.indexBonus ?? 0) > 0 && <div>Index: +{breakdown.indexBonus}</div>}
+        {(breakdown.formatBonus ?? 0) > 0 && <div>Format: +{breakdown.formatBonus}</div>}
+        {(breakdown.dirAuthorBonus ?? 0) > 0 && <div>Dir Author: +{breakdown.dirAuthorBonus}</div>}
+        {(breakdown.authorPenalty ?? 0) < 0 && <div className="text-destructive">Author Mismatch: {breakdown.authorPenalty}</div>}
+        <div className="font-semibold">Total: {Math.round(breakdown.total)}/100</div>
+        <Separator />
+        <div className="opacity-70">
+          <div>Local: &quot;{breakdown.localTitle}&quot;</div>
+          <div>Matched: &quot;{breakdown.matchedTitle}&quot;</div>
+          {breakdown.localAuthor && <div>Local author: &quot;{breakdown.localAuthor}&quot;</div>}
+          {breakdown.matchedAuthor && <div>Matched author: &quot;{breakdown.matchedAuthor}&quot;</div>}
+        </div>
+      </div>
+    );
+  }
+
+  // Legacy weighted-average breakdown
   const titleContrib = breakdown.titleSimilarity * breakdown.titleWeight;
   const authorContrib = breakdown.authorSimilarity * breakdown.authorWeight;
 
@@ -1190,10 +1215,10 @@ function MatchBreakdownTooltip({ breakdown, confidence }: { breakdown: MatchBrea
       <div className="font-semibold">Total: {Math.round(confidence * 100)}%</div>
       <Separator />
       <div className="opacity-70">
-        <div>Local: "{breakdown.localTitle}"</div>
-        <div>Matched: "{breakdown.matchedTitle}"</div>
-        {breakdown.localAuthor && <div>Local author: "{breakdown.localAuthor}"</div>}
-        {breakdown.matchedAuthor && <div>Matched author: "{breakdown.matchedAuthor}"</div>}
+        <div>Local: &quot;{breakdown.localTitle}&quot;</div>
+        <div>Matched: &quot;{breakdown.matchedTitle}&quot;</div>
+        {breakdown.localAuthor && <div>Local author: &quot;{breakdown.localAuthor}&quot;</div>}
+        {breakdown.matchedAuthor && <div>Matched author: &quot;{breakdown.matchedAuthor}&quot;</div>}
       </div>
     </div>
   );

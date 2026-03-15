@@ -298,7 +298,23 @@ export function initializeDatabase() {
   // Schema migrations — add columns that may not exist yet
   try { sqlite.exec(`ALTER TABLE books ADD COLUMN hardcover_slug TEXT`); } catch { /* column already exists */ }
   try { sqlite.exec(`ALTER TABLE books ADD COLUMN match_breakdown TEXT`); } catch { /* column already exists */ }
+  try { sqlite.exec(`ALTER TABLE books ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0`); } catch { /* column already exists */ }
   try { sqlite.exec(`ALTER TABLE series ADD COLUMN description TEXT`); } catch { /* column already exists */ }
+
+  // Match corrections table — stores human corrections for future auto-matching
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS match_corrections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_title TEXT NOT NULL,
+      local_author TEXT,
+      matched_external_id TEXT NOT NULL,
+      matched_title TEXT NOT NULL,
+      matched_author TEXT,
+      provider TEXT NOT NULL DEFAULT 'hardcover',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_match_corrections_title ON match_corrections(local_title);
+  `);
 
   console.log('[DB] Database initialized successfully');
 }

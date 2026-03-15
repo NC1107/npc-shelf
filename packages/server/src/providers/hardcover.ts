@@ -80,10 +80,39 @@ const AUTHOR_BY_PK_QUERY = gql`
  * Uses the search() query (Typesense-backed) for book lookups.
  * Rate limited to 60 req/min via token bucket.
  */
+// In-memory query cache with TTL
+class QueryCache {
+  private cache = new Map<string, { data: MetadataSearchResult[]; expires: number }>();
+  private readonly ttlMs: number;
+
+  constructor(ttlMs = 5 * 60 * 1000) { // 5 minutes default
+    this.ttlMs = ttlMs;
+  }
+
+  get(key: string): MetadataSearchResult[] | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expires) {
+      this.cache.delete(key);
+      return null;
+    }
+    return entry.data;
+  }
+
+  set(key: string, data: MetadataSearchResult[]): void {
+    this.cache.set(key, { data, expires: Date.now() + this.ttlMs });
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
 export class HardcoverProvider implements MetadataProvider {
   name = 'hardcover';
   private client: GraphQLClient;
   private readonly bucket = new TokenBucket(60, 1); // 60 tokens, refill 1/sec
+  private readonly queryCache = new QueryCache();
 
   constructor(apiToken?: string) {
     this.client = new GraphQLClient('https://api.hardcover.app/v1/graphql', {
@@ -117,12 +146,18 @@ export class HardcoverProvider implements MetadataProvider {
   }
 
   async searchByIsbn(isbn: string): Promise<MetadataSearchResult[]> {
+    const cacheKey = `isbn:${isbn}`;
+    const cached = this.queryCache.get(cacheKey);
+    if (cached) return cached;
+
     try {
       const data = await this.requestWithRetry<SearchResponse>(SEARCH_QUERY, {
         q: isbn,
         perPage: 5,
       });
-      return parseSearchResults(data.search.results);
+      const results = parseSearchResults(data.search.results);
+      this.queryCache.set(cacheKey, results);
+      return results;
     } catch (err: any) {
       console.error('[Hardcover] ISBN search error:', err.message);
       return [];
@@ -130,13 +165,19 @@ export class HardcoverProvider implements MetadataProvider {
   }
 
   async searchByTitle(title: string, author?: string): Promise<MetadataSearchResult[]> {
+    const q = author ? `${title} ${author}` : title;
+    const cacheKey = `title:${q}`;
+    const cached = this.queryCache.get(cacheKey);
+    if (cached) return cached;
+
     try {
-      const q = author ? `${title} ${author}` : title;
       const data = await this.requestWithRetry<SearchResponse>(SEARCH_QUERY, {
         q,
         perPage: 5,
       });
-      return parseSearchResults(data.search.results);
+      const results = parseSearchResults(data.search.results);
+      this.queryCache.set(cacheKey, results);
+      return results;
     } catch (err: any) {
       console.error('[Hardcover] Title search error:', err.message);
       return [];

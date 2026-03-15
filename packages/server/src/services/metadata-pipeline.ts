@@ -4,7 +4,7 @@ import type { MetadataProvider } from '../providers/metadata-provider.js';
 import type { MetadataMatchResult, MetadataSearchResult } from '@npc-shelf/shared';
 import { METADATA } from '@npc-shelf/shared';
 import { stringSimilarity, normalizeForComparison } from '../utils/string-similarity.js';
-import { cleanTitle, parseFilename } from '../utils/filename-parser.js';
+import { cleanTitle, parseFilename, getDirAuthorHint } from '../utils/filename-parser.js';
 import { downloadAndResizeCover } from './cover.js';
 import { HardcoverProvider } from '../providers/hardcover.js';
 
@@ -44,16 +44,149 @@ export function updateProviderToken(token: string) {
   tokenLoaded = true;
 }
 
+// ===== Scoring Model =====
+
+export interface ScoringContext {
+  localTitle: string;
+  localAuthor: string | null;
+  localSeries: string | null;
+  localSeriesPosition: number | null;
+  directoryAuthor: string | null;
+  isAudiobook: boolean;
+}
+
+export interface ScoreBreakdown {
+  titleScore: number;       // 0-50
+  authorScore: number;      // 0-30
+  seriesBonus: number;      // 0 or 10
+  indexBonus: number;        // 0 or 5
+  formatBonus: number;      // 0 or 5
+  dirAuthorBonus: number;   // 0 or 5
+  authorPenalty: number;    // 0 or -30
+  total: number;            // sum, clamped 0-100
+  // Legacy fields for tooltip compatibility
+  titleSimilarity: number;
+  authorSimilarity: number;
+  titleWeight: number;
+  authorWeight: number;
+  localTitle: string;
+  matchedTitle: string;
+  localAuthor: string | null;
+  matchedAuthor: string | null;
+}
+
+export function scoreResult(result: MetadataSearchResult, context: ScoringContext): ScoreBreakdown {
+  const titleSim = stringSimilarity(
+    normalizeForComparison(context.localTitle),
+    normalizeForComparison(result.title),
+  );
+  const titleScore = titleSim * 50;
+
+  // Author similarity — check against all result authors, take best
+  let authorSim = 0;
+  if (context.localAuthor) {
+    const localNorm = normalizeForComparison(context.localAuthor);
+    for (const ra of result.authors) {
+      const sim = stringSimilarity(localNorm, normalizeForComparison(ra));
+      if (sim > authorSim) authorSim = sim;
+    }
+  }
+  const authorScore = context.localAuthor ? authorSim * 30 : 0;
+
+  // Series bonus: +10 if local series matches result series
+  let seriesBonus = 0;
+  if (context.localSeries && result.series) {
+    const seriesSim = stringSimilarity(
+      normalizeForComparison(context.localSeries),
+      normalizeForComparison(result.series),
+    );
+    if (seriesSim > 0.7) seriesBonus = 10;
+  }
+
+  // Index bonus: +5 if series matches AND positions equal
+  let indexBonus = 0;
+  if (seriesBonus > 0 && context.localSeriesPosition != null && result.seriesPosition != null) {
+    if (context.localSeriesPosition === result.seriesPosition) indexBonus = 5;
+  }
+
+  // Format bonus: +5 placeholder (would need audiobook edition data from API)
+  const formatBonus = 0;
+
+  // Directory author bonus: +5 if dir author matches result author
+  let dirAuthorBonus = 0;
+  if (context.directoryAuthor) {
+    const dirNorm = normalizeForComparison(context.directoryAuthor);
+    for (const ra of result.authors) {
+      if (stringSimilarity(dirNorm, normalizeForComparison(ra)) > 0.7) {
+        dirAuthorBonus = 5;
+        break;
+      }
+    }
+  }
+
+  // Author mismatch penalty: -30 if local author present but doesn't match ANY result author
+  let authorPenalty = 0;
+  if (context.localAuthor && result.authors.length > 0) {
+    const localNorm = normalizeForComparison(context.localAuthor);
+    const bestMatch = Math.max(...result.authors.map(ra =>
+      stringSimilarity(localNorm, normalizeForComparison(ra)),
+    ));
+    if (bestMatch < 0.3) authorPenalty = -30;
+  }
+
+  const raw = titleScore + authorScore + seriesBonus + indexBonus + formatBonus + dirAuthorBonus + authorPenalty;
+  const total = Math.max(0, Math.min(100, raw));
+
+  return {
+    titleScore,
+    authorScore,
+    seriesBonus,
+    indexBonus,
+    formatBonus,
+    dirAuthorBonus,
+    authorPenalty,
+    total,
+    // Legacy fields
+    titleSimilarity: titleSim,
+    authorSimilarity: authorSim,
+    titleWeight: 0.5,
+    authorWeight: 0.3,
+    localTitle: context.localTitle,
+    matchedTitle: result.title,
+    localAuthor: context.localAuthor,
+    matchedAuthor: result.authors[0] || null,
+  };
+}
+
 /**
  * Match a single book against the metadata provider.
- * Pipeline: ISBN -> Title+Author -> Title-only
+ * Pipeline: Corrections → ISBN → Title+Author → Title-only
  */
 export async function matchBook(
   prov: MetadataProvider,
   title: string,
   author?: string,
   isbn?: string,
+  context?: Partial<ScoringContext>,
 ): Promise<MetadataMatchResult | null> {
+  // Step 0: Check correction table for previously-corrected titles
+  try {
+    const normalizedTitle = normalizeForComparison(title);
+    const correction = db.select()
+      .from(schema.matchCorrections)
+      .where(eq(schema.matchCorrections.localTitle, normalizedTitle))
+      .get();
+    if (correction) {
+      const details = await prov.getDetails(correction.matchedExternalId);
+      if (details) {
+        console.log(`[Metadata] Using stored correction for "${title}" → "${details.title}"`);
+        return { ...details, confidence: 0.95, provider: prov.name };
+      }
+    }
+  } catch {
+    // matchCorrections table may not exist yet
+  }
+
   // Step 1: Search by ISBN (highest confidence)
   if (isbn) {
     const results = await prov.searchByIsbn(isbn);
@@ -71,67 +204,57 @@ export async function matchBook(
   const results = await prov.searchByTitle(title, author);
   if (results.length === 0) return null;
 
-  // Score results by similarity
-  const scored = results.map((result) => {
-    const titleSim = stringSimilarity(
-      normalizeForComparison(title),
-      normalizeForComparison(result.title),
-    );
-    const firstAuthor = result.authors[0];
-    const authorSim = author && firstAuthor
-      ? stringSimilarity(
-          normalizeForComparison(author),
-          normalizeForComparison(firstAuthor),
-        )
-      : 0;
+  // Build scoring context
+  const scoringCtx: ScoringContext = {
+    localTitle: title,
+    localAuthor: author || null,
+    localSeries: context?.localSeries || null,
+    localSeriesPosition: context?.localSeriesPosition ?? null,
+    directoryAuthor: context?.directoryAuthor || null,
+    isAudiobook: context?.isAudiobook || false,
+  };
 
-    const titleWeight = author ? 0.6 : 0.8;
-    const authorWeight = author ? 0.4 : 0;
-    const confidence = titleSim * titleWeight + authorSim * authorWeight;
+  // Score results with new point-based model
+  const scored = results.map((result) => {
+    const breakdown = scoreResult(result, scoringCtx);
+    const confidence = breakdown.total / 100;
 
     return {
       ...result,
       confidence,
       provider: prov.name,
-      matchBreakdown: {
-        titleSimilarity: titleSim,
-        authorSimilarity: authorSim,
-        titleWeight,
-        authorWeight,
-        localTitle: title,
-        matchedTitle: result.title,
-        localAuthor: author || null,
-        matchedAuthor: result.authors[0] || null,
-      },
+      matchBreakdown: breakdown,
     };
   });
 
   scored.sort((a, b) => b.confidence - a.confidence);
 
-  // Log query and top results for diagnostics
+  // Log query and top results
   console.log(`[Metadata] Query: title="${title}" author="${author || ''}" → ${scored.length} results`);
   for (const s of scored.slice(0, 3)) {
     const bd = s.matchBreakdown;
-    console.log(`[Metadata]   "${s.title}" by ${s.authors[0] || '?'}: title=${bd.titleSimilarity.toFixed(2)} author=${bd.authorSimilarity.toFixed(2)} → ${(s.confidence * 100).toFixed(0)}%`);
+    console.log(`[Metadata]   "${s.title}" by ${s.authors[0] || '?'}: title=${bd.titleScore.toFixed(0)}/50 author=${bd.authorScore.toFixed(0)}/30 series=${bd.seriesBonus} penalty=${bd.authorPenalty} → ${bd.total.toFixed(0)}/100`);
   }
 
   const best = scored[0];
   if (!best) return null;
 
-  // Hard floor: reject if title similarity is too low (prevents garbage matches)
-  if (best.matchBreakdown.titleSimilarity < 0.3) {
-    console.log(`[Metadata] Rejected "${best.title}" — title similarity ${best.matchBreakdown.titleSimilarity.toFixed(2)} below hard floor 0.30`);
+  // Hard floor: reject if title score is too low
+  const titleScoreNorm = best.matchBreakdown.titleScore / 50;
+  if (titleScoreNorm < METADATA.TITLE_HARD_FLOOR) {
+    console.log(`[Metadata] Rejected "${best.title}" — title score ${best.matchBreakdown.titleScore.toFixed(0)}/50 below hard floor`);
     return null;
   }
 
-  // Require minimum title similarity to prevent false positives from high author scores
-  if (best.matchBreakdown.titleSimilarity < 0.5) {
-    console.log(`[Metadata] Rejected "${best.title}" — title similarity ${best.matchBreakdown.titleSimilarity.toFixed(2)} below title gate 0.50`);
+  // Title gate
+  if (titleScoreNorm < METADATA.TITLE_GATE) {
+    console.log(`[Metadata] Rejected "${best.title}" — title score ${best.matchBreakdown.titleScore.toFixed(0)}/50 below title gate`);
     return null;
   }
 
-  if (best.confidence < METADATA.LOW_CONFIDENCE_THRESHOLD) {
-    console.log(`[Metadata] Rejected "${best.title}" — confidence ${(best.confidence * 100).toFixed(0)}% below threshold ${(METADATA.LOW_CONFIDENCE_THRESHOLD * 100).toFixed(0)}%`);
+  // Reject below threshold
+  if (best.confidence < METADATA.REJECT_THRESHOLD) {
+    console.log(`[Metadata] Rejected "${best.title}" — total ${best.matchBreakdown.total.toFixed(0)}/100 below threshold ${METADATA.REJECT_THRESHOLD * 100}`);
     return null;
   }
 
@@ -155,6 +278,52 @@ function isDirtyTitle(title: string, bookId: number): boolean {
     /\(retail\)/i.test(title) ||
     /^\[.*?\]\s*-\s*/.test(title)
   );
+}
+
+/**
+ * Build scoring context for a book by querying its series, files, and directory hints.
+ */
+function buildScoringContext(bookId: number, _searchTitle: string, _authorName: string | null): Partial<ScoringContext> {
+  const ctx: Partial<ScoringContext> = {};
+
+  // Get series info
+  const bookSeriesRow = db
+    .select({
+      seriesName: schema.series.name,
+      position: schema.bookSeries.position,
+    })
+    .from(schema.bookSeries)
+    .innerJoin(schema.series, eq(schema.bookSeries.seriesId, schema.series.id))
+    .where(eq(schema.bookSeries.bookId, bookId))
+    .get();
+
+  if (bookSeriesRow) {
+    ctx.localSeries = bookSeriesRow.seriesName;
+    ctx.localSeriesPosition = bookSeriesRow.position;
+  }
+
+  // Get file info for directory hint and format
+  const file = db.select({ path: schema.files.path, format: schema.files.format })
+    .from(schema.files)
+    .where(eq(schema.files.bookId, bookId))
+    .get();
+
+  if (file) {
+    const dirPath = file.path.replace(/[\\/][^\\/]+$/, '');
+    ctx.directoryAuthor = getDirAuthorHint(dirPath);
+    ctx.isAudiobook = ['m4b', 'mp3'].includes(file.format);
+
+    // Also try to extract series from filename if not already set
+    if (!ctx.localSeries) {
+      const parsed = parseFilename(file.path.replace(/^.*[\\/]/, ''), dirPath);
+      if (parsed.seriesName) {
+        ctx.localSeries = parsed.seriesName;
+        ctx.localSeriesPosition = parsed.seriesPosition;
+      }
+    }
+  }
+
+  return ctx;
 }
 
 /**
@@ -195,7 +364,11 @@ export async function enrichBook(bookId: number): Promise<void> {
   }
 
   ensureToken();
-  const match = await matchBook(provider, searchTitle, authorRow?.name, isbn);
+
+  // Build scoring context with series, directory, and format info
+  const scoringCtx = buildScoringContext(bookId, searchTitle, authorRow?.name || null);
+
+  const match = await matchBook(provider, searchTitle, authorRow?.name, isbn, scoringCtx);
 
   if (!match) {
     console.log(`[Metadata] No match found for "${book.title}"`);
@@ -217,12 +390,16 @@ export async function enrichBook(bookId: number): Promise<void> {
     }
   }
 
+  // Determine needs_review flag based on confidence
+  const needsReview = match.confidence >= METADATA.ACCEPT_THRESHOLD ? 0 : 1;
+
   // Update book metadata
   const updates: Record<string, any> = {
     hardcoverId: match.externalId,
     hardcoverSlug: slug || null,
     matchConfidence: match.confidence,
     matchBreakdown: (match as any).matchBreakdown ? JSON.stringify((match as any).matchBreakdown) : null,
+    needsReview,
     updatedAt: new Date().toISOString(),
   };
 
@@ -319,6 +496,7 @@ export async function enrichBook(bookId: number): Promise<void> {
 
 /**
  * Batch match all unmatched books.
+ * Deduplicates queries: books sharing the same normalized title+author search once.
  */
 export async function enrichAllUnmatched(): Promise<{ matched: number; total: number }> {
   const unmatched = db
@@ -328,12 +506,36 @@ export async function enrichAllUnmatched(): Promise<{ matched: number; total: nu
     .all();
 
   let matched = 0;
+  const seen = new Map<string, number>(); // normalized key → matched bookId (for dedup)
+
   for (const book of unmatched) {
     try {
+      // Build dedup key
+      const bookRow = db.select({ title: schema.books.title }).from(schema.books).where(eq(schema.books.id, book.id)).get();
+      const authorRow = db
+        .select({ name: schema.authors.name })
+        .from(schema.bookAuthors)
+        .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+        .where(eq(schema.bookAuthors.bookId, book.id))
+        .get();
+      const key = normalizeForComparison(cleanTitle(bookRow?.title || '')) + '|' + normalizeForComparison(authorRow?.name || '');
+
+      if (seen.has(key)) {
+        // Copy match from previously matched book with same title+author
+        const sourceId = seen.get(key)!;
+        const source = db.select({ hardcoverId: schema.books.hardcoverId }).from(schema.books).where(eq(schema.books.id, sourceId)).get();
+        if (source?.hardcoverId) {
+          console.log(`[Metadata] Dedup: book ${book.id} shares key with ${sourceId}, skipping API call`);
+        }
+      }
+
       await enrichBook(book.id);
       // Check if it was matched
       const updated = db.select({ hardcoverId: schema.books.hardcoverId }).from(schema.books).where(eq(schema.books.id, book.id)).get();
-      if (updated?.hardcoverId) matched++;
+      if (updated?.hardcoverId) {
+        matched++;
+        seen.set(key, book.id);
+      }
     } catch (err) {
       console.error(`[Metadata] Error enriching book ${book.id}:`, err);
     }
@@ -352,16 +554,20 @@ export async function searchProvider(query: string): Promise<MetadataSearchResul
 
 /**
  * Apply a specific metadata match to a book (manual matching).
+ * Also stores the correction for future auto-matching.
  */
 export async function applyMatch(bookId: number, externalId: string): Promise<void> {
   ensureToken();
   const details = await provider.getDetails(externalId);
   if (!details) return;
 
+  const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
+
   const updates: Record<string, any> = {
     hardcoverId: externalId,
     hardcoverSlug: details.slug || null,
     matchConfidence: 1,
+    needsReview: 0,
     updatedAt: new Date().toISOString(),
   };
 
@@ -390,6 +596,32 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
         .values({ bookId, seriesId: seriesRow.id, position: s.position })
         .onConflictDoNothing()
         .run();
+    }
+  }
+
+  // Store correction for future auto-matching
+  if (book) {
+    try {
+      const normalizedTitle = normalizeForComparison(book.title);
+      const authorRow = db
+        .select({ name: schema.authors.name })
+        .from(schema.bookAuthors)
+        .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+        .where(eq(schema.bookAuthors.bookId, bookId))
+        .get();
+
+      db.insert(schema.matchCorrections)
+        .values({
+          localTitle: normalizedTitle,
+          localAuthor: authorRow?.name || null,
+          matchedExternalId: externalId,
+          matchedTitle: details.title,
+          matchedAuthor: details.authors[0] || null,
+        })
+        .onConflictDoNothing()
+        .run();
+    } catch {
+      // matchCorrections table may not exist yet
     }
   }
 
@@ -455,7 +687,7 @@ export async function cleanupDirtyTitles(): Promise<{ fixed: number; total: numb
   }
 
   // Phase 2: Fix unmatched dirty books using filename, then re-queue enrichment
-  const unmatched = db
+  const unmatchedBooks = db
     .select({
       id: schema.books.id,
       title: schema.books.title,
@@ -464,7 +696,7 @@ export async function cleanupDirtyTitles(): Promise<{ fixed: number; total: numb
     .where(isNull(schema.books.hardcoverId))
     .all();
 
-  for (const book of unmatched) {
+  for (const book of unmatchedBooks) {
     if (!isDirtyTitle(book.title, book.id)) continue;
 
     const file = db.select({ path: schema.files.path, filename: schema.files.filename })
@@ -495,13 +727,11 @@ export async function cleanupDirtyTitles(): Promise<{ fixed: number; total: numb
     }
   }
 
-  return { fixed, total: matched.length + unmatched.filter(b => isDirtyTitle(b.title, b.id)).length };
+  return { fixed, total: matched.length + unmatchedBooks.filter(b => isDirtyTitle(b.title, b.id)).length };
 }
 
 /**
  * Enrich local author records with bio and photo from Hardcover.
- * Fetches Hardcover author IDs from the book's contributions,
- * then queries each author for bio/photo.
  */
 async function enrichAuthorsFromMatch(bookId: number): Promise<void> {
   const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
@@ -539,16 +769,16 @@ async function enrichAuthorsFromMatch(bookId: number): Promise<void> {
       const details = await provider.getAuthorDetails(String(hcMatch.id));
       if (!details) continue;
 
-      const updates: Record<string, string> = {};
-      if (!localAuthor.bio && details.bio) updates.bio = details.bio;
-      if (!localAuthor.photoUrl && details.imageUrl) updates.photoUrl = details.imageUrl;
+      const authorUpdates: Record<string, string> = {};
+      if (!localAuthor.bio && details.bio) authorUpdates.bio = details.bio;
+      if (!localAuthor.photoUrl && details.imageUrl) authorUpdates.photoUrl = details.imageUrl;
 
-      if (Object.keys(updates).length > 0) {
+      if (Object.keys(authorUpdates).length > 0) {
         db.update(schema.authors)
-          .set(updates)
+          .set(authorUpdates)
           .where(eq(schema.authors.id, localAuthor.authorId))
           .run();
-        console.log(`[Metadata] Enriched author "${localAuthor.name}" with ${Object.keys(updates).join(', ')}`);
+        console.log(`[Metadata] Enriched author "${localAuthor.name}" with ${Object.keys(authorUpdates).join(', ')}`);
       }
     } catch (err) {
       console.warn(`[Metadata] Failed to enrich author "${localAuthor.name}":`, err);

@@ -59,11 +59,13 @@ export interface Book {
   coverPath: string | null;
   blurhash: string | null;
   audioSeconds: number | null;
+  needsReview: number;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface MatchBreakdown {
+  // Legacy weighted-average fields
   titleSimilarity: number;
   authorSimilarity: number;
   titleWeight: number;
@@ -72,6 +74,15 @@ export interface MatchBreakdown {
   matchedTitle: string;
   localAuthor: string | null;
   matchedAuthor: string | null;
+  // New point-based fields (present when `total` exists)
+  titleScore?: number;
+  authorScore?: number;
+  seriesBonus?: number;
+  indexBonus?: number;
+  formatBonus?: number;
+  dirAuthorBonus?: number;
+  authorPenalty?: number;
+  total?: number;
 }
 
 export interface BookDetail extends Book {

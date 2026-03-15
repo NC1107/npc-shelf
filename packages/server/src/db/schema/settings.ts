@@ -37,3 +37,14 @@ export const kindleDeliveries = sqliteTable('kindle_deliveries', {
   fileSizeBytes: integer('file_size_bytes').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
+
+export const matchCorrections = sqliteTable('match_corrections', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  localTitle: text('local_title').notNull(),
+  localAuthor: text('local_author'),
+  matchedExternalId: text('matched_external_id').notNull(),
+  matchedTitle: text('matched_title').notNull(),
+  matchedAuthor: text('matched_author'),
+  provider: text('provider').notNull().default('hardcover'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});

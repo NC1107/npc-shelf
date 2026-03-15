@@ -12,6 +12,7 @@ import {
   Sparkles,
   Tag,
   MousePointerClick,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -238,7 +239,7 @@ function FilterPanel({
         {activeFilterCount > 0 && (
           <div className="flex items-end">
             <Button variant="ghost" size="sm" onClick={() => {
-              setLibraryFilters({ libraryFormat: '', libraryAuthorId: '', librarySeriesId: '', libraryPage: 1 });
+              setLibraryFilters({ libraryFormat: '', libraryAuthorId: '', librarySeriesId: '', libraryNeedsReview: false, libraryPage: 1 });
             }}>
               <X className="h-3 w-3" />
               Clear
@@ -383,6 +384,7 @@ export function LibraryPage() {
     libraryFormat: format,
     libraryAuthorId: authorId,
     librarySeriesId: seriesId,
+    libraryNeedsReview: needsReview,
     libraryView,
     setLibraryFilters,
     clearLibraryFilters,
@@ -395,7 +397,7 @@ export function LibraryPage() {
 
   const queryClient = useQueryClient();
 
-  const activeFilterCount = [format, authorId, seriesId].filter(Boolean).length;
+  const activeFilterCount = [format, authorId, seriesId, needsReview].filter(Boolean).length;
   const hasAnyFilter = !!search || activeFilterCount > 0;
 
   const { data: filters } = useQuery({
@@ -412,9 +414,10 @@ export function LibraryPage() {
   if (format) queryParams.set('format', format);
   if (authorId) queryParams.set('authorId', authorId);
   if (seriesId) queryParams.set('seriesId', seriesId);
+  if (needsReview) queryParams.set('needsReview', 'true');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['books', { page, sortBy, sortOrder, q: search, format, authorId, seriesId }],
+    queryKey: ['books', { page, sortBy, sortOrder, q: search, format, authorId, seriesId, needsReview }],
     queryFn: () => api.get<PaginatedResponse<Book>>(`/books?${queryParams.toString()}`),
   });
 
@@ -563,6 +566,14 @@ export function LibraryPage() {
           aria-label={sortOrder === 'asc' ? 'Sort ascending' : 'Sort descending'}
         >
           {sortOrder === 'asc' ? '\u2191' : '\u2193'}
+        </Button>
+        <Button
+          variant={needsReview ? 'secondary' : 'outline'}
+          onClick={() => setLibraryFilters({ libraryNeedsReview: !needsReview, libraryPage: 1 })}
+          className="gap-1.5"
+        >
+          <AlertCircle className="h-4 w-4" />
+          Needs Review
         </Button>
         <Button
           variant={showFilters ? 'secondary' : 'outline'}

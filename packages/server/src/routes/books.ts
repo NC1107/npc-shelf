@@ -47,12 +47,18 @@ booksRouter.get('/stats', (_req, res) => {
         sql`SELECT COUNT(*) as count FROM audio_progress WHERE user_id = ${userId} AND is_finished = 0 AND total_elapsed_seconds > 0`,
       )[0]?.count ?? 0;
 
+    const needsReviewCount = db
+      .all<{ count: number }>(
+        sql`SELECT COUNT(*) as count FROM books WHERE needs_review = 1`,
+      )[0]?.count ?? 0;
+
     res.json({
       totalBooks,
       totalAuthors,
       ebookCount,
       audiobookCount,
       inProgress: readingCount + listeningCount,
+      needsReviewCount,
     });
   } catch (error) {
     console.error('[Books] Stats error:', error);
@@ -71,6 +77,7 @@ booksRouter.get('/', (req, res) => {
     const format = req.query.format as string | undefined;
     const authorId = req.query.authorId as string | undefined;
     const seriesId = req.query.seriesId as string | undefined;
+    const needsReview = req.query.needsReview as string | undefined;
 
     let bookIds: number[] | undefined;
 
@@ -130,6 +137,18 @@ booksRouter.get('/', (req, res) => {
       bookIds = bookIds
         ? bookIds.filter((id) => seriesBookIds.includes(id))
         : seriesBookIds;
+    }
+
+    // Filter by needs_review
+    if (needsReview === 'true') {
+      const reviewResults = db
+        .all<{ id: number }>(
+          sql`SELECT id FROM books WHERE needs_review = 1`,
+        );
+      const reviewBookIds = reviewResults.map((r) => r.id);
+      bookIds = bookIds
+        ? bookIds.filter((id) => reviewBookIds.includes(id))
+        : reviewBookIds;
     }
 
     // Default: only show books that have at least one file
@@ -663,6 +682,7 @@ booksRouter.delete('/:id/match', (req, res) => {
       hardcoverSlug: null,
       matchConfidence: null,
       matchBreakdown: null,
+      needsReview: 0,
       ...(restoredTitle ? { title: restoredTitle } : {}),
       updatedAt: new Date().toISOString(),
     }).where(eq(schema.books.id, bookId)).run();

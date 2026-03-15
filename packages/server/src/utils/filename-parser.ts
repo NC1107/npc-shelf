@@ -4,6 +4,7 @@
  *   "Author - Title"
  *   "Title - Author"
  *   "Title (Year)"
+ *   "Title (Series Book 4) - Author"
  *   "Author/Title/file.epub"
  */
 export interface ParsedFilename {
@@ -14,7 +15,8 @@ export interface ParsedFilename {
   seriesPosition: number | null;
 }
 
-const SERIES_PATTERN = /\(([^)]+)\s+#?(\d+(?:\.\d+)?)\)/;
+const SERIES_PATTERN = /\(([^)]+?)\s+(?:Book|#)\s*(\d+(?:\.\d+)?)\)/;
+const SERIES_PATTERN_LEGACY = /\(([^)]+)\s+#?(\d+(?:\.\d+)?)\)/;
 const YEAR_PATTERN = /\((\d{4})\)/;
 const AUTHOR_TITLE_DASH = /^(.+?)\s+-\s+(.+)$/;
 
@@ -34,7 +36,7 @@ function normalizeForMatch(s: string): string {
   return s.toLowerCase().replaceAll(/[^a-z0-9]/g, '');
 }
 
-function getDirAuthorHint(dirPath?: string): string | null {
+export function getDirAuthorHint(dirPath?: string): string | null {
   if (!dirPath) return null;
   const parts = dirPath.split(/[/\\]/).filter(Boolean);
   return parts.length >= 2 ? (parts.at(-2) ?? null) : null;
@@ -63,16 +65,32 @@ function resolveAuthorTitle(
   return { author: left, title: right };
 }
 
-export function parseFilename(filename: string, dirPath?: string): ParsedFilename {
-  // Remove extension
-  let name = filename.replace(/\.[^.]+$/, '').trim();
-
-  // Detect dot-separated naming: 3+ dots and no spaces → convert dots to spaces
+/**
+ * Normalize a raw filename into a clean string for parsing.
+ * Stage 2 of the detection pipeline — separate from parsing (Stage 3).
+ */
+export function normalizeFilename(raw: string): string {
+  let name = raw;
+  // 1. Strip extension
+  name = name.replace(/\.[^.]+$/, '').trim();
+  // 2. Dot-to-space (3+ dots, no spaces) + bare hyphen normalization
   if (!name.includes(' ') && (name.match(/\./g) || []).length >= 3) {
     name = name.replace(/\./g, ' ');
-    // Normalize bare hyphens between words to spaced dashes for author-title splitting
     name = name.replace(/(\w)-(\w)/g, '$1 - $2');
   }
+  // 3. Strip release tags: [EPUB], (ARAR), scene tags
+  name = name.replace(/\s*\[[^\]]*\]/g, '');
+  // 5. Unicode NFKC normalization
+  name = name.normalize('NFKC');
+  // 6. Normalize punctuation: smart quotes→regular, em-dash→hyphen
+  name = name.replace(/[\u2013\u2014]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+  // 7. Collapse whitespace
+  name = name.replaceAll(/\s+/g, ' ').trim();
+  return name;
+}
+
+export function parseFilename(filename: string, dirPath?: string): ParsedFilename {
+  const name = normalizeFilename(filename);
 
   let title = name;
   let author: string | null = null;
@@ -80,12 +98,12 @@ export function parseFilename(filename: string, dirPath?: string): ParsedFilenam
   let seriesName: string | null = null;
   let seriesPosition: number | null = null;
 
-  // Extract series info: "Title (Series #2)"
-  const seriesMatch = SERIES_PATTERN.exec(name);
+  // Extract series info: "Title (Series Book 4)" or "Title (Series #2)"
+  const seriesMatch = SERIES_PATTERN.exec(name) || SERIES_PATTERN_LEGACY.exec(name);
   if (seriesMatch) {
     seriesName = seriesMatch[1].trim();
     seriesPosition = Number.parseFloat(seriesMatch[2]);
-    title = name.replace(SERIES_PATTERN, '').trim();
+    title = name.replace(seriesMatch[0], '').trim();
   }
 
   // Extract year: "Title (2023)"
@@ -143,7 +161,7 @@ export function cleanTitle(title: string): string {
   cleaned = cleaned.replace(/\s+eBook-\w+$/i, '');
   // Strip standalone format/release words (not in parens)
   cleaned = cleaned.replace(/\b(?:RETAIL|EPUB|AZW3|MOBI|PDF)\b/gi, '');
-  // Clean up resulting double spaces and trim
+  // Detect omnibus/box set markers
   cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
   return cleaned || title;
 }
@@ -166,25 +184,29 @@ const TRACK_NUMBER_PATTERN = /^(\d+)\s*[-_.]\s*/;
  * Accepts a FileCandidate-shaped object with filename and extension.
  */
 export function parseFilenameEnhanced(file: { filename: string; extension: string }): FilenameHints {
-  let name = file.filename.replace(/\.[^.]+$/, '').trim();
+  // Strip extension first, extract brackets BEFORE normalizeFilename strips them
+  let raw = file.filename.replace(/\.[^.]+$/, '').trim();
   let trackNumber: number | null = null;
   let bracketSeries: string | null = null;
   let bracketPosition: number | null = null;
 
   // Detect leading track numbers: "001 - Title.m4b"
-  const trackMatch = TRACK_NUMBER_PATTERN.exec(name);
+  const trackMatch = TRACK_NUMBER_PATTERN.exec(raw);
   if (trackMatch) {
     trackNumber = Number.parseInt(trackMatch[1], 10);
-    name = name.slice(trackMatch[0].length).trim();
+    raw = raw.slice(trackMatch[0].length).trim();
   }
 
-  // Extract [Series NN] - prefix before parsing
-  const bracketMatch = /^\[([^\]]+?)\s+(\d+(?:\.\d+)?)\]\s*-\s*(.+)/.exec(name);
+  // Extract [Series NN] - prefix before normalization strips brackets
+  const bracketMatch = /^\[([^\]]+?)\s+(\d+(?:\.\d+)?)\]\s*-\s*(.+)/.exec(raw);
   if (bracketMatch) {
     bracketSeries = bracketMatch[1];
     bracketPosition = Number.parseFloat(bracketMatch[2]);
-    name = bracketMatch[3];
+    raw = bracketMatch[3];
   }
+
+  // Now normalize the remaining string
+  let name = normalizeFilename(raw + '.' + file.extension);
 
   // Clean filename artifacts before parsing
   name = cleanTitle(name);
