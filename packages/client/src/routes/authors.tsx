@@ -14,6 +14,8 @@ import {
   Merge,
   User,
   Wand2,
+  Link2,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -28,6 +30,7 @@ interface Author {
   sortName: string;
   bio: string | null;
   photoUrl: string | null;
+  hardcoverId: string | null;
   bookCount: number;
 }
 
@@ -44,6 +47,8 @@ export function AuthorsPage() {
   const [editData, setEditData] = useState<{ name: string; sortName: string }>({ name: '', sortName: '' });
   const [mergeTargetId, setMergeTargetId] = useState<number | null>(null);
   const [confirmingMergeGroup, setConfirmingMergeGroup] = useState<number | null>(null);
+  const [linkingAuthorId, setLinkingAuthorId] = useState<number | null>(null);
+  const [linkSearch, setLinkSearch] = useState('');
 
   const { data: authors, isLoading } = useQuery({
     queryKey: ['authors'],
@@ -86,6 +91,30 @@ export function AuthorsPage() {
       queryClient.invalidateQueries({ queryKey: ['author-duplicates'] });
     },
     onError: (err) => console.error('Failed to auto-dedup:', err),
+  });
+
+  interface HardcoverAuthor {
+    id: number;
+    name: string;
+    bio: string | null;
+    imageUrl: string | null;
+  }
+
+  const { data: hardcoverResults, isLoading: hardcoverLoading } = useQuery({
+    queryKey: ['hardcover-author-search', linkSearch],
+    queryFn: () => api.get<HardcoverAuthor[]>(`/authors/search-hardcover?q=${encodeURIComponent(linkSearch)}`),
+    enabled: !!linkSearch && linkSearch.length >= 2 && linkingAuthorId !== null,
+  });
+
+  const linkHardcover = useMutation({
+    mutationFn: ({ authorId, hardcoverId }: { authorId: number; hardcoverId: number }) =>
+      api.post(`/authors/${authorId}/link-hardcover`, { hardcoverId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['authors'] });
+      setLinkingAuthorId(null);
+      setLinkSearch('');
+    },
+    onError: (err) => console.error('Failed to link author:', err),
   });
 
   const filteredAuthors = useMemo(() => {
@@ -392,15 +421,42 @@ export function AuthorsPage() {
                           </p>
                         )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0"
-                        onClick={() => startEdit(author)}
-                        aria-label="Edit author"
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </Button>
+                      <div className="flex gap-0.5">
+                        {!author.hardcoverId && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0"
+                            onClick={() => {
+                              setLinkingAuthorId(author.id);
+                              setLinkSearch(author.name);
+                            }}
+                            aria-label="Link to Hardcover"
+                          >
+                            <Link2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                        {author.hardcoverId && (
+                          <a
+                            href={`https://hardcover.app/authors/${author.hardcoverId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+                            aria-label="View on Hardcover"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          onClick={() => startEdit(author)}
+                          aria-label="Edit author"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                     <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                       <BookOpen className="h-3 w-3" />
@@ -411,6 +467,70 @@ export function AuthorsPage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Hardcover link dialog */}
+      {linkingAuthorId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-md rounded-lg border bg-card p-4 shadow-lg space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">Link to Hardcover</h3>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setLinkingAuthorId(null); setLinkSearch(''); }}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <Input
+              value={linkSearch}
+              onChange={(e) => setLinkSearch(e.target.value)}
+              placeholder="Search Hardcover..."
+              className="h-9"
+            />
+            <div className="max-h-64 space-y-2 overflow-y-auto">
+              {hardcoverLoading && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+              {hardcoverResults && hardcoverResults.length === 0 && (
+                <p className="py-4 text-center text-sm text-muted-foreground">No authors found</p>
+              )}
+              {hardcoverResults?.map((hc) => (
+                <div
+                  key={hc.id}
+                  className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => linkHardcover.mutate({ authorId: linkingAuthorId, hardcoverId: hc.id })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      linkHardcover.mutate({ authorId: linkingAuthorId, hardcoverId: hc.id });
+                    }
+                  }}
+                >
+                  {hc.imageUrl ? (
+                    <img src={hc.imageUrl} alt={hc.name} className="h-10 w-10 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+                      <User className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm">{hc.name}</p>
+                    {hc.bio && (
+                      <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{hc.bio}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {linkHardcover.isPending && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Linking...
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

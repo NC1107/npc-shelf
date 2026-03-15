@@ -228,6 +228,44 @@ export class HardcoverProvider implements MetadataProvider {
     }
   }
 
+  async searchAuthorByName(name: string): Promise<{ id: number; name: string; bio: string | null; imageUrl: string | null }[]> {
+    try {
+      // Search books by author name, collect unique author IDs
+      const data = await this.requestWithRetry<SearchResponse>(SEARCH_QUERY, { q: name, perPage: 5 });
+      const results = parseSearchResults(data.search.results);
+
+      // Fetch books_by_pk for top 3 to get author details
+      const authorMap = new Map<number, { id: number; name: string }>();
+      for (const result of results.slice(0, 3)) {
+        const authors = await this.getBookAuthorIds(result.externalId);
+        for (const a of authors) {
+          if (!authorMap.has(a.id)) authorMap.set(a.id, a);
+        }
+      }
+
+      // Filter by name similarity and fetch details
+      const normalizedQuery = name.toLowerCase();
+      const matchingAuthors: { id: number; name: string; bio: string | null; imageUrl: string | null }[] = [];
+
+      for (const [, author] of authorMap) {
+        const sim = author.name.toLowerCase().includes(normalizedQuery) ||
+          normalizedQuery.includes(author.name.toLowerCase());
+        // Accept close matches too
+        if (sim || author.name.toLowerCase().split(' ').some(w => normalizedQuery.includes(w))) {
+          const details = await this.getAuthorDetails(String(author.id));
+          if (details) {
+            matchingAuthors.push(details);
+          }
+        }
+      }
+
+      return matchingAuthors;
+    } catch (err: any) {
+      console.error('[Hardcover] Author search error:', err.message);
+      return [];
+    }
+  }
+
   async getSeriesDetails(seriesId: string): Promise<{ id: number; name: string; description: string | null } | null> {
     try {
       const data = await this.requestWithRetry<{

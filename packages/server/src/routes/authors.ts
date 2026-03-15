@@ -3,6 +3,8 @@ import { eq, inArray, sql } from 'drizzle-orm';
 import { db, schema, sqlite } from '../db/index.js';
 import { stringSimilarity } from '../utils/string-similarity.js';
 import { normalizeAuthorName } from '../utils/author-utils.js';
+import { getProvider } from '../services/metadata-pipeline.js';
+import { toSortName } from '../utils/filename-parser.js';
 
 export const authorsRouter = Router();
 
@@ -287,6 +289,71 @@ authorsRouter.post('/auto-dedup', (_req, res) => {
     res.json({ merged, groups: groupCount });
   } catch (error) {
     console.error('[Authors] Auto-dedup error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Search Hardcover for an author by name
+authorsRouter.get('/search-hardcover', async (req, res) => {
+  try {
+    const q = (req.query.q as string)?.trim();
+    if (!q) {
+      res.status(400).json({ error: 'Query parameter q is required' });
+      return;
+    }
+
+    const provider = getProvider();
+    const results = await provider.searchAuthorByName(q);
+    res.json(results);
+  } catch (error) {
+    console.error('[Authors] Hardcover search error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Link a local author to a Hardcover canonical record
+authorsRouter.post('/:id/link-hardcover', async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: 'Invalid author ID' });
+      return;
+    }
+
+    const { hardcoverId } = req.body;
+    if (!hardcoverId) {
+      res.status(400).json({ error: 'hardcoverId is required' });
+      return;
+    }
+
+    const existing = db.select().from(schema.authors).where(eq(schema.authors.id, id)).get();
+    if (!existing) {
+      res.status(404).json({ error: 'Author not found' });
+      return;
+    }
+
+    const provider = getProvider();
+    const details = await provider.getAuthorDetails(String(hardcoverId));
+    if (!details) {
+      res.status(404).json({ error: 'Hardcover author not found' });
+      return;
+    }
+
+    db.update(schema.authors)
+      .set({
+        name: details.name,
+        sortName: toSortName(details.name),
+        hardcoverId: String(details.id),
+        bio: details.bio || existing.bio,
+        photoUrl: details.imageUrl || existing.photoUrl,
+      })
+      .where(eq(schema.authors.id, id))
+      .run();
+
+    const updated = db.select().from(schema.authors).where(eq(schema.authors.id, id)).get();
+    res.json(updated);
+  } catch (error) {
+    console.error('[Authors] Link Hardcover error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
