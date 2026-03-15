@@ -4,6 +4,8 @@ import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { SUPPORTED_AUDIO_FORMATS, MIME_TYPES } from '@npc-shelf/shared';
 import { toSortName } from '../utils/filename-parser.js';
+import { normalizeAuthorName, splitMultiAuthor } from '../utils/author-utils.js';
+import { stringSimilarity } from '../utils/string-similarity.js';
 import { parseEpub } from './epub-parser.js';
 import { parseAudioMetadata } from './audio-parser.js';
 import { extractAndCacheCover } from './cover.js';
@@ -265,34 +267,40 @@ async function persistCandidate(
     fileRecords.push({ fileId: fileRecord.id, file });
   }
 
-  // Create author
+  // Create author(s) — handles multi-author strings and normalization
   if (authorName) {
-    const authorId = findOrCreateAuthor(authorName);
-    db.insert(schema.bookAuthors)
-      .values({ bookId: book.id, authorId, role: 'author' })
-      .onConflictDoNothing()
-      .run();
+    const authorIds = findOrCreateAuthors(authorName);
+    for (const authorId of authorIds) {
+      db.insert(schema.bookAuthors)
+        .values({ bookId: book.id, authorId, role: 'author' })
+        .onConflictDoNothing()
+        .run();
+    }
   }
 
   // Additional creators from embedded metadata
   if (embedded.creators) {
     for (const creator of embedded.creators) {
       if (creator.name === authorName) continue;
-      const creatorId = findOrCreateAuthor(creator.name);
-      db.insert(schema.bookAuthors)
-        .values({ bookId: book.id, authorId: creatorId, role: creator.role as 'author' | 'narrator' | 'editor' })
-        .onConflictDoNothing()
-        .run();
+      const creatorIds = findOrCreateAuthors(creator.name);
+      for (const creatorId of creatorIds) {
+        db.insert(schema.bookAuthors)
+          .values({ bookId: book.id, authorId: creatorId, role: creator.role as 'author' | 'narrator' | 'editor' })
+          .onConflictDoNothing()
+          .run();
+      }
     }
   }
 
   // Narrator from sidecar
   if (candidate.sidecarMeta?.narrator) {
-    const narratorId = findOrCreateAuthor(candidate.sidecarMeta.narrator);
-    db.insert(schema.bookAuthors)
-      .values({ bookId: book.id, authorId: narratorId, role: 'narrator' })
-      .onConflictDoNothing()
-      .run();
+    const narratorIds = findOrCreateAuthors(candidate.sidecarMeta.narrator);
+    for (const narratorId of narratorIds) {
+      db.insert(schema.bookAuthors)
+        .values({ bookId: book.id, authorId: narratorId, role: 'narrator' })
+        .onConflictDoNothing()
+        .run();
+    }
   }
 
   // Series — support multiple
@@ -551,9 +559,32 @@ async function extractEmbeddedMetadata(filePath: string, format: string): Promis
   return empty;
 }
 
+/**
+ * Split multi-author strings, normalize each name, fuzzy-match against existing
+ * authors (0.9 threshold), and return all author IDs.
+ */
+export function findOrCreateAuthors(name: string): number[] {
+  const names = splitMultiAuthor(name);
+  return names.map((n) => findOrCreateAuthor(normalizeAuthorName(n)));
+}
+
 export function findOrCreateAuthor(name: string): number {
+  // Exact match first
   const existing = db.select().from(schema.authors).where(eq(schema.authors.name, name)).get();
   if (existing) return existing.id;
+
+  // Fuzzy match against all existing authors at 0.9 threshold
+  const allAuthors = db.select({ id: schema.authors.id, name: schema.authors.name }).from(schema.authors).all();
+  const normalized = name.toLowerCase();
+  let bestMatch: { id: number; sim: number } | null = null;
+  for (const a of allAuthors) {
+    const sim = stringSimilarity(normalized, a.name.toLowerCase());
+    if (sim >= 0.9 && (!bestMatch || sim > bestMatch.sim)) {
+      bestMatch = { id: a.id, sim };
+    }
+  }
+  if (bestMatch) return bestMatch.id;
+
   return db.insert(schema.authors)
     .values({ name, sortName: toSortName(name) })
     .returning()
