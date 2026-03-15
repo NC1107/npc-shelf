@@ -24,7 +24,7 @@ import { authorsRouter } from './routes/authors.js';
 import { authMiddleware } from './middleware/auth.js';
 import { registerJobHandler, startJobProcessor, stopJobProcessor, recoverStaleJobs } from './services/job-queue.js';
 import { scanLibrary } from './services/scanner.js';
-import { enrichBook, enrichAllUnmatched } from './services/metadata-pipeline.js';
+import { enrichBook, enrichAllUnmatched, cleanupDirtyTitles } from './services/metadata-pipeline.js';
 import { backfillCovers } from './services/cover-backfill.js';
 import { mergeAudiobook, isFfmpegAvailable } from './services/audio-merge.js';
 import { isCalibreAvailable } from './services/metadata-writer.js';
@@ -74,6 +74,12 @@ registerJobHandler('merge_audiobook', async (payload) => {
   console.log(`[Jobs] Starting audiobook merge for book ${bookId}`);
   const outputPath = await mergeAudiobook(bookId);
   console.log(`[Jobs] Merge complete: ${outputPath}`);
+});
+
+registerJobHandler('cleanup_titles', async () => {
+  console.log('[Jobs] Starting bulk title cleanup');
+  const result = await cleanupDirtyTitles();
+  console.log(`[Jobs] Title cleanup complete: ${result.fixed}/${result.total} fixed`);
 });
 
 registerJobHandler('convert_format', async (payload) => {
@@ -129,7 +135,7 @@ app.get('/api/health', (_req, res) => {
 
     res.json({
       status: 'ok',
-      version: '0.4.0',
+      version: '0.5.3',
       uptime: process.uptime(),
       database: 'connected',
       books: bookCount,

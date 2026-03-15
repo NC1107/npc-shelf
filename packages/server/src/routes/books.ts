@@ -6,6 +6,7 @@ import multer from 'multer';
 import { extractAndCacheCover } from '../services/cover.js';
 import { detectDuplicates } from '../services/duplicate-detector.js';
 import { enqueueJob } from '../services/job-queue.js';
+import { cleanupDirtyTitles } from '../services/metadata-pipeline.js';
 import { isConvertAvailable, SUPPORTED_CONVERSIONS } from '../services/format-converter.js';
 import { enrichBooksWithMeta } from '../utils/book-enricher.js';
 
@@ -915,6 +916,17 @@ booksRouter.post('/:id/convert', (req, res) => {
     res.status(202).json({ message: 'Conversion job queued' });
   } catch (error) {
     console.error('[Books] Convert error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Bulk cleanup dirty titles from Hardcover matches
+booksRouter.post('/cleanup-titles', async (_req, res) => {
+  try {
+    const result = await cleanupDirtyTitles();
+    res.json(result);
+  } catch (error) {
+    console.error('[Books] Cleanup titles error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

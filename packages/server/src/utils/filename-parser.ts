@@ -119,6 +119,24 @@ export function toSortName(name: string): string {
   return `${last}, ${parts.join(' ')}`;
 }
 
+/**
+ * Clean common filename artifacts from a title string.
+ */
+export function cleanTitle(title: string): string {
+  let cleaned = title;
+  // Strip format suffixes: (azw3), (epub), (mobi), (pdf), (m4b), (mp3)
+  cleaned = cleaned.replace(/\s*\((?:azw3|epub|mobi|pdf|m4b|mp3)\)\s*$/i, '');
+  // Strip (retail), (US), (UK), version tags like (v5.0)
+  cleaned = cleaned.replace(/\s*\((?:retail|US|UK|v\d+(?:\.\d+)?)\)\s*/gi, '');
+  // Strip [Series NN] - prefix
+  cleaned = cleaned.replace(/^\[.*?\]\s*-\s*/, '');
+  // Strip year prefix like (1941)
+  cleaned = cleaned.replace(/^\(\d{4}\)\s*/, '');
+  // Clean up resulting double spaces and trim
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+  return cleaned || title;
+}
+
 // --- Enhanced filename parsing for scan pipeline ---
 
 export interface FilenameHints {
@@ -139,6 +157,8 @@ const TRACK_NUMBER_PATTERN = /^(\d+)\s*[-_.]\s*/;
 export function parseFilenameEnhanced(file: { filename: string; extension: string }): FilenameHints {
   let name = file.filename.replace(/\.[^.]+$/, '').trim();
   let trackNumber: number | null = null;
+  let bracketSeries: string | null = null;
+  let bracketPosition: number | null = null;
 
   // Detect leading track numbers: "001 - Title.m4b"
   const trackMatch = TRACK_NUMBER_PATTERN.exec(name);
@@ -147,18 +167,29 @@ export function parseFilenameEnhanced(file: { filename: string; extension: strin
     name = name.slice(trackMatch[0].length).trim();
   }
 
+  // Extract [Series NN] - prefix before parsing
+  const bracketMatch = /^\[([^\]]+?)\s+(\d+(?:\.\d+)?)\]\s*-\s*(.+)/.exec(name);
+  if (bracketMatch) {
+    bracketSeries = bracketMatch[1];
+    bracketPosition = Number.parseFloat(bracketMatch[2]);
+    name = bracketMatch[3];
+  }
+
+  // Clean filename artifacts before parsing
+  name = cleanTitle(name);
+
   // Use the existing parser on the cleaned name
   const parsed = parseFilename(name + '.' + file.extension);
 
   let confidence = 0.5;
   if (parsed.author) confidence += 0.2;
-  if (parsed.seriesName) confidence += 0.1;
+  if (parsed.seriesName || bracketSeries) confidence += 0.1;
 
   return {
     author: parsed.author,
-    title: parsed.title,
-    series: parsed.seriesName,
-    seriesPosition: parsed.seriesPosition,
+    title: cleanTitle(parsed.title),
+    series: parsed.seriesName || bracketSeries,
+    seriesPosition: parsed.seriesPosition ?? bracketPosition,
     trackNumber,
     confidence,
   };

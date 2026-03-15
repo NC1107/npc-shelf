@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { SUPPORTED_FORMATS, SUPPORTED_AUDIO_FORMATS } from '@npc-shelf/shared';
-import { parseFilenameEnhanced, type FilenameHints } from '../utils/filename-parser.js';
+import { parseFilenameEnhanced, cleanTitle, type FilenameHints } from '../utils/filename-parser.js';
 import { parseSidecarMetadata, type SidecarMetadata } from './sidecar-parser.js';
 
 // --- Internal types ---
@@ -271,7 +271,7 @@ function resolveMetadata(
   if (dirHints.titleHint && !isMultiFileAudio) titleCandidates.push({ value: dirHints.titleHint, confidence: 0.3 });
 
   titleCandidates.sort((a, b) => b.confidence - a.confidence);
-  const title = titleCandidates[0]?.value ?? 'Unknown Title';
+  const title = cleanTitle(titleCandidates[0]?.value ?? 'Unknown Title');
 
   // Author resolution by priority
   const authorCandidates: { value: string; confidence: number }[] = [];

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFilename } from '../filename-parser.js';
+import { parseFilename, cleanTitle, parseFilenameEnhanced } from '../filename-parser.js';
 
 describe('parseFilename', () => {
   it('parses "Author - Title" format', () => {
@@ -62,5 +62,59 @@ describe('parseFilename', () => {
     const result = parseFilename('Elantris.m4b');
     expect(result.title).toBe('Elantris');
     expect(result.author).toBeNull();
+  });
+});
+
+describe('cleanTitle', () => {
+  it('strips format suffixes', () => {
+    expect(cleanTitle('Guns (azw3)')).toBe('Guns');
+    expect(cleanTitle('Chapter Six (epub)')).toBe('Chapter Six');
+    expect(cleanTitle('Some Book (mobi)')).toBe('Some Book');
+  });
+
+  it('strips (retail) and (US) artifacts', () => {
+    expect(cleanTitle('Fragile Things (retail) (azw3)')).toBe('Fragile Things');
+    expect(cleanTitle('Dodger (US) (retail) (azw3)')).toBe('Dodger');
+  });
+
+  it('strips [Series NN] - prefix', () => {
+    expect(cleanTitle('[Mistborn 01] - Mistborn-The Final Empire (retail) (azw3)')).toBe('Mistborn-The Final Empire');
+  });
+
+  it('strips year prefix', () => {
+    expect(cleanTitle('(1941) The Forgotten Village')).toBe('The Forgotten Village');
+  });
+
+  it('strips version tags', () => {
+    expect(cleanTitle('Some Book (v5.0)')).toBe('Some Book');
+  });
+
+  it('returns original if cleaning would empty it', () => {
+    expect(cleanTitle('(azw3)')).toBe('(azw3)');
+  });
+
+  it('leaves clean titles unchanged', () => {
+    expect(cleanTitle('Animal Farm')).toBe('Animal Farm');
+    expect(cleanTitle('The Way of Kings')).toBe('The Way of Kings');
+  });
+});
+
+describe('parseFilenameEnhanced', () => {
+  it('extracts series from bracket prefix', () => {
+    const result = parseFilenameEnhanced({
+      filename: '[Mistborn 01] - The Final Empire (retail) (azw3).azw3',
+      extension: 'azw3',
+    });
+    expect(result.series).toBe('Mistborn');
+    expect(result.seriesPosition).toBe(1);
+    expect(result.title).toBe('The Final Empire');
+  });
+
+  it('cleans format suffix from title', () => {
+    const result = parseFilenameEnhanced({
+      filename: 'Guns (azw3).azw3',
+      extension: 'azw3',
+    });
+    expect(result.title).toBe('Guns');
   });
 });

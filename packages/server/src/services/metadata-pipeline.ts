@@ -1,4 +1,4 @@
-import { eq, isNull } from 'drizzle-orm';
+import { eq, isNull, isNotNull } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { MetadataProvider } from '../providers/metadata-provider.js';
 import type { MetadataMatchResult, MetadataSearchResult } from '@npc-shelf/shared';
@@ -137,6 +137,25 @@ export async function matchBook(
   return best;
 }
 
+function isDirtyTitle(title: string, bookId: number): boolean {
+  const authorRow = db
+    .select({ name: schema.authors.name })
+    .from(schema.bookAuthors)
+    .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+    .where(eq(schema.bookAuthors.bookId, bookId))
+    .get();
+
+  const titleLower = title.toLowerCase().trim();
+  const authorLower = (authorRow?.name || '').toLowerCase().trim();
+
+  return (
+    (authorLower !== '' && titleLower === authorLower) ||
+    /\((?:azw3|epub|mobi|pdf|m4b|mp3)\)/i.test(title) ||
+    /\(retail\)/i.test(title) ||
+    /^\[.*?\]\s*-\s*/.test(title)
+  );
+}
+
 /**
  * Match and enrich a single book by its database ID.
  * Downloads cover and updates all metadata.
@@ -190,6 +209,12 @@ export async function enrichBook(bookId: number): Promise<void> {
   if (!book.isbn13 && match.isbn13) updates.isbn13 = match.isbn13;
   if (!book.pageCount && match.pageCount) updates.pageCount = match.pageCount;
   if (!book.isbn10 && match.isbn10) updates.isbn10 = match.isbn10;
+
+  // Update title from Hardcover match if current title looks wrong
+  if (match.title && isDirtyTitle(book.title, bookId)) {
+    updates.title = match.title;
+    console.log(`[Metadata] Fixed title "${book.title}" -> "${match.title}"`);
+  }
 
   db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
 
@@ -317,6 +342,7 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
     updatedAt: new Date().toISOString(),
   };
 
+  if (details.title) updates.title = details.title;
   if (details.description) updates.description = details.description;
   if (details.publishDate) updates.publishDate = details.publishDate;
   if (details.isbn13) updates.isbn13 = details.isbn13;
@@ -367,6 +393,44 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
         .run();
     }
   }
+}
+
+/**
+ * Bulk cleanup: fix dirty titles on books that already have a Hardcover match.
+ * Re-fetches the correct title from Hardcover for each dirty book.
+ */
+export async function cleanupDirtyTitles(): Promise<{ fixed: number; total: number }> {
+  const matched = db
+    .select({
+      id: schema.books.id,
+      title: schema.books.title,
+      hardcoverId: schema.books.hardcoverId,
+    })
+    .from(schema.books)
+    .where(isNotNull(schema.books.hardcoverId))
+    .all();
+
+  let fixed = 0;
+  for (const book of matched) {
+    if (!isDirtyTitle(book.title, book.id)) continue;
+
+    try {
+      ensureToken();
+      const details = await provider.getDetails(book.hardcoverId!);
+      if (!details?.title) continue;
+
+      db.update(schema.books)
+        .set({ title: details.title, updatedAt: new Date().toISOString() })
+        .where(eq(schema.books.id, book.id))
+        .run();
+      console.log(`[Cleanup] Fixed title: "${book.title}" -> "${details.title}"`);
+      fixed++;
+    } catch (err) {
+      console.error(`[Cleanup] Error fixing title for book ${book.id}:`, err);
+    }
+  }
+
+  return { fixed, total: matched.length };
 }
 
 /**
