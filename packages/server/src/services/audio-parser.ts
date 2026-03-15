@@ -2,8 +2,15 @@ import { parseFile } from 'music-metadata';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import fs from 'node:fs';
 
 const execFileAsync = promisify(execFile);
+
+/** Timeout for music-metadata parseFile — large M4B files can hang */
+const PARSE_TIMEOUT_MS = 60_000;
+
+/** Max file size for full metadata parsing (500MB). Larger files get minimal parsing. */
+const FULL_PARSE_MAX_BYTES = 500 * 1024 * 1024;
 
 export interface AudioChapterRaw {
   title: string;
@@ -40,8 +47,24 @@ export async function parseAudioMetadata(filePath: string): Promise<AudioMetadat
   };
 
   try {
-    // Parse with music-metadata (works for both MP3 and M4B)
-    const metadata = await parseFile(filePath, { duration: true });
+    // Skip full metadata parsing for very large files to avoid OOM
+    const stat = fs.statSync(filePath);
+    const isLargeFile = stat.size > FULL_PARSE_MAX_BYTES;
+
+    if (isLargeFile) {
+      console.log(`[AudioParser] Large file (${(stat.size / 1024 / 1024).toFixed(0)}MB), using minimal parsing: ${path.basename(filePath)}`);
+    }
+
+    // Parse with music-metadata with a timeout guard
+    const parsePromise = parseFile(filePath, {
+      duration: true,
+      skipCovers: isLargeFile,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('parseFile timeout')), PARSE_TIMEOUT_MS),
+    );
+
+    const metadata = await Promise.race([parsePromise, timeoutPromise]);
 
     result.title = metadata.common.title || null;
     result.artist = metadata.common.artist || null;
@@ -50,8 +73,8 @@ export async function parseAudioMetadata(filePath: string): Promise<AudioMetadat
     result.year = metadata.common.year || null;
     result.duration = metadata.format.duration || 0;
 
-    // Extract cover image
-    if (metadata.common.picture && metadata.common.picture.length > 0) {
+    // Extract cover image (skip for large files)
+    if (!isLargeFile && metadata.common.picture && metadata.common.picture.length > 0) {
       result.coverImage = Buffer.from(metadata.common.picture[0].data);
     }
 
@@ -60,8 +83,12 @@ export async function parseAudioMetadata(filePath: string): Promise<AudioMetadat
     if (ext === '.m4b') {
       result.chapters = await extractChaptersWithFfprobe(filePath);
     }
-  } catch (err) {
-    console.error(`[AudioParser] Error parsing ${filePath}:`, err);
+  } catch (err: any) {
+    if (err?.message === 'parseFile timeout') {
+      console.warn(`[AudioParser] Timeout parsing ${path.basename(filePath)} — skipping metadata`);
+    } else {
+      console.error(`[AudioParser] Error parsing ${filePath}:`, err);
+    }
   }
 
   return result;

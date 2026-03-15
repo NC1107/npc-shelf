@@ -103,6 +103,9 @@ backfillCovers().catch((err) => console.error('[Startup] Cover backfill error:',
 // Start file watchers for all enabled libraries
 initializeWatchers();
 
+// Trust first proxy (Traefik/nginx) for correct IP in rate limiters
+app.set('trust proxy', 1);
+
 // Global middleware
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
