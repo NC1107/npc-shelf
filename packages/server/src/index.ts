@@ -38,7 +38,7 @@ installLogCapture();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Read version from package.json
-const pkgPath = path.join(__dirname, '../../package.json');
+const pkgPath = path.join(__dirname, '../package.json');
 const appVersion = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version as string;
 
 const app = express();
