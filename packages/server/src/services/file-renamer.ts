@@ -52,10 +52,16 @@ function getBookData(bookId: number) {
   };
 }
 
+function trimChar(str: string, ch: string): string {
+  let start = 0;
+  let end = str.length;
+  while (start < end && str[start] === ch) start++;
+  while (end > start && str[end - 1] === ch) end--;
+  return str.slice(start, end);
+}
+
 function sanitizeSegment(s: string): string {
-  const cleaned = sanitize(s)
-    .replace(/^[\s-]+/, '')
-    .replace(/[\s-]+$/, '')
+  const cleaned = trimChar(sanitize(s), '-')
     .replaceAll(/\s+/g, ' ')
     .trim();
   return cleaned.slice(0, 200) || 'Unknown';

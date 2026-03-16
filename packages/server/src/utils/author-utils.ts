@@ -47,14 +47,17 @@ function looksLikePersonName(s: string): boolean {
 export function splitMultiAuthor(name: string): string[] {
   let parts = [name.trim()];
 
-  // Split on " & "
-  parts = parts.flatMap((p) => p.split(/\s+&\s+/));
+  // Normalize whitespace before splitting on fixed strings
+  parts = parts.map((p) => p.replace(/\s+/g, ' '));
 
-  // Split on " and " (case insensitive, word boundary)
-  parts = parts.flatMap((p) => p.split(/\s+and\s+/i));
+  // Split on " & "
+  parts = parts.flatMap((p) => p.split(' & '));
+
+  // Split on " and " (case insensitive)
+  parts = parts.flatMap((p) => p.split(/ and /i));
 
   // Split on " / "
-  parts = parts.flatMap((p) => p.split(/\s*\/\s*/));
+  parts = parts.flatMap((p) => p.split(' / '));
 
   // Split on ", " only when both sides look like person names
   const expanded: string[] = [];

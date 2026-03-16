@@ -15,10 +15,10 @@ export interface ParsedFilename {
   seriesPosition: number | null;
 }
 
-const SERIES_PATTERN = /\(([^)]{1,200})\s+(?:Book|#)\s*(\d{1,5}(?:\.\d{1,3})?)\)/;
-const SERIES_PATTERN_LEGACY = /\(([^)]{1,200})\s+#?(\d{1,5}(?:\.\d{1,3})?)\)/;
+const SERIES_PATTERN = /\(([^)]{0,199}[^)\s])\s+(?:Book|#)\s*(\d{1,5}(?:\.\d{1,3})?)\)/;
+const SERIES_PATTERN_LEGACY = /\(([^)]{0,199}[^)\s])\s+#?(\d{1,5}(?:\.\d{1,3})?)\)/;
 const YEAR_PATTERN = /\((\d{4})\)/;
-const AUTHOR_TITLE_DASH = /^(.{1,500}?)\s+-\s+(.+)$/;
+const AUTHOR_TITLE_DASH = /^(.*?\S)\s+-\s+(.+)$/;
 
 function looksLikePersonName(name: string): boolean {
   // Person names: have spaces, no digits, no underscores/colons/special chars, 2-4 words
@@ -200,7 +200,7 @@ export function parseFilenameEnhanced(file: { filename: string; extension: strin
   }
 
   // Extract [Series NN] - prefix before normalization strips brackets
-  const bracketMatch = /^\[([^\]]{1,200})\s+(\d{1,5}(?:\.\d{1,3})?)\]\s*-\s*(.+)/.exec(raw);
+  const bracketMatch = /^\[([^\]]{0,199}[^\]\s])\s+(\d{1,5}(?:\.\d{1,3})?)\]\s*-\s*(.+)/.exec(raw);
   if (bracketMatch) {
     bracketSeries = bracketMatch[1];
     bracketPosition = Number.parseFloat(bracketMatch[2]);

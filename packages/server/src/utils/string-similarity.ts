@@ -134,9 +134,9 @@ export function normalizeForComparison(text: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    // & → and
-    .replace(/\s*&\s*/g, ' and ')
-    .replace(/^(the|a|an)\s+/i, '')
+    // & → and (use string replace to avoid \s*&\s* ReDoS on unanchored quantifiers)
+    .replaceAll('&', ' and ')
+    .replace(/^(the|an|a)\s+/i, '')
     .replaceAll(/[^\w\s]/g, '')
     .replaceAll(/\s+/g, ' ')
     .trim();

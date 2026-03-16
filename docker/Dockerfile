@@ -1,7 +1,7 @@
 # ===== Stage 1: Build shared types =====
 FROM node:22-alpine AS shared-build
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 RUN npm install --workspace=packages/shared
 COPY packages/shared packages/shared
@@ -11,7 +11,7 @@ RUN npm run build --workspace=packages/shared
 # ===== Stage 2: Build client =====
 FROM node:22-alpine AS client-build
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/client/package.json packages/client/
 RUN npm install --workspace=packages/client --workspace=packages/shared
@@ -23,7 +23,7 @@ RUN npm run build --workspace=packages/client
 # ===== Stage 3: Build server =====
 FROM node:22-alpine AS server-build
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/server/package.json packages/server/
 RUN npm install --workspace=packages/server --workspace=packages/shared
@@ -44,7 +44,7 @@ RUN addgroup -g 1001 npcshelf && adduser -u 1001 -G npcshelf -s /bin/sh -D npcsh
 WORKDIR /app
 
 # Copy package files and install production dependencies only
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/server/package.json packages/server/
 RUN npm install --workspace=packages/server --workspace=packages/shared --omit=dev && npm cache clean --force
@@ -90,7 +90,7 @@ RUN groupadd -g 1001 npcshelf && useradd -u 1001 -g npcshelf -m -s /bin/sh npcsh
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/server/package.json packages/server/
 RUN npm install --workspace=packages/server --workspace=packages/shared --omit=dev && npm cache clean --force
