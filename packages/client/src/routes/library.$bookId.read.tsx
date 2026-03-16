@@ -14,6 +14,47 @@ const TOOLBAR_AUTO_HIDE_MS = 4_000;
 /** Debounce delay for saving reading progress (ms). */
 const PROGRESS_SAVE_DEBOUNCE_MS = 2_000;
 
+function resolveReaderFormat<T extends { format: string }>(files: T[] | undefined): {
+  readerFormat: 'epub' | 'pdf' | null;
+  convertibleFile: T | undefined;
+  needsConversion: boolean;
+} {
+  const epubFile = files?.find((f) => f.format === 'epub');
+  const pdfFile = files?.find((f) => f.format === 'pdf');
+  const convertibleFile = files?.find((f) => f.format === 'azw3' || f.format === 'mobi');
+
+  let readerFormat: 'epub' | 'pdf' | null = null;
+  if (epubFile) readerFormat = 'epub';
+  else if (pdfFile) readerFormat = 'pdf';
+  else if (convertibleFile) readerFormat = 'epub';
+
+  const needsConversion = !epubFile && !pdfFile && !!convertibleFile;
+  return { readerFormat, convertibleFile, needsConversion };
+}
+
+function ConversionErrorMessage({
+  errorData,
+  convertibleFile,
+}: {
+  errorData: Error | null;
+  convertibleFile: { format: string } | undefined;
+}) {
+  if ((errorData as any)?.status === 422) {
+    return (
+      <>
+        <AlertTriangle className="h-8 w-8 text-amber-500" />
+        <p className="text-lg font-medium">Calibre Required</p>
+        <p className="max-w-md text-center text-sm text-muted-foreground">
+          This book is in {convertibleFile?.format?.toUpperCase()} format. Install Calibre
+          in the Docker container to read it, or switch to the AIO image
+          (<code className="rounded bg-muted px-1">ghcr.io/nc1107/npc-shelf:aio</code>).
+        </p>
+      </>
+    );
+  }
+  return <p className="text-destructive">{errorData?.message || 'Conversion failed'}</p>;
+}
+
 export function ReadPage() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
   const [showSettings, setShowSettings] = useState(false);
@@ -87,18 +128,11 @@ export function ReadPage() {
   }, []);
 
   // Determine which format to read
-  const epubFile = book?.files?.find((f) => f.format === 'epub');
-  const pdfFile = book?.files?.find((f) => f.format === 'pdf');
-  const convertibleFile = book?.files?.find((f) => f.format === 'azw3' || f.format === 'mobi');
-  let readerFormat: 'epub' | 'pdf' | null = null;
-  if (epubFile) readerFormat = 'epub';
-  else if (pdfFile) readerFormat = 'pdf';
-  else if (convertibleFile) readerFormat = 'epub'; // server converts azw3/mobi to epub on demand
+  const { readerFormat, convertibleFile, needsConversion } = resolveReaderFormat(book?.files);
   const contentUrl = readerFormat ? `/api/reader/books/${bookId}/content?format=${readerFormat}` : null;
 
   // Track content loading for conversion spinner
-  const [contentReady, setContentReady] = useState(!convertibleFile || !!epubFile);
-  const needsConversion = !epubFile && !pdfFile && !!convertibleFile;
+  const [contentReady, setContentReady] = useState(!convertibleFile || !needsConversion);
 
   // Prefetch content to detect conversion delay
   const { isError: contentError, error: contentErrorData } = useQuery({
@@ -132,19 +166,7 @@ export function ReadPage() {
       <div className="flex h-full flex-col items-center justify-center gap-3">
         {contentError ? (
           <>
-            {(contentErrorData as any)?.status === 422 ? (
-              <>
-                <AlertTriangle className="h-8 w-8 text-amber-500" />
-                <p className="text-lg font-medium">Calibre Required</p>
-                <p className="max-w-md text-center text-sm text-muted-foreground">
-                  This book is in {convertibleFile?.format?.toUpperCase()} format. Install Calibre
-                  in the Docker container to read it, or switch to the AIO image
-                  (<code className="rounded bg-muted px-1">ghcr.io/nc1107/npc-shelf:aio</code>).
-                </p>
-              </>
-            ) : (
-              <p className="text-destructive">{(contentErrorData as Error)?.message || 'Conversion failed'}</p>
-            )}
+            <ConversionErrorMessage errorData={contentErrorData as Error} convertibleFile={convertibleFile} />
             <Link to="/library/$bookId" params={{ bookId }}>
               <Button variant="outline">Back to Book</Button>
             </Link>
@@ -219,18 +241,11 @@ export function ReadPage() {
         {/* Settings popover (EPUB only) */}
         {showSettings && readerFormat === 'epub' && (
           <>
-            <div
-              className="absolute inset-0 z-10"
-              role="button"
-              tabIndex={0}
+            <button
+              type="button"
+              className="absolute inset-0 z-10 appearance-none border-none bg-transparent p-0 cursor-pointer"
               aria-label="Close settings"
               onClick={() => setShowSettings(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setShowSettings(false);
-                }
-              }}
             />
             <div className="absolute right-4 top-2 z-20 rounded-lg border bg-card shadow-lg">
               <ReaderSettings />

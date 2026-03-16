@@ -240,11 +240,11 @@ metadataRouter.post('/sync-hardcover-status', (req, res) => {
       return;
     }
 
-    const validStatuses = ['unread', 'reading', 'finished'];
+    const validStatuses = new Set(['unread', 'reading', 'finished']);
     const syncTx = sqlite.transaction(() => {
       let updated = 0;
       for (const { bookId, readingStatus } of updates) {
-        if (!validStatuses.includes(readingStatus)) continue;
+        if (!validStatuses.has(readingStatus)) continue;
         db.update(schema.books)
           .set({ readingStatus, updatedAt: new Date().toISOString() })
           .where(eq(schema.books.id, bookId))

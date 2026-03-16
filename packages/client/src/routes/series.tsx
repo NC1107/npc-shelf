@@ -69,13 +69,14 @@ export function SeriesPage() {
         </Button>
       </div>
 
-      {isLoading ? (
+      {isLoading && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="h-40 animate-pulse rounded-lg bg-muted" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      )}
+      {!isLoading && filtered.length === 0 && (
         <div className="py-12 text-center">
           <Layers className="mx-auto h-12 w-12 text-muted-foreground" />
           <p className="mt-3 text-lg font-medium">
@@ -87,7 +88,8 @@ export function SeriesPage() {
               : 'Series are detected from metadata or filenames during library scanning.'}
           </p>
         </div>
-      ) : (
+      )}
+      {!isLoading && filtered.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((series) => (
             <Link

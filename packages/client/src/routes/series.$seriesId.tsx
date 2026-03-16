@@ -24,6 +24,123 @@ interface SeriesDetail {
   books: SeriesBook[];
 }
 
+type OrderItem = { type: 'book'; book: SeriesBook } | { type: 'gap'; position: number };
+
+function buildOrderedItems(books: SeriesBook[]): OrderItem[] {
+  const positions = books
+    .map((b) => b.position)
+    .filter((p): p is number => p !== null)
+    .sort((a, b) => a - b);
+  const maxPosition = positions.length > 0 ? positions[positions.length - 1]! : 0;
+  const positionSet = new Set(positions);
+
+  const items: OrderItem[] = [];
+
+  if (maxPosition > 0) {
+    for (let pos = 1; pos <= maxPosition; pos++) {
+      const book = books.find((b) => b.position === pos);
+      if (book) {
+        items.push({ type: 'book', book });
+      } else if (!positionSet.has(pos)) {
+        items.push({ type: 'gap', position: pos });
+      }
+    }
+    for (const book of books) {
+      if (book.position === null || book.position === 0) {
+        items.push({ type: 'book', book });
+      }
+    }
+  } else {
+    for (const book of books) {
+      items.push({ type: 'book', book });
+    }
+  }
+
+  return items;
+}
+
+function GapRow({ position }: { position: number }) {
+  return (
+    <div
+      className="flex items-center gap-4 rounded-lg border border-dashed p-4 opacity-50"
+    >
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
+        {position}
+      </div>
+      <div className="h-16 w-11 shrink-0 rounded bg-muted/50" />
+      <p className="text-sm italic text-muted-foreground">Book {position} — Not in library</p>
+    </div>
+  );
+}
+
+function BookRow({ book }: { book: SeriesBook }) {
+  const isAudiobook = book.audioSeconds && book.audioSeconds > 0;
+  const progress = book.progressPercent;
+
+  return (
+    <Link
+      to="/library/$bookId"
+      params={{ bookId: String(book.id) }}
+      className="group flex items-center gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-accent"
+    >
+      {/* Position badge */}
+      {book.position ? (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+          {book.position}
+        </div>
+      ) : (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
+          ?
+        </div>
+      )}
+
+      {/* Cover */}
+      <div className="h-16 w-11 shrink-0 overflow-hidden rounded bg-muted flex items-center justify-center">
+        {book.coverPath ? (
+          <img
+            src={`/api/books/${book.id}/cover/thumb?v=${book.updatedAt}`}
+            alt={book.title}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          isAudiobook
+            ? <Headphones className="h-4 w-4 text-muted-foreground" />
+            : <BookOpen className="h-4 w-4 text-muted-foreground" />
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-medium group-hover:text-primary transition-colors">
+          {book.title}
+        </p>
+        {book.authors && book.authors.length > 0 && (
+          <p className="truncate text-sm text-muted-foreground">
+            {book.authors.map((a) => a.author.name).join(', ')}
+          </p>
+        )}
+        {progress !== undefined && progress > 0 && (
+          <Progress value={progress} className="mt-1.5 h-1" />
+        )}
+      </div>
+
+      {/* Format badges */}
+      <div className="flex shrink-0 flex-wrap items-center gap-1">
+        {book.formats?.map((fmt) => (
+          <Badge
+            key={fmt}
+            variant="outline"
+            className={cn('text-[10px] uppercase', FORMAT_COLORS[fmt])}
+          >
+            {fmt}
+          </Badge>
+        ))}
+      </div>
+    </Link>
+  );
+}
+
 export function SeriesDetailPage() {
   const { seriesId } = useParams({ strict: false }) as { seriesId: string };
 
@@ -55,40 +172,7 @@ export function SeriesDetailPage() {
   const totalBooks = books.length;
   const booksWithProgress = books.filter((b) => b.progressPercent && b.progressPercent > 0);
   const completedBooks = books.filter((b) => b.progressPercent && b.progressPercent >= 100);
-
-  // Detect gaps in position sequence
-  const positions = books
-    .map((b) => b.position)
-    .filter((p): p is number => p !== null)
-    .sort((a, b) => a - b);
-  const maxPosition = positions.length > 0 ? positions[positions.length - 1]! : 0;
-  const positionSet = new Set(positions);
-
-  // Build ordered items: books + gap placeholders
-  type OrderItem = { type: 'book'; book: SeriesBook } | { type: 'gap'; position: number };
-  const orderedItems: OrderItem[] = [];
-
-  if (maxPosition > 0) {
-    for (let pos = 1; pos <= maxPosition; pos++) {
-      const book = books.find((b) => b.position === pos);
-      if (book) {
-        orderedItems.push({ type: 'book', book });
-      } else if (!positionSet.has(pos)) {
-        orderedItems.push({ type: 'gap', position: pos });
-      }
-    }
-    // Add books without positions at the end
-    for (const book of books) {
-      if (book.position === null || book.position === 0) {
-        orderedItems.push({ type: 'book', book });
-      }
-    }
-  } else {
-    // No positions — just show all books
-    for (const book of books) {
-      orderedItems.push({ type: 'book', book });
-    }
-  }
+  const orderedItems = buildOrderedItems(books);
 
   return (
     <div className="space-y-6">
@@ -145,90 +229,13 @@ export function SeriesDetailPage() {
       {/* Books list — reading order */}
       {orderedItems.length > 0 ? (
         <div className="space-y-2">
-          {orderedItems.map((item) => {
-            if (item.type === 'gap') {
-              return (
-                <div
-                  key={`gap-${item.position}`}
-                  className="flex items-center gap-4 rounded-lg border border-dashed p-4 opacity-50"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-                    {item.position}
-                  </div>
-                  <div className="h-16 w-11 shrink-0 rounded bg-muted/50" />
-                  <p className="text-sm italic text-muted-foreground">Book {item.position} — Not in library</p>
-                </div>
-              );
-            }
-
-            const book = item.book;
-            const isAudiobook = book.audioSeconds && book.audioSeconds > 0;
-            const progress = book.progressPercent;
-
-            return (
-              <Link
-                key={book.id}
-                to="/library/$bookId"
-                params={{ bookId: String(book.id) }}
-                className="group flex items-center gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-accent"
-              >
-                {/* Position badge */}
-                {book.position ? (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                    {book.position}
-                  </div>
-                ) : (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-                    ?
-                  </div>
-                )}
-
-                {/* Cover */}
-                <div className="h-16 w-11 shrink-0 overflow-hidden rounded bg-muted flex items-center justify-center">
-                  {book.coverPath ? (
-                    <img
-                      src={`/api/books/${book.id}/cover/thumb?v=${book.updatedAt}`}
-                      alt={book.title}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : isAudiobook ? (
-                    <Headphones className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <BookOpen className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </div>
-
-                {/* Info */}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium group-hover:text-primary transition-colors">
-                    {book.title}
-                  </p>
-                  {book.authors && book.authors.length > 0 && (
-                    <p className="truncate text-sm text-muted-foreground">
-                      {book.authors.map((a) => a.author.name).join(', ')}
-                    </p>
-                  )}
-                  {progress !== undefined && progress > 0 && (
-                    <Progress value={progress} className="mt-1.5 h-1" />
-                  )}
-                </div>
-
-                {/* Format badges */}
-                <div className="flex shrink-0 flex-wrap items-center gap-1">
-                  {book.formats?.map((fmt) => (
-                    <Badge
-                      key={fmt}
-                      variant="outline"
-                      className={cn('text-[10px] uppercase', FORMAT_COLORS[fmt])}
-                    >
-                      {fmt}
-                    </Badge>
-                  ))}
-                </div>
-              </Link>
-            );
-          })}
+          {orderedItems.map((item) =>
+            item.type === 'gap' ? (
+              <GapRow key={`gap-${item.position}`} position={item.position} />
+            ) : (
+              <BookRow key={item.book.id} book={item.book} />
+            ),
+          )}
         </div>
       ) : (
         <p className="py-8 text-center text-muted-foreground">

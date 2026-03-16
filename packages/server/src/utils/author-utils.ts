@@ -23,10 +23,10 @@ export function normalizeAuthorName(name: string): string {
 
   // Normalize initials: "J.R.R." → "J. R. R.", "J.R.R" → "J. R. R."
   // Match sequences of letter-dot without spaces between them
-  n = n.replace(/\b([A-Z])\.(?=[A-Z])/g, '$1. ');
+  n = n.replaceAll(/\b([A-Z])\.(?=[A-Z])/g, '$1. ');
 
   // Collapse whitespace
-  n = n.replace(/\s+/g, ' ').trim();
+  n = n.replaceAll(/\s+/g, ' ').trim();
 
   return n;
 }
@@ -48,7 +48,7 @@ export function splitMultiAuthor(name: string): string[] {
   let parts = [name.trim()];
 
   // Normalize whitespace before splitting on fixed strings
-  parts = parts.map((p) => p.replace(/\s+/g, ' '));
+  parts = parts.map((p) => p.replaceAll(/\s+/g, ' '));
 
   // Split on " & "
   parts = parts.flatMap((p) => p.split(' & '));

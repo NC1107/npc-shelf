@@ -39,31 +39,10 @@ export function jaroWinkler(a: string, b: string): number {
   const s1Matches = new Array(s1.length).fill(false);
   const s2Matches = new Array(s2.length).fill(false);
 
-  let matches = 0;
-  let transpositions = 0;
-
-  for (let i = 0; i < s1.length; i++) {
-    const start = Math.max(0, i - matchWindow);
-    const end = Math.min(i + matchWindow + 1, s2.length);
-
-    for (let j = start; j < end; j++) {
-      if (s2Matches[j] || s1[i] !== s2[j]) continue;
-      s1Matches[i] = true;
-      s2Matches[j] = true;
-      matches++;
-      break;
-    }
-  }
-
+  const matches = findJaroMatches(s1, s2, matchWindow, s1Matches, s2Matches);
   if (matches === 0) return 0;
 
-  let k = 0;
-  for (let i = 0; i < s1.length; i++) {
-    if (!s1Matches[i]) continue;
-    while (!s2Matches[k]) k++;
-    if (s1[i] !== s2[k]) transpositions++;
-    k++;
-  }
+  const transpositions = countTranspositions(s1, s2, s1Matches, s2Matches);
 
   const jaro =
     (matches / s1.length + matches / s2.length + (matches - transpositions / 2) / matches) / 3;
@@ -76,6 +55,40 @@ export function jaroWinkler(a: string, b: string): number {
   }
 
   return jaro + prefix * 0.1 * (1 - jaro);
+}
+
+function findJaroMatches(
+  s1: string, s2: string, matchWindow: number,
+  s1Matches: boolean[], s2Matches: boolean[],
+): number {
+  let matches = 0;
+  for (let i = 0; i < s1.length; i++) {
+    const start = Math.max(0, i - matchWindow);
+    const end = Math.min(i + matchWindow + 1, s2.length);
+
+    for (let j = start; j < end; j++) {
+      if (s2Matches[j] || s1[i] !== s2[j]) continue;
+      s1Matches[i] = true;
+      s2Matches[j] = true;
+      matches++;
+      break;
+    }
+  }
+  return matches;
+}
+
+function countTranspositions(
+  s1: string, s2: string, s1Matches: boolean[], s2Matches: boolean[],
+): number {
+  let transpositions = 0;
+  let k = 0;
+  for (let i = 0; i < s1.length; i++) {
+    if (!s1Matches[i]) continue;
+    while (!s2Matches[k]) k++;
+    if (s1[i] !== s2[k]) transpositions++;
+    k++;
+  }
+  return transpositions;
 }
 
 /**
@@ -132,7 +145,7 @@ export function normalizeForComparison(text: string): string {
     .normalize('NFKC')
     // Accent folding: é→e, ü→u, etc.
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     // & → and (use string replace to avoid \s*&\s* ReDoS on unanchored quantifiers)
     .replaceAll('&', ' and ')

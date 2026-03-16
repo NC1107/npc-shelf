@@ -74,7 +74,17 @@ export function AudioMiniPlayer() {
       <div
         ref={progressBarRef}
         className="h-1.5 w-full bg-muted cursor-pointer group"
+        role="progressbar"
+        tabIndex={0}
+        aria-valuenow={roundedPosition}
+        aria-valuemin={0}
+        aria-valuemax={totalDurationSeconds}
+        aria-label="Audio progress"
         onClick={handleProgressClick}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowRight') { e.preventDefault(); AudioEngine.seek(Math.min(positionSeconds + 10, totalDurationSeconds)); }
+          else if (e.key === 'ArrowLeft') { e.preventDefault(); AudioEngine.seek(Math.max(positionSeconds - 10, 0)); }
+        }}
       >
         <div className="h-full bg-primary transition-all group-hover:bg-primary/80" style={{ width: `${progress}%` }} />
       </div>

@@ -2,7 +2,7 @@
  * Format seconds into a human-readable time string (e.g. "1:23:45" or "3:05").
  */
 export function formatTime(seconds: number): string {
-  if (!seconds || !isFinite(seconds)) return '0:00';
+  if (!seconds || !Number.isFinite(seconds)) return '0:00';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);

@@ -83,16 +83,16 @@ function extractCreators(opfContent: string, result: EpubMetadata): void {
 }
 
 function extractMetadataFields(opfContent: string, result: EpubMetadata): void {
-  const titleMatch = opfContent.match(/<dc:title[^>]{0,200}>([^<]+)<\/dc:title>/i);
+  const titleMatch = /<dc:title[^>]{0,200}>([^<]+)<\/dc:title>/i.exec(opfContent);
   if (titleMatch) result.title = decodeEntities(titleMatch[1].trim());
 
-  const langMatch = opfContent.match(/<dc:language[^>]{0,200}>([^<]+)<\/dc:language>/i);
+  const langMatch = /<dc:language[^>]{0,200}>([^<]+)<\/dc:language>/i.exec(opfContent);
   if (langMatch) result.language = langMatch[1].trim();
 
-  const pubMatch = opfContent.match(/<dc:publisher[^>]{0,200}>([^<]+)<\/dc:publisher>/i);
+  const pubMatch = /<dc:publisher[^>]{0,200}>([^<]+)<\/dc:publisher>/i.exec(opfContent);
   if (pubMatch) result.publisher = decodeEntities(pubMatch[1].trim());
 
-  const dateMatch = opfContent.match(/<dc:date[^>]{0,200}>([^<]+)<\/dc:date>/i);
+  const dateMatch = /<dc:date[^>]{0,200}>([^<]+)<\/dc:date>/i.exec(opfContent);
   if (dateMatch) result.date = dateMatch[1].trim();
 
   // Description — use indexOf/slice instead of [\s\S]*? to avoid ReDoS
@@ -127,39 +127,38 @@ function extractMetadataFields(opfContent: string, result: EpubMetadata): void {
 
 async function extractCoverImage(opfContent: string, opfDir: string, zip: JSZip): Promise<Buffer | null> {
   // Try <meta name="cover" content="id"/>
-  const coverMeta = opfContent.match(/<meta\s{1,10}name="cover"\s{1,10}content="([^"]{1,200})"/i)
-    || opfContent.match(/<meta\s{1,10}content="([^"]{1,200})"\s{1,10}name="cover"/i);
+  const coverMeta = /<meta\s{1,10}name="cover"\s{1,10}content="([^"]{1,200})"/i.exec(opfContent)
+    || /<meta\s{1,10}content="([^"]{1,200})"\s{1,10}name="cover"/i.exec(opfContent);
 
   if (coverMeta) {
     const coverId = coverMeta[1];
     const itemRegex = new RegExp(`<item[^>]{1,500}id="${escapeRegex(coverId)}"[^>]{0,500}>`, 'i');
-    const itemMatch = opfContent.match(itemRegex);
+    const itemMatch = itemRegex.exec(opfContent);
     if (itemMatch) {
-      const hrefMatch = itemMatch[0].match(/href="([^"]+)"/);
-      if (hrefMatch) {
-        const coverPath = opfDir + hrefMatch[1];
-        const coverFile = zip.file(coverPath) || zip.file(decodeURIComponent(coverPath));
-        if (coverFile) {
-          return Buffer.from(await coverFile.async('arraybuffer'));
-        }
-      }
+      const result = await resolveItemCover(itemMatch[0], opfDir, zip);
+      if (result) return result;
     }
   }
 
   // Fallback: EPUB3 properties="cover-image"
-  const epub3Cover = opfContent.match(/<item[^>]{1,500}properties="[^"]{0,200}cover-image[^"]{0,200}"[^>]{0,500}>/i);
+  const epub3Cover = /<item[^>]{1,500}properties="[^"]{0,200}cover-image[^"]{0,200}"[^>]{0,500}>/i.exec(opfContent);
   if (epub3Cover) {
-    const hrefMatch = epub3Cover[0].match(/href="([^"]+)"/);
-    if (hrefMatch) {
-      const coverPath = opfDir + hrefMatch[1];
-      const coverFile = zip.file(coverPath) || zip.file(decodeURIComponent(coverPath));
-      if (coverFile) {
-        return Buffer.from(await coverFile.async('arraybuffer'));
-      }
-    }
+    const result = await resolveItemCover(epub3Cover[0], opfDir, zip);
+    if (result) return result;
   }
 
   return null;
+}
+
+async function resolveItemCover(itemTag: string, opfDir: string, zip: JSZip): Promise<Buffer | null> {
+  const hrefMatch = /href="([^"]+)"/.exec(itemTag);
+  if (!hrefMatch) return null;
+
+  const coverPath = opfDir + hrefMatch[1];
+  const coverFile = zip.file(coverPath) || zip.file(decodeURIComponent(coverPath));
+  if (!coverFile) return null;
+
+  return Buffer.from(await coverFile.async('arraybuffer'));
 }
 
 function decodeEntities(text: string): string {

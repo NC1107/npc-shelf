@@ -173,8 +173,8 @@ async function extractAndMergeMetadata(candidate: BookCandidate): Promise<Merged
   const authorName = embedded.author || candidate.resolvedAuthor;
 
   // Reject embedded title when it equals the author name
-  if (embedded.title && authorName &&
-    embedded.title.toLowerCase().trim() === authorName.toLowerCase().trim()) {
+  if (authorName &&
+    embedded.title?.toLowerCase().trim() === authorName.toLowerCase().trim()) {
     title = candidate.resolvedTitle;
     console.log(`[Scanner] Rejected embedded title "${embedded.title}" (equals author), using "${title}"`);
   }
@@ -288,16 +288,7 @@ async function createAudioTracks(
   for (let i = 0; i < audioRecords.length; i++) {
     const rec = audioRecords[i];
     if (!rec) continue;
-    let trackDuration = 0;
-
-    if (i === 0 && embedded.duration) {
-      trackDuration = embedded.duration;
-    } else {
-      try {
-        const trackMeta = await parseAudioMetadata(rec.file.path);
-        trackDuration = trackMeta.duration;
-      } catch { /* fallback: 0 */ }
-    }
+    const trackDuration = await resolveTrackDuration(i, rec.file.path, embedded);
 
     db.insert(schema.audioTracks).values({
       bookId, fileId: rec.fileId, trackIndex: i,
@@ -318,6 +309,20 @@ async function createAudioTracks(
         bookId, title: chapter.title, startTime: chapter.startTime, endTime: chapter.endTime, trackIndex: 0,
       }).run();
     }
+  }
+}
+
+async function resolveTrackDuration(
+  trackIndex: number, filePath: string, embedded: EmbeddedMetadata,
+): Promise<number> {
+  if (trackIndex === 0 && embedded.duration) {
+    return embedded.duration;
+  }
+  try {
+    const trackMeta = await parseAudioMetadata(filePath);
+    return trackMeta.duration;
+  } catch {
+    return 0;
   }
 }
 

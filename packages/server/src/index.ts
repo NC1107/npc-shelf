@@ -42,6 +42,7 @@ const pkgPath = path.join(__dirname, '../package.json');
 const appVersion = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version as string;
 
 const app = express();
+app.disable('x-powered-by');
 const PORT = Number.parseInt(process.env.PORT || '3001', 10);
 
 // Initialize database

@@ -17,7 +17,50 @@ const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const;
 const SLEEP_OPTIONS = [null, 5, 10, 15, 30, 45, 60, 90] as const;
 const PROGRESS_SAVE_INTERVAL_MS = 15_000;
 
-function TrackOrEmptyList({ tracks, currentTrackIndex, onSwitchTrack }: { tracks: AudioTrack[] | undefined; currentTrackIndex: number; onSwitchTrack: (i: number) => void }) {
+function isChapterActive(
+  ch: AudioChapter,
+  currentTrackIndex: number,
+  positionSeconds: number,
+): boolean {
+  return (
+    ch.trackIndex === currentTrackIndex &&
+    positionSeconds >= ch.startTime &&
+    positionSeconds < ch.endTime
+  );
+}
+
+function calculateTotalElapsed(
+  tracks: AudioTrack[] | undefined,
+  trackIndex: number,
+  posInTrack: number,
+): number {
+  if (!tracks) return posInTrack;
+  let elapsed = 0;
+  for (let i = 0; i < trackIndex && i < tracks.length; i++) {
+    elapsed += tracks[i]!.durationSeconds;
+  }
+  return elapsed + posInTrack;
+}
+
+function setupMediaSessionHandlers(store: { setPlaying: (playing: boolean) => void }) {
+  if (!('mediaSession' in navigator)) return;
+  navigator.mediaSession.setActionHandler('play', () => {
+    AudioEngine.play();
+    store.setPlaying(true);
+  });
+  navigator.mediaSession.setActionHandler('pause', () => {
+    AudioEngine.pause();
+    store.setPlaying(false);
+  });
+  navigator.mediaSession.setActionHandler('seekbackward', () => {
+    AudioEngine.seek(Math.max(0, AudioEngine.currentTime - 30));
+  });
+  navigator.mediaSession.setActionHandler('seekforward', () => {
+    AudioEngine.seek(AudioEngine.currentTime + 30);
+  });
+}
+
+function TrackOrEmptyList({ tracks, currentTrackIndex, onSwitchTrack }: Readonly<{ tracks: AudioTrack[] | undefined; currentTrackIndex: number; onSwitchTrack: (i: number) => void }>) {
   if (tracks && tracks.length > 1) {
     return (
       <div className="max-h-64 overflow-y-auto">
@@ -146,33 +189,29 @@ export function ListenPage() {
   useEffect(() => {
     AudioEngine.onTimeUpdate((time) => {
       store.setPosition(time);
-
-      // Save every 15 seconds of real playback time
       const now = Date.now();
-      if (now - lastSaveTimeRef.current >= PROGRESS_SAVE_INTERVAL_MS) {
-        lastSaveTimeRef.current = now;
-        const totalElapsed = calculateTotalElapsed(store.currentTrackIndex, time);
-        saveProgress.mutate({
-          currentTrackIndex: store.currentTrackIndex,
-          positionSeconds: time,
-          totalElapsedSeconds: totalElapsed,
-          totalDurationSeconds: store.totalDurationSeconds,
-          playbackRate: store.playbackRate,
-          isFinished: false,
-        });
-      }
+      if (now - lastSaveTimeRef.current < PROGRESS_SAVE_INTERVAL_MS) return;
+      lastSaveTimeRef.current = now;
+      const totalElapsed = calculateTotalElapsed(tracks, store.currentTrackIndex, time);
+      saveProgress.mutate({
+        currentTrackIndex: store.currentTrackIndex,
+        positionSeconds: time,
+        totalElapsedSeconds: totalElapsed,
+        totalDurationSeconds: store.totalDurationSeconds,
+        playbackRate: store.playbackRate,
+        isFinished: false,
+      });
     });
 
     AudioEngine.onEnded(() => {
-      // Auto-advance to next track
-      if (tracks && store.currentTrackIndex < tracks.length - 1) {
+      const hasNextTrack = !!tracks && store.currentTrackIndex < tracks.length - 1;
+      if (hasNextTrack) {
         const nextTrack = store.currentTrackIndex + 1;
         store.setTrack(nextTrack);
         loadTrack(parseInt(bookId), nextTrack);
         AudioEngine.play();
       } else {
         store.setPlaying(false);
-        // Mark as finished
         saveProgress.mutate({
           currentTrackIndex: store.currentTrackIndex,
           positionSeconds: 0,
@@ -222,40 +261,14 @@ export function ListenPage() {
       album: book.title,
       coverUrl: book.coverPath ? `/api/books/${book.id}/cover/medium` : undefined,
     });
-
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.setActionHandler('play', () => {
-        AudioEngine.play();
-        store.setPlaying(true);
-      });
-      navigator.mediaSession.setActionHandler('pause', () => {
-        AudioEngine.pause();
-        store.setPlaying(false);
-      });
-      navigator.mediaSession.setActionHandler('seekbackward', () => {
-        AudioEngine.seek(Math.max(0, AudioEngine.currentTime - 30));
-      });
-      navigator.mediaSession.setActionHandler('seekforward', () => {
-        AudioEngine.seek(AudioEngine.currentTime + 30);
-      });
-    }
+    setupMediaSessionHandlers(store);
   }, [book]);
-
-  function calculateTotalElapsed(trackIndex: number, posInTrack: number): number {
-    if (!tracks) return posInTrack;
-    let elapsed = 0;
-    for (let i = 0; i < trackIndex && i < tracks.length; i++) {
-      elapsed += tracks[i]!.durationSeconds;
-    }
-    return elapsed + posInTrack;
-  }
 
   const togglePlay = () => {
     if (store.isPlaying) {
       AudioEngine.pause();
       store.setPlaying(false);
-      // Immediately save progress on pause
-      const totalElapsed = calculateTotalElapsed(store.currentTrackIndex, AudioEngine.currentTime);
+      const totalElapsed = calculateTotalElapsed(tracks, store.currentTrackIndex, AudioEngine.currentTime);
       saveProgress.mutate({
         currentTrackIndex: store.currentTrackIndex,
         positionSeconds: AudioEngine.currentTime,
@@ -293,22 +306,24 @@ export function ListenPage() {
 
   const trackDuration = tracks?.[store.currentTrackIndex]?.durationSeconds || 0;
   const progressPercent = trackDuration > 0 ? (store.positionSeconds / trackDuration) * 100 : 0;
-  const totalElapsed = calculateTotalElapsed(store.currentTrackIndex, store.positionSeconds);
+  const totalElapsed = calculateTotalElapsed(tracks, store.currentTrackIndex, store.positionSeconds);
 
   // Chapter navigation
   const currentChapter = chapters?.find(
-    (ch) => ch.trackIndex === store.currentTrackIndex && store.positionSeconds >= ch.startTime && store.positionSeconds < ch.endTime,
+    (ch) => isChapterActive(ch, store.currentTrackIndex, store.positionSeconds),
   );
   const currentChapterIndex = currentChapter ? chapters!.indexOf(currentChapter) : -1;
 
   const prevChapter = useCallback(() => {
     if (!chapters || currentChapterIndex <= 0) return;
-    seekToChapter(chapters[currentChapterIndex - 1]!);
+    const chapter = chapters[currentChapterIndex - 1];
+    if (chapter) seekToChapter(chapter);
   }, [chapters, currentChapterIndex]);
 
   const nextChapter = useCallback(() => {
     if (!chapters || currentChapterIndex < 0 || currentChapterIndex >= chapters.length - 1) return;
-    seekToChapter(chapters[currentChapterIndex + 1]!);
+    const chapter = chapters[currentChapterIndex + 1];
+    if (chapter) seekToChapter(chapter);
   }, [chapters, currentChapterIndex]);
 
   // Keyboard shortcuts
@@ -341,15 +356,13 @@ export function ListenPage() {
         {chapters && chapters.length > 0 ? 'Chapters' : 'Tracks'}
       </h3>
       <div className="flex-1 overflow-y-auto">
-        {chapters && chapters.length > 0 ? (
+        {chapters && chapters.length > 0 && (
           chapters.map((ch, i) => (
             <button
               key={ch.id || i}
               onClick={() => seekToChapter(ch)}
               className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-muted/50 transition-colors ${
-                ch.trackIndex === store.currentTrackIndex &&
-                store.positionSeconds >= ch.startTime &&
-                store.positionSeconds < ch.endTime
+                isChapterActive(ch, store.currentTrackIndex, store.positionSeconds)
                   ? 'bg-primary/10 font-medium text-primary'
                   : ''
               }`}
@@ -360,7 +373,8 @@ export function ListenPage() {
               </span>
             </button>
           ))
-        ) : tracks && tracks.length > 1 ? (
+        )}
+        {!(chapters && chapters.length > 0) && tracks && tracks.length > 1 && (
           tracks.map((track, i) => (
             <button
               key={track.id || i}
@@ -375,7 +389,8 @@ export function ListenPage() {
               </span>
             </button>
           ))
-        ) : (
+        )}
+        {!(chapters && chapters.length > 0) && !(tracks && tracks.length > 1) && (
           <p className="p-4 text-center text-sm text-muted-foreground">No chapters available</p>
         )}
       </div>
@@ -624,9 +639,7 @@ export function ListenPage() {
                     key={ch.id || i}
                     onClick={() => seekToChapter(ch)}
                     className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-muted/50 transition-colors ${
-                      ch.trackIndex === store.currentTrackIndex &&
-                      store.positionSeconds >= ch.startTime &&
-                      store.positionSeconds < ch.endTime
+                      isChapterActive(ch, store.currentTrackIndex, store.positionSeconds)
                         ? 'bg-primary/10 font-medium text-primary'
                         : ''
                     }`}

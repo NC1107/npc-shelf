@@ -338,6 +338,27 @@ export function BookDetailPage() {
   );
 }
 
+function getMutationLabel(
+  mutation: { isPending: boolean; isSuccess: boolean; isError: boolean },
+  labels: { pending: string; success: string; error: string; default: string },
+): string {
+  if (mutation.isPending) return labels.pending;
+  if (mutation.isSuccess) return labels.success;
+  if (mutation.isError) return labels.error;
+  return labels.default;
+}
+
+function getMatchLabel(
+  matchMetadata: { isPending: boolean; isError: boolean },
+  matchPolling: boolean,
+  hardcoverId: string | null,
+): string {
+  if (matchMetadata.isPending || matchPolling) return 'Matching...';
+  if (matchMetadata.isError) return 'Failed';
+  if (hardcoverId) return 'Re-match';
+  return 'Match Metadata';
+}
+
 function BookDetailContent({
   book, bookId, hasEbook, hasAudio, hasBothFormats,
   readingProgress, audioProgress,
@@ -356,7 +377,8 @@ function BookDetailContent({
 
   const cycleReadingStatus = useMutation({
     mutationFn: () => {
-      const next = book.readingStatus === 'unread' ? 'reading' : book.readingStatus === 'reading' ? 'finished' : 'unread';
+      const statusTransitions: Record<string, string> = { unread: 'reading', reading: 'finished', finished: 'unread' };
+      const next = statusTransitions[book.readingStatus] || 'unread';
       return api.put(`/books/${bookId}`, { readingStatus: next });
     },
     onSuccess: () => statusQueryClient.invalidateQueries({ queryKey: ['book', bookId] }),
@@ -732,7 +754,7 @@ function BookDetailContent({
                 ) : (
                   <Send className="h-4 w-4" />
                 )}
-                {(() => { if (sendToKindle.isSuccess) return 'Sent!'; if (sendToKindle.isError) return 'Failed'; return 'Kindle'; })()}
+                {getMutationLabel(sendToKindle, { pending: 'Kindle', success: 'Sent!', error: 'Failed', default: 'Kindle' })}
               </Button>
             )}
             {isEditing ? (
@@ -775,7 +797,7 @@ function BookDetailContent({
                   ) : (
                     <Sparkles className="h-4 w-4" />
                   )}
-                  {(() => { if (matchMetadata.isPending || matchPolling) return 'Matching...'; if (matchMetadata.isError) return 'Failed'; if (book.hardcoverId) return 'Re-match'; return 'Match Metadata'; })()}
+                  {getMatchLabel(matchMetadata, matchPolling, book.hardcoverId)}
                 </DropdownItem>
                 {hasAudio && book.audioTrackCount > 1 && (
                   <DropdownItem
@@ -810,7 +832,7 @@ function BookDetailContent({
                   disabled={writeMetadata.isPending}
                 >
                   <PenLine className="h-4 w-4" />
-                  {(() => { if (writeMetadata.isPending) return 'Writing...'; if (writeMetadata.isSuccess) return 'Done!'; return 'Write Metadata to Files'; })()}
+                  {getMutationLabel(writeMetadata, { pending: 'Writing...', success: 'Done!', error: 'Write Metadata to Files', default: 'Write Metadata to Files' })}
                 </DropdownItem>
                 {book.files?.some((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format)) && (
                   <DropdownItem
@@ -827,7 +849,7 @@ function BookDetailContent({
                     disabled={convertFormat.isPending}
                   >
                     <RefreshCw className="h-4 w-4" />
-                    {(() => { if (convertFormat.isPending) return 'Converting...'; if (convertFormat.isSuccess) return 'Queued!'; return 'Convert Format'; })()}
+                    {getMutationLabel(convertFormat, { pending: 'Converting...', success: 'Queued!', error: 'Convert Format', default: 'Convert Format' })}
                   </DropdownItem>
                 )}
                 {book.hardcoverId && (
@@ -1213,47 +1235,52 @@ function BookDetailContent({
                       </div>
                     )}
                     <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {book.files.map((file: any) => (
-                        <div
-                          key={file.id}
-                          className={`rounded border bg-muted/50 p-2 text-xs space-y-1 ${splitMode ? 'cursor-pointer hover:border-primary' : ''} ${selectedFileIds.has(file.id) ? 'border-primary bg-primary/5' : ''}`}
-                          role={splitMode ? 'button' : undefined}
-                          tabIndex={splitMode ? 0 : undefined}
-                          onClick={splitMode ? () => {
-                            const next = new Set(selectedFileIds);
-                            if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
-                            setSelectedFileIds(next);
-                          } : undefined}
-                          onKeyDown={splitMode ? (e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
+                      {book.files.map((file: any) => {
+                        const fileContent = (
+                          <>
+                            <div className="flex items-center gap-2">
+                              {splitMode && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedFileIds.has(file.id)}
+                                  readOnly
+                                  className="h-3.5 w-3.5"
+                                />
+                              )}
+                              <Badge variant="outline" className={FORMAT_COLORS[file.format]}>
+                                {file.format.toUpperCase()}
+                              </Badge>
+                              {file.isCompanion === 1 && (
+                                <Badge variant="secondary" className="text-[10px]">Companion</Badge>
+                              )}
+                              <span className="font-medium truncate">{file.filename}</span>
+                              <span className="ml-auto shrink-0 text-muted-foreground">{formatBytes(file.sizeBytes)}</span>
+                            </div>
+                            <div className="text-muted-foreground truncate">{file.path}</div>
+                          </>
+                        );
+                        return splitMode ? (
+                          <button
+                            type="button"
+                            key={file.id}
+                            className={`rounded border bg-muted/50 p-2 text-xs space-y-1 text-left w-full cursor-pointer hover:border-primary ${selectedFileIds.has(file.id) ? 'border-primary bg-primary/5' : ''}`}
+                            onClick={() => {
                               const next = new Set(selectedFileIds);
                               if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
                               setSelectedFileIds(next);
-                            }
-                          } : undefined}
-                        >
-                          <div className="flex items-center gap-2">
-                            {splitMode && (
-                              <input
-                                type="checkbox"
-                                checked={selectedFileIds.has(file.id)}
-                                readOnly
-                                className="h-3.5 w-3.5"
-                              />
-                            )}
-                            <Badge variant="outline" className={FORMAT_COLORS[file.format]}>
-                              {file.format.toUpperCase()}
-                            </Badge>
-                            {file.isCompanion === 1 && (
-                              <Badge variant="secondary" className="text-[10px]">Companion</Badge>
-                            )}
-                            <span className="font-medium truncate">{file.filename}</span>
-                            <span className="ml-auto shrink-0 text-muted-foreground">{formatBytes(file.sizeBytes)}</span>
+                            }}
+                          >
+                            {fileContent}
+                          </button>
+                        ) : (
+                          <div
+                            key={file.id}
+                            className="rounded border bg-muted/50 p-2 text-xs space-y-1"
+                          >
+                            {fileContent}
                           </div>
-                          <div className="text-muted-foreground truncate">{file.path}</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </>
                 )}
@@ -1312,15 +1339,19 @@ function BookDetailContent({
   );
 }
 
+function getConfidenceLabel(confidence: number): string {
+  if (confidence >= 0.8) return 'Strong match via ISBN or title+author';
+  if (confidence >= 0.5) return 'Moderate — verify title and author';
+  return 'Weak match — consider re-matching';
+}
+
 function MatchBreakdownTooltip({ breakdown, confidence }: { breakdown: MatchBreakdown | null; confidence: number }) {
   if (!breakdown) {
     return (
       <div className="space-y-1 text-xs">
         <div className="font-semibold">Match Confidence: {Math.round(confidence * 100)}%</div>
         <div className="opacity-70">
-          {confidence >= 0.8 ? 'Strong match via ISBN or title+author' :
-           confidence >= 0.5 ? 'Moderate — verify title and author' :
-           'Weak match — consider re-matching'}
+          {getConfidenceLabel(confidence)}
         </div>
       </div>
     );

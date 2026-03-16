@@ -60,7 +60,7 @@ export function DashboardPage() {
         <p className="text-muted-foreground mt-1">
           {stats ? (
             <>
-              {stats.totalBooks} book{stats.totalBooks !== 1 ? 's' : ''}
+              {stats.totalBooks} book{stats.totalBooks === 1 ? '' : 's'}
               {stats.lastScannedAt
                 ? ` · Last scan: ${formatRelativeTime(stats.lastScannedAt)}`
                 : ' · Last scan: Never'}
@@ -106,7 +106,7 @@ export function DashboardPage() {
           {(stats?.needsReviewCount ?? 0) > 0 && (
             <Link to="/library" className="flex items-center gap-2 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-2.5 text-sm transition-colors hover:bg-yellow-100 dark:border-yellow-800 dark:bg-yellow-950 dark:hover:bg-yellow-900">
               <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-              <span className="text-yellow-700 dark:text-yellow-300">{stats!.needsReviewCount} book{stats!.needsReviewCount !== 1 ? 's' : ''} need review</span>
+              <span className="text-yellow-700 dark:text-yellow-300">{stats!.needsReviewCount} book{stats!.needsReviewCount === 1 ? '' : 's'} need review</span>
             </Link>
           )}
         </div>
@@ -220,7 +220,7 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-function StatCard({ title, value, icon: Icon }: { title: string; value: number; icon: LucideIcon }) {
+function StatCard({ title, value, icon: Icon }: Readonly<{ title: string; value: number; icon: LucideIcon }>) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">

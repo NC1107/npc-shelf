@@ -43,6 +43,202 @@ interface DuplicateGroup {
   similarity: number;
 }
 
+interface HardcoverAuthor {
+  id: number;
+  name: string;
+  bio: string | null;
+  imageUrl: string | null;
+}
+
+function DuplicateGroupRow({
+  group,
+  groupIndex,
+  confirmingMergeGroup,
+  mergeTargetId,
+  mergeAuthors,
+  onStartMerge,
+  onConfirmMerge,
+  onCancelMerge,
+  onSetMergeTarget,
+}: {
+  group: DuplicateGroup;
+  groupIndex: number;
+  confirmingMergeGroup: number | null;
+  mergeTargetId: number | null;
+  mergeAuthors: { isPending: boolean };
+  onStartMerge: (groupIndex: number, group: DuplicateGroup) => void;
+  onConfirmMerge: (group: DuplicateGroup) => void;
+  onCancelMerge: () => void;
+  onSetMergeTarget: (id: number) => void;
+}) {
+  const isConfirming = confirmingMergeGroup === groupIndex;
+  return (
+    <div
+      key={group.authors.map((a) => a.id).join('-')}
+      className="rounded-lg border p-3 space-y-2"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          {group.authors.map((author) => (
+            <span key={author.id} className="text-sm">
+              <span className="font-medium">{author.name}</span>
+              <span className="text-muted-foreground ml-1">
+                ({author.bookCount} {author.bookCount === 1 ? 'book' : 'books'})
+              </span>
+              {author !== group.authors[group.authors.length - 1] && (
+                <span className="text-muted-foreground ml-2">/</span>
+              )}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          <Badge variant="outline">
+            {Math.round(group.similarity * 100)}% match
+          </Badge>
+          {!isConfirming && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onStartMerge(groupIndex, group)}
+            >
+              <Merge className="h-3 w-3" />
+              Merge
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isConfirming && (
+        <div className="rounded-md bg-muted p-3 space-y-2">
+          <p className="text-sm font-medium">Keep which author?</p>
+          <div className="flex flex-wrap gap-2">
+            {group.authors.map((author) => (
+              <Button
+                key={author.id}
+                variant={mergeTargetId === author.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => onSetMergeTarget(author.id)}
+              >
+                {author.name}
+                <span className="ml-1 text-xs opacity-70">
+                  ({author.bookCount})
+                </span>
+              </Button>
+            ))}
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              onClick={() => onConfirmMerge(group)}
+              disabled={mergeAuthors.isPending}
+            >
+              {mergeAuthors.isPending && (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              )}
+              Confirm Merge
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onCancelMerge}
+              disabled={mergeAuthors.isPending}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AuthorCardDisplay({
+  author,
+  onStartEdit,
+  onStartLink,
+}: {
+  author: Author;
+  onStartEdit: (author: Author) => void;
+  onStartLink: (author: Author) => void;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <Link to="/authors/$authorId" params={{ authorId: String(author.id) }} className="flex items-start gap-3 min-w-0 flex-1">
+        {author.photoUrl ? (
+          <img
+            src={author.photoUrl}
+            alt={author.name}
+            className="h-10 w-10 shrink-0 rounded-full object-cover"
+          />
+        ) : (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+            <User className="h-5 w-5 text-muted-foreground" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="font-medium truncate">{author.name}</p>
+          {author.sortName !== author.name && (
+            <p className="text-xs text-muted-foreground truncate">
+              {author.sortName}
+            </p>
+          )}
+          <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <BookOpen className="h-3 w-3" />
+            {author.bookCount} {author.bookCount === 1 ? 'book' : 'books'}
+          </div>
+        </div>
+      </Link>
+      <div className="flex gap-0.5 shrink-0">
+        {!author.hardcoverId && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onStartLink(author);
+                  }}
+                  aria-label="Link to Hardcover"
+                >
+                  <Link2 className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Link to Hardcover</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+        {author.hardcoverId && (
+          <a
+            href={`https://hardcover.app/authors/${author.hardcoverId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+            aria-label="View on Hardcover"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          onClick={(e) => {
+            e.preventDefault();
+            onStartEdit(author);
+          }}
+          aria-label="Edit author"
+        >
+          <Pencil className="h-3 w-3" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AuthorsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -98,13 +294,6 @@ export function AuthorsPage() {
     },
     onError: (err) => console.error('Failed to auto-dedup:', err),
   });
-
-  interface HardcoverAuthor {
-    id: number;
-    name: string;
-    bio: string | null;
-    imageUrl: string | null;
-  }
 
   const { data: hardcoverResults, isLoading: hardcoverLoading } = useQuery({
     queryKey: ['hardcover-author-search', linkSearch],
@@ -273,83 +462,18 @@ export function AuthorsPage() {
               </p>
             ) : (
               duplicates.map((group, groupIndex) => (
-                <div
+                <DuplicateGroupRow
                   key={group.authors.map((a) => a.id).join('-')}
-                  className="rounded-lg border p-3 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {group.authors.map((author) => (
-                        <span key={author.id} className="text-sm">
-                          <span className="font-medium">{author.name}</span>
-                          <span className="text-muted-foreground ml-1">
-                            ({author.bookCount} {author.bookCount === 1 ? 'book' : 'books'})
-                          </span>
-                          {author !== group.authors[group.authors.length - 1] && (
-                            <span className="text-muted-foreground ml-2">/</span>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 ml-2">
-                      <Badge variant="outline">
-                        {Math.round(group.similarity * 100)}% match
-                      </Badge>
-                      {confirmingMergeGroup !== groupIndex && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => startMerge(groupIndex, group)}
-                        >
-                          <Merge className="h-3 w-3" />
-                          Merge
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Merge confirmation */}
-                  {confirmingMergeGroup === groupIndex && (
-                    <div className="rounded-md bg-muted p-3 space-y-2">
-                      <p className="text-sm font-medium">Keep which author?</p>
-                      <div className="flex flex-wrap gap-2">
-                        {group.authors.map((author) => (
-                          <Button
-                            key={author.id}
-                            variant={mergeTargetId === author.id ? 'default' : 'outline'}
-                            size="sm"
-                            onClick={() => setMergeTargetId(author.id)}
-                          >
-                            {author.name}
-                            <span className="ml-1 text-xs opacity-70">
-                              ({author.bookCount})
-                            </span>
-                          </Button>
-                        ))}
-                      </div>
-                      <div className="flex gap-2 pt-1">
-                        <Button
-                          size="sm"
-                          onClick={() => confirmMerge(group)}
-                          disabled={mergeAuthors.isPending}
-                        >
-                          {mergeAuthors.isPending && (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          )}
-                          Confirm Merge
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={cancelMerge}
-                          disabled={mergeAuthors.isPending}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  group={group}
+                  groupIndex={groupIndex}
+                  confirmingMergeGroup={confirmingMergeGroup}
+                  mergeTargetId={mergeTargetId}
+                  mergeAuthors={mergeAuthors}
+                  onStartMerge={startMerge}
+                  onConfirmMerge={confirmMerge}
+                  onCancelMerge={cancelMerge}
+                  onSetMergeTarget={setMergeTargetId}
+                />
               ))
             )}
           </CardContent>
@@ -424,82 +548,14 @@ export function AuthorsPage() {
                   </div>
                 </div>
               ) : (
-                /* Display state */
-                <div className="flex items-start gap-3">
-                  <Link to="/authors/$authorId" params={{ authorId: String(author.id) }} className="flex items-start gap-3 min-w-0 flex-1">
-                    {author.photoUrl ? (
-                      <img
-                        src={author.photoUrl}
-                        alt={author.name}
-                        className="h-10 w-10 shrink-0 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
-                        <User className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium truncate">{author.name}</p>
-                      {author.sortName !== author.name && (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {author.sortName}
-                        </p>
-                      )}
-                      <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                        <BookOpen className="h-3 w-3" />
-                        {author.bookCount} {author.bookCount === 1 ? 'book' : 'books'}
-                      </div>
-                    </div>
-                  </Link>
-                  <div className="flex gap-0.5 shrink-0">
-                    {!author.hardcoverId && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 shrink-0"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                setLinkingAuthorId(author.id);
-                                setLinkSearch(author.name);
-                              }}
-                              aria-label="Link to Hardcover"
-                            >
-                              <Link2 className="h-3 w-3" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Link to Hardcover</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                    {author.hardcoverId && (
-                      <a
-                        href={`https://hardcover.app/authors/${author.hardcoverId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
-                        aria-label="View on Hardcover"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        startEdit(author);
-                      }}
-                      aria-label="Edit author"
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
+                <AuthorCardDisplay
+                  author={author}
+                  onStartEdit={startEdit}
+                  onStartLink={(a) => {
+                    setLinkingAuthorId(a.id);
+                    setLinkSearch(a.name);
+                  }}
+                />
               )}
             </div>
           ))}
@@ -524,25 +580,18 @@ export function AuthorsPage() {
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               )}
-              {hardcoverResults && hardcoverResults.length === 0 && !hardcoverLoading && (
+              {hardcoverResults?.length === 0 && !hardcoverLoading && (
                 <div className="py-4 text-center">
                   <p className="text-sm text-muted-foreground">No matching authors found on Hardcover</p>
                   <p className="mt-1 text-xs text-muted-foreground">Try adjusting the search term</p>
                 </div>
               )}
               {hardcoverResults?.map((hc) => (
-                <div
+                <button
+                  type="button"
                   key={hc.id}
-                  className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 transition-colors"
-                  role="button"
-                  tabIndex={0}
+                  className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 transition-colors bg-transparent text-left w-full"
                   onClick={() => linkHardcover.mutate({ authorId: linkingAuthorId!, hardcoverId: hc.id })}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      linkHardcover.mutate({ authorId: linkingAuthorId!, hardcoverId: hc.id });
-                    }
-                  }}
                 >
                   {hc.imageUrl ? (
                     <img src={hc.imageUrl} alt={hc.name} className="h-10 w-10 rounded-full object-cover shrink-0" />
@@ -557,7 +606,7 @@ export function AuthorsPage() {
                       <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{hc.bio}</p>
                     )}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           {linkHardcover.isPending && (

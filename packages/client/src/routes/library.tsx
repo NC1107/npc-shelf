@@ -303,7 +303,7 @@ function BookGrid({
   }, [view]);
 
   return (
-    <div ref={gridRef} className={containerClass} onKeyDown={handleKeyDown} role="grid">
+    <div ref={gridRef} className={containerClass} onKeyDown={handleKeyDown} role="grid" tabIndex={0}>
       {items.map((book) =>
         selectMode ? (
           <SelectableBookCard
@@ -589,7 +589,7 @@ export function LibraryPage() {
           }}
           className="gap-1.5"
         >
-          {sortBy === 'title' ? 'Title' : sortBy === 'createdAt' ? 'Added' : 'Updated'}
+          {{ title: 'Title', createdAt: 'Added', updatedAt: 'Updated' }[sortBy] || 'Title'}
           {sortOrder === 'asc' ? ' \u2191' : ' \u2193'}
         </Button>
 
@@ -708,7 +708,7 @@ export function LibraryPage() {
           )}
           {needsReview && (
             <Badge variant="secondary" className="gap-1 pr-1">
-              Needs Review
+              <span>Needs Review</span>
               <button onClick={() => setLibraryFilters({ libraryNeedsReview: false, libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
                 <X className="h-3 w-3" />
               </button>

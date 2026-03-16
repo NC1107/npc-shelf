@@ -22,7 +22,7 @@ export function useScanPolling() {
 
     api.get<{ libraryId: number; status: string } | null>('/libraries/active-scan')
       .then((data) => {
-        if (data && data.libraryId && data.status !== 'idle') {
+        if (data?.libraryId && data.status !== 'idle') {
           startScan(data.libraryId);
         } else if (activeScanLibraryId) {
           // Had a persisted scan but server says nothing active — clear it

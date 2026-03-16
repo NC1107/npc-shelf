@@ -101,9 +101,10 @@ function parseOpfFile(filePath: string): Partial<SidecarMetadata> | null {
 
     // dc:subject (tags)
     const subjectRegex = /<dc:subject[^>]{0,200}>([^<]+)<\/dc:subject>/gi;
+    result.tags = result.tags ?? [];
     let subjectMatch;
     while ((subjectMatch = subjectRegex.exec(content)) !== null) {
-      (result.tags ??= []).push(subjectMatch[1].trim());
+      result.tags.push(subjectMatch[1].trim());
     }
 
     // Series — calibre convention

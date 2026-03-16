@@ -28,12 +28,12 @@ const ENTITY_MAP: Record<string, string> = {
 // SonarQube flags <[^>]+> but it's actually O(n); we use {1,1000} to make the bound explicit.
 const BLOCK_TAG_RE = /<\/?(?:p|br|div|li|h[1-6]|blockquote)\b[^>]{0,200}>/gi;
 const ANY_TAG_RE = /<[^>]{1,1000}>/g;
-const ENTITY_RE = /&(?:#x[0-9a-fA-F]{1,8}|#[0-9]{1,10}|[a-zA-Z]{1,20});/g;
+const ENTITY_RE = /&(?:#x[\da-fA-F]{1,8}|#\d{1,10}|[a-zA-Z]{1,20});/g;
 const WHITESPACE_RUN_RE = /[ \t\f\r\v]+/g;  // Explicit horizontal whitespace chars instead of [^\S\n]+
 const MULTI_NEWLINE_RE = /\n{3,}/g;
 
 export function sanitizeDescription(raw: string | null | undefined): string | null {
-  if (!raw || !raw.trim()) return null;
+  if (!raw?.trim()) return null;
 
   let text = raw;
 
@@ -50,12 +50,12 @@ export function sanitizeDescription(raw: string | null | undefined): string | nu
 
     // Numeric entities: &#123; or &#x1F;
     if (entity.startsWith('&#x') || entity.startsWith('&#X')) {
-      const code = parseInt(entity.slice(3, -1), 16);
-      return isNaN(code) ? '' : String.fromCodePoint(code);
+      const code = Number.parseInt(entity.slice(3, -1), 16);
+      return Number.isNaN(code) ? '' : String.fromCodePoint(code);
     }
     if (entity.startsWith('&#')) {
-      const code = parseInt(entity.slice(2, -1), 10);
-      return isNaN(code) ? '' : String.fromCodePoint(code);
+      const code = Number.parseInt(entity.slice(2, -1), 10);
+      return Number.isNaN(code) ? '' : String.fromCodePoint(code);
     }
 
     return ''; // Unknown named entity — drop it

@@ -75,15 +75,15 @@ export function normalizeFilename(raw: string): string {
   name = name.replace(/\.[^.]+$/, '').trim();
   // 2. Dot-to-space (3+ dots, no spaces) + bare hyphen normalization
   if (!name.includes(' ') && (name.match(/\./g) || []).length >= 3) {
-    name = name.replace(/\./g, ' ');
-    name = name.replace(/(\w)-(\w)/g, '$1 - $2');
+    name = name.replaceAll('.', ' ');
+    name = name.replaceAll(/(\w)-(\w)/g, '$1 - $2');
   }
   // 3. Strip release tags: [EPUB], (ARAR), scene tags
-  name = name.replace(/\s*\[[^\]]{0,200}\]/g, '');
+  name = name.replaceAll(/\s*\[[^\]]{0,200}\]/g, '');
   // 5. Unicode NFKC normalization
   name = name.normalize('NFKC');
   // 6. Normalize punctuation: smart quotes→regular, em-dash→hyphen
-  name = name.replace(/[\u2013\u2014]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+  name = name.replaceAll(/[\u2013\u2014]/g, '-').replaceAll(/[\u2018\u2019]/g, "'").replaceAll(/[\u201C\u201D]/g, '"');
   // 7. Collapse whitespace
   name = name.replaceAll(/\s+/g, ' ').trim();
   return name;
@@ -152,7 +152,7 @@ export function cleanTitle(title: string): string {
   // Strip format suffixes: (azw3), (epub), (mobi), (pdf), (m4b), (mp3)
   cleaned = cleaned.replace(/\s*\((?:azw3|epub|mobi|pdf|m4b|mp3)\)\s*$/i, '');
   // Strip (retail), (US), (UK), version tags like (v5.0)
-  cleaned = cleaned.replace(/\s*\((?:retail|US|UK|v\d+(?:\.\d+)?)\)\s*/gi, '');
+  cleaned = cleaned.replaceAll(/\s*\((?:retail|US|UK|v\d+(?:\.\d+)?)\)\s*/gi, '');
   // Strip [Series NN] - prefix
   cleaned = cleaned.replace(/^\[[^\]]{0,200}\]\s*-\s*/, '');
   // Strip year prefix like (1941)
@@ -160,9 +160,9 @@ export function cleanTitle(title: string): string {
   // Strip scene group tags: eBook-XXX at end
   cleaned = cleaned.replace(/\s+eBook-\w+$/i, '');
   // Strip standalone format/release words (not in parens)
-  cleaned = cleaned.replace(/\b(?:RETAIL|EPUB|AZW3|MOBI|PDF)\b/gi, '');
+  cleaned = cleaned.replaceAll(/\b(?:RETAIL|EPUB|AZW3|MOBI|PDF)\b/gi, '');
   // Collapse whitespace
-  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+  cleaned = cleaned.replaceAll(/\s{2,}/g, ' ').trim();
   // Strip leading/trailing dashes and whitespace
   cleaned = cleaned.replace(/^[\s-]+/, '').replace(/[\s-]+$/, '').trim();
   return cleaned || title;

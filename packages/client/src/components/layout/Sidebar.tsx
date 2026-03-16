@@ -49,18 +49,11 @@ export function Sidebar() {
     <>
       {/* Mobile overlay */}
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden appearance-none border-none p-0 cursor-pointer"
           aria-label="Close sidebar"
           onClick={() => setSidebarOpen(false)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              setSidebarOpen(false);
-            }
-          }}
         />
       )}
 

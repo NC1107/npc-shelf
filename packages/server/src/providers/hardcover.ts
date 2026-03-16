@@ -102,7 +102,7 @@ const AUTHOR_BY_PK_QUERY = gql`
  */
 // In-memory query cache with TTL
 class QueryCache {
-  private cache = new Map<string, { data: MetadataSearchResult[]; expires: number }>();
+  private readonly cache = new Map<string, { data: MetadataSearchResult[]; expires: number }>();
   private readonly ttlMs: number;
 
   constructor(ttlMs = 5 * 60 * 1000) { // 5 minutes default

@@ -3,19 +3,21 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import type { MetadataSearchResult } from '@npc-shelf/shared';
 
-interface ComparePanelProps {
+type ComparePanelProps = Readonly<{
   editData: Record<string, any>;
   setEditData: (data: Record<string, any>) => void;
   remote: MetadataSearchResult;
   onApplyAll: () => void;
-}
+}>;
 
-interface CompareFieldProps {
+
+type CompareFieldProps = Readonly<{
   label: string;
   localValue: string;
   remoteValue: string;
   onApply: () => void;
-}
+}>;
+
 
 function CompareField({ label, localValue, remoteValue, onApply }: CompareFieldProps) {
   const differs = localValue !== remoteValue && remoteValue;
@@ -41,6 +43,12 @@ function CompareField({ label, localValue, remoteValue, onApply }: CompareFieldP
       </div>
     </div>
   );
+}
+
+function formatSeriesLabel(name: string | undefined | null, position: number | string | undefined | null): string {
+  if (!name) return '';
+  const suffix = position ? ` #${position}` : '';
+  return `${name}${suffix}`;
 }
 
 export function ComparePanel({ editData, setEditData, remote, onApplyAll }: ComparePanelProps) {
@@ -92,8 +100,8 @@ export function ComparePanel({ editData, setEditData, remote, onApplyAll }: Comp
 
       <CompareField
         label="Series"
-        localValue={(editData.series || []).map((s: any) => `${s.name}${s.position ? ` #${s.position}` : ''}`).join(', ')}
-        remoteValue={remote.series ? `${remote.series}${remote.seriesPosition ? ` #${remote.seriesPosition}` : ''}` : ''}
+        localValue={(editData.series || []).map((s: any) => formatSeriesLabel(s.name, s.position)).join(', ')}
+        remoteValue={formatSeriesLabel(remote.series, remote.seriesPosition)}
         onApply={() => applyField('series', remote.series ? [{ name: remote.series, position: remote.seriesPosition }] : [])}
       />
 

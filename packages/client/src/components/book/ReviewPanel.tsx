@@ -8,12 +8,12 @@ import { Separator } from '../ui/separator';
 import { api } from '../../lib/api';
 import type { BookDetail, MetadataSearchResult } from '@npc-shelf/shared';
 
-interface ReviewPanelProps {
+type ReviewPanelProps = Readonly<{
   book: BookDetail;
   onAccept: () => void;
   onReject: () => void;
   onApplyMatch: (externalId: string) => void;
-}
+}>;
 
 export function ReviewPanel({ book, onAccept, onReject, onApplyMatch }: ReviewPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,7 +73,10 @@ export function ReviewPanel({ book, onAccept, onReject, onApplyMatch }: ReviewPa
           )}
           {book.series && book.series.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              {book.series.map(s => `${s.series.name}${s.position ? ` #${s.position}` : ''}`).join(', ')}
+              {book.series.map(s => {
+                const position = s.position ? ` #${s.position}` : '';
+                return `${s.series.name}${position}`;
+              }).join(', ')}
             </p>
           )}
         </div>
@@ -81,9 +84,10 @@ export function ReviewPanel({ book, onAccept, onReject, onApplyMatch }: ReviewPa
         {/* Hardcover match */}
         <div className="space-y-2 rounded-lg bg-muted/50 p-3">
           <p className="text-xs font-medium text-muted-foreground">Hardcover Match</p>
-          {detailsLoading ? (
+          {detailsLoading && (
             <Loader2 className="h-4 w-4 animate-spin" />
-          ) : matchDetails ? (
+          )}
+          {!detailsLoading && matchDetails && (
             <>
               <p className="font-medium">{matchDetails.title}</p>
               {matchDetails.authors && matchDetails.authors.length > 0 && (
@@ -105,7 +109,8 @@ export function ReviewPanel({ book, onAccept, onReject, onApplyMatch }: ReviewPa
                 </a>
               )}
             </>
-          ) : (
+          )}
+          {!detailsLoading && !matchDetails && (
             <p className="text-sm text-muted-foreground">No match details available</p>
           )}
         </div>
@@ -118,20 +123,20 @@ export function ReviewPanel({ book, onAccept, onReject, onApplyMatch }: ReviewPa
           <div className="space-y-1">
             <p className="text-xs font-medium text-muted-foreground">Match Breakdown</p>
             <div className="flex flex-wrap gap-2 text-xs">
-              {breakdown.total !== undefined ? (
-                <>
-                  <Badge variant="outline">Title: {breakdown.titleScore?.toFixed(1) ?? 'N/A'}</Badge>
-                  <Badge variant="outline">Author: {breakdown.authorScore?.toFixed(1) ?? 'N/A'}</Badge>
-                  {(breakdown.seriesBonus ?? 0) > 0 && <Badge variant="outline">Series: +{breakdown.seriesBonus?.toFixed(1)}</Badge>}
-                  <Badge variant="secondary">Total: {breakdown.total.toFixed(1)}</Badge>
-                </>
-              ) : (
+              {breakdown.total === undefined ? (
                 <>
                   <Badge variant="outline">Title: {Math.round(breakdown.titleSimilarity * 100)}%</Badge>
                   <Badge variant="outline">Author: {Math.round(breakdown.authorSimilarity * 100)}%</Badge>
                   <Badge variant="secondary">
                     Confidence: {book.matchConfidence ? `${Math.round(book.matchConfidence * 100)}%` : 'N/A'}
                   </Badge>
+                </>
+              ) : (
+                <>
+                  <Badge variant="outline">Title: {breakdown.titleScore?.toFixed(1) ?? 'N/A'}</Badge>
+                  <Badge variant="outline">Author: {breakdown.authorScore?.toFixed(1) ?? 'N/A'}</Badge>
+                  {(breakdown.seriesBonus ?? 0) > 0 && <Badge variant="outline">Series: +{breakdown.seriesBonus?.toFixed(1)}</Badge>}
+                  <Badge variant="secondary">Total: {breakdown.total.toFixed(1)}</Badge>
                 </>
               )}
             </div>

@@ -322,7 +322,7 @@ booksRouter.get('/', (req, res) => {
       createdAt: schema.books.createdAt,
       updatedAt: schema.books.updatedAt,
     };
-    const orderColumn = sortColumnsMap[sortBy as string] ?? schema.books.title;
+    const orderColumn = sortColumnsMap[sortBy] ?? schema.books.title;
     const orderFn = sortOrder === 'desc' ? desc : asc;
 
     const rawItems = query

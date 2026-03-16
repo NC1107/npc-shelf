@@ -104,7 +104,7 @@ export function AuthorDetailPage() {
             {author.series.length > 0 && (
               <Badge variant="secondary" className="gap-1">
                 <Layers className="h-3 w-3" />
-                {author.series.length} {author.series.length === 1 ? 'series' : 'series'}
+                {author.series.length} series
               </Badge>
             )}
             {hasEbook && (

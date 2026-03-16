@@ -7,14 +7,15 @@ interface ComboboxOption {
   label: string;
 }
 
-export interface ComboboxProps {
+export type ComboboxProps = Readonly<{
   options: ComboboxOption[];
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
   'aria-labelledby'?: string;
-}
+}>;
+
 
 export function Combobox({ options, value, onChange, placeholder = 'Select...', className, 'aria-labelledby': ariaLabelledBy }: ComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -53,20 +54,12 @@ export function Combobox({ options, value, onChange, placeholder = 'Select...', 
 
   return (
     <div ref={containerRef} className={cn('relative', className)} aria-labelledby={ariaLabelledBy}>
-      <div
-        className="flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm cursor-pointer min-w-[160px]"
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
+        className="flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm cursor-pointer min-w-[160px] text-left w-full"
         onClick={() => {
           setOpen(!open);
           if (!open) setTimeout(() => inputRef.current?.focus(), 0);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setOpen(!open);
-            if (!open) setTimeout(() => inputRef.current?.focus(), 0);
-          }
         }}
       >
         {open ? (
@@ -88,7 +81,7 @@ export function Combobox({ options, value, onChange, placeholder = 'Select...', 
         ) : (
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground ml-1" />
         )}
-      </div>
+      </button>
 
       {open && (
         <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg max-h-60 overflow-y-auto">

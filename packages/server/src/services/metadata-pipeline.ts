@@ -108,9 +108,10 @@ export function scoreResult(result: MetadataSearchResult, context: ScoringContex
 
   const formatBonus = 0;
 
-  const dirAuthorBonus = context.directoryAuthor
-    ? (bestAuthorSimilarity(context.directoryAuthor, result.authors) > 0.7 ? 5 : 0)
-    : 0;
+  let dirAuthorBonus = 0;
+  if (context.directoryAuthor && bestAuthorSimilarity(context.directoryAuthor, result.authors) > 0.7) {
+    dirAuthorBonus = 5;
+  }
 
   const authorPenalty = (context.localAuthor && result.authors.length > 0 &&
     bestAuthorSimilarity(context.localAuthor, result.authors) < 0.3)
@@ -327,32 +328,33 @@ async function syncSeriesFromMatch(
 
   if (allSeries && allSeries.length > 0) {
     for (const s of allSeries) {
-      let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, s.name)).get();
-      seriesRow ??= db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
-      db.insert(schema.bookSeries)
-        .values({ bookId, seriesId: seriesRow.id, position: s.position })
-        .onConflictDoNothing()
-        .run();
-
-      if (!seriesRow.description && s.seriesId) {
-        try {
-          const seriesDetails = await provider.getSeriesDetails(s.seriesId);
-          if (seriesDetails?.description) {
-            db.update(schema.series)
-              .set({ description: seriesDetails.description })
-              .where(eq(schema.series.id, seriesRow.id))
-              .run();
-          }
-        } catch { /* ignore series detail fetch errors */ }
-      }
+      await linkSeriesEntry(bookId, s.name, s.position, s.seriesId || null);
     }
   } else if (fallbackSeries) {
-    let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, fallbackSeries)).get();
-    seriesRow ??= db.insert(schema.series).values({ name: fallbackSeries }).returning().get();
-    db.insert(schema.bookSeries)
-      .values({ bookId, seriesId: seriesRow.id, position: fallbackPosition ?? null })
-      .onConflictDoNothing()
-      .run();
+    await linkSeriesEntry(bookId, fallbackSeries, fallbackPosition ?? null, null);
+  }
+}
+
+async function linkSeriesEntry(
+  bookId: number, name: string, position: number | null, seriesId: string | null,
+): Promise<void> {
+  let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, name)).get();
+  seriesRow ??= db.insert(schema.series).values({ name, hardcoverId: seriesId }).returning().get();
+  db.insert(schema.bookSeries)
+    .values({ bookId, seriesId: seriesRow.id, position })
+    .onConflictDoNothing()
+    .run();
+
+  if (!seriesRow.description && seriesId) {
+    try {
+      const seriesDetails = await provider.getSeriesDetails(seriesId);
+      if (seriesDetails?.description) {
+        db.update(schema.series)
+          .set({ description: seriesDetails.description })
+          .where(eq(schema.series.id, seriesRow.id))
+          .run();
+      }
+    } catch { /* ignore series detail fetch errors */ }
   }
 }
 
@@ -630,21 +632,8 @@ export async function cleanupDirtyTitles(): Promise<{ fixed: number; total: numb
   let fixed = 0;
   for (const book of matched) {
     if (!isDirtyTitle(book.title, book.id)) continue;
-
-    try {
-      ensureToken();
-      const details = await provider.getDetails(book.hardcoverId!);
-      if (!details?.title) continue;
-
-      db.update(schema.books)
-        .set({ title: details.title, updatedAt: new Date().toISOString() })
-        .where(eq(schema.books.id, book.id))
-        .run();
-      console.log(`[Cleanup] Fixed title: "${book.title}" -> "${details.title}"`);
-      fixed++;
-    } catch (err) {
-      console.error(`[Cleanup] Error fixing title for book ${book.id}:`, err);
-    }
+    const didFix = await fixMatchedDirtyTitle(book);
+    if (didFix) fixed++;
   }
 
   // Phase 2: Fix unmatched dirty books using filename, then re-queue enrichment
@@ -659,36 +648,58 @@ export async function cleanupDirtyTitles(): Promise<{ fixed: number; total: numb
 
   for (const book of unmatchedBooks) {
     if (!isDirtyTitle(book.title, book.id)) continue;
-
-    const file = db.select({ path: schema.files.path, filename: schema.files.filename })
-      .from(schema.files)
-      .where(eq(schema.files.bookId, book.id))
-      .get();
-    if (!file) continue;
-
-    const dirPath = file.path.replace(/[\\/][^\\/]+$/, '');
-    const parsed = parseFilename(file.filename, dirPath);
-    const fileTitle = cleanTitle(parsed.title);
-
-    if (fileTitle && fileTitle.toLowerCase() !== book.title.toLowerCase()) {
-      db.update(schema.books)
-        .set({ title: fileTitle, updatedAt: new Date().toISOString() })
-        .where(eq(schema.books.id, book.id))
-        .run();
-      console.log(`[Cleanup] Fixed unmatched title: "${book.title}" -> "${fileTitle}"`);
-      fixed++;
-
-      // Re-queue metadata matching for this book
-      try {
-        db.insert(schema.jobQueue).values({
-          jobType: 'match_metadata',
-          payload: JSON.stringify({ bookId: book.id }),
-        }).run();
-      } catch { /* ignore duplicate queue entries */ }
-    }
+    const didFix = fixUnmatchedDirtyTitle(book);
+    if (didFix) fixed++;
   }
 
   return { fixed, total: matched.length + unmatchedBooks.filter(b => isDirtyTitle(b.title, b.id)).length };
+}
+
+async function fixMatchedDirtyTitle(book: { id: number; title: string; hardcoverId: string | null }): Promise<boolean> {
+  try {
+    ensureToken();
+    const details = await provider.getDetails(book.hardcoverId!);
+    if (!details?.title) return false;
+
+    db.update(schema.books)
+      .set({ title: details.title, updatedAt: new Date().toISOString() })
+      .where(eq(schema.books.id, book.id))
+      .run();
+    console.log(`[Cleanup] Fixed title: "${book.title}" -> "${details.title}"`);
+    return true;
+  } catch (err) {
+    console.error(`[Cleanup] Error fixing title for book ${book.id}:`, err);
+    return false;
+  }
+}
+
+function fixUnmatchedDirtyTitle(book: { id: number; title: string }): boolean {
+  const file = db.select({ path: schema.files.path, filename: schema.files.filename })
+    .from(schema.files)
+    .where(eq(schema.files.bookId, book.id))
+    .get();
+  if (!file) return false;
+
+  const dirPath = file.path.replace(/[\\/][^\\/]+$/, '');
+  const parsed = parseFilename(file.filename, dirPath);
+  const fileTitle = cleanTitle(parsed.title);
+
+  if (!fileTitle || fileTitle.toLowerCase() === book.title.toLowerCase()) return false;
+
+  db.update(schema.books)
+    .set({ title: fileTitle, updatedAt: new Date().toISOString() })
+    .where(eq(schema.books.id, book.id))
+    .run();
+  console.log(`[Cleanup] Fixed unmatched title: "${book.title}" -> "${fileTitle}"`);
+
+  try {
+    db.insert(schema.jobQueue).values({
+      jobType: 'match_metadata',
+      payload: JSON.stringify({ bookId: book.id }),
+    }).run();
+  } catch { /* ignore duplicate queue entries */ }
+
+  return true;
 }
 
 /**
