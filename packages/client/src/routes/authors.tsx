@@ -23,6 +23,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge';
 import { Separator } from '../components/ui/separator';
 import { api } from '../lib/api';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 
 interface Author {
   id: number;
@@ -42,6 +44,7 @@ interface DuplicateGroup {
 export function AuthorsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [showDedupConfirm, setShowDedupConfirm] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editData, setEditData] = useState<{ name: string; sortName: string }>({ name: '', sortName: '' });
@@ -179,11 +182,7 @@ export function AuthorsPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => {
-            if (window.confirm('Auto-merge duplicate authors based on normalized names? This cannot be undone.')) {
-              autoDedup.mutate();
-            }
-          }}
+          onClick={() => setShowDedupConfirm(true)}
           disabled={autoDedup.isPending}
         >
           {autoDedup.isPending ? (
@@ -195,6 +194,14 @@ export function AuthorsPage() {
             ? `Merged ${(autoDedup.data as any)?.merged || 0} duplicates`
             : 'Auto-merge Duplicates'}
         </Button>
+        <ConfirmDialog
+          open={showDedupConfirm}
+          onOpenChange={setShowDedupConfirm}
+          title="Auto-merge duplicates"
+          description="Merge duplicate authors based on normalized names? This cannot be undone."
+          confirmLabel="Merge"
+          onConfirm={() => autoDedup.mutate()}
+        />
       </div>
 
       {/* Search */}
@@ -471,15 +478,11 @@ export function AuthorsPage() {
       )}
 
       {/* Hardcover link dialog */}
-      {linkingAuthorId !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-lg border bg-card p-4 shadow-lg space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Link to Hardcover</h3>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setLinkingAuthorId(null); setLinkSearch(''); }}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+      <Dialog open={linkingAuthorId !== null} onOpenChange={(open) => { if (!open) { setLinkingAuthorId(null); setLinkSearch(''); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Link to Hardcover</DialogTitle>
+          </DialogHeader>
             <Input
               value={linkSearch}
               onChange={(e) => setLinkSearch(e.target.value)}
@@ -501,11 +504,11 @@ export function AuthorsPage() {
                   className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 transition-colors"
                   role="button"
                   tabIndex={0}
-                  onClick={() => linkHardcover.mutate({ authorId: linkingAuthorId, hardcoverId: hc.id })}
+                  onClick={() => linkHardcover.mutate({ authorId: linkingAuthorId!, hardcoverId: hc.id })}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      linkHardcover.mutate({ authorId: linkingAuthorId, hardcoverId: hc.id });
+                      linkHardcover.mutate({ authorId: linkingAuthorId!, hardcoverId: hc.id });
                     }
                   }}
                 >
@@ -525,14 +528,13 @@ export function AuthorsPage() {
                 </div>
               ))}
             </div>
-            {linkHardcover.isPending && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> Linking...
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+          {linkHardcover.isPending && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Linking...
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

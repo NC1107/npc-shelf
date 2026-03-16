@@ -17,6 +17,7 @@ import { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem } from '..
 import { api } from '../lib/api';
 import { FORMAT_COLORS } from '../lib/format-colors';
 import { ComparePanel } from '../components/book/ComparePanel';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import type { BookDetail, MatchBreakdown, Job, AudioChapter, MetadataSearchResult } from '@npc-shelf/shared';
 
 interface RenamePreviewItem {
@@ -342,6 +343,7 @@ function BookDetailContent({
   convertFormat, hardcoverDetails, chapters, editingChapters, setEditingChapters, chapterData, setChapterData, saveChapters,
 }: any) {
   const [activeFormat, setActiveFormat] = useState<'ebook' | 'audiobook'>(hasAudio ? 'audiobook' : 'ebook');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const coverFallbackIcon = hasAudio
     ? <Headphones className="h-16 w-16 text-muted-foreground" aria-hidden="true" />
@@ -796,11 +798,7 @@ function BookDetailContent({
             )}
             <Button
               variant="destructive"
-              onClick={() => {
-                if (window.confirm(`Delete "${book.title}" from library?`)) {
-                  deleteBook.mutate();
-                }
-              }}
+              onClick={() => setShowDeleteConfirm(true)}
               disabled={deleteBook.isPending}
             >
               {deleteBook.isPending ? (
@@ -810,6 +808,15 @@ function BookDetailContent({
               )}
               Delete
             </Button>
+            <ConfirmDialog
+              open={showDeleteConfirm}
+              onOpenChange={setShowDeleteConfirm}
+              title="Delete book"
+              description={`Delete "${book.title}" from your library? This cannot be undone.`}
+              confirmLabel="Delete"
+              variant="destructive"
+              onConfirm={() => deleteBook.mutate()}
+            />
           </div>
 
           {/* Rename suggestion banner */}
