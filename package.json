@@ -1,6 +1,6 @@
 {
   "name": "npc-shelf",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "private": true,
   "type": "module",
   "description": "Self-hosted book library platform for ebooks and audiobooks",

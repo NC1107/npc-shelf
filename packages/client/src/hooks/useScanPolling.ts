@@ -6,17 +6,36 @@ import type { ScanStatus } from '@npc-shelf/shared';
 
 /**
  * Poll scan status when a scan is active.
+ * On mount, checks server for any active scan (survives page refresh).
  * Should be mounted in AppShell for global persistence.
  */
 export function useScanPolling() {
-  const { activeScanLibraryId, updateStatus, clearScan } = useScanStore();
+  const { activeScanLibraryId, updateStatus, clearScan, startScan } = useScanStore();
   const queryClient = useQueryClient();
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkedRef = useRef(false);
 
+  // On mount: check if there's an active scan on the server
+  useEffect(() => {
+    if (checkedRef.current) return;
+    checkedRef.current = true;
+
+    api.get<{ libraryId: number; status: string } | null>('/libraries/active-scan')
+      .then((data) => {
+        if (data && data.libraryId && data.status !== 'idle') {
+          startScan(data.libraryId);
+        } else if (activeScanLibraryId) {
+          // Had a persisted scan but server says nothing active — clear it
+          clearScan();
+        }
+      })
+      .catch(() => { /* ignore */ });
+  }, []);
+
+  // Poll when active
   useEffect(() => {
     if (!activeScanLibraryId) return;
 
-    // Clear any pending clear timer
     if (clearTimerRef.current) {
       clearTimeout(clearTimerRef.current);
       clearTimerRef.current = null;
@@ -28,17 +47,13 @@ export function useScanPolling() {
         updateStatus(data);
 
         if (data.status === 'complete' || data.status === 'error') {
-          // Refresh relevant queries
           queryClient.invalidateQueries({ queryKey: ['libraries'] });
           queryClient.invalidateQueries({ queryKey: ['books'] });
 
-          // Clear after delay
           clearTimerRef.current = setTimeout(() => {
             clearScan();
           }, 5000);
           clearInterval(interval);
-        } else if (data.status === 'idle') {
-          // No active scan — could be waiting for job to start, keep polling briefly
         }
       } catch {
         clearInterval(interval);

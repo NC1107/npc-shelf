@@ -151,6 +151,39 @@ librariesRouter.delete('/:id', (req, res) => {
   }
 });
 
+// Active scan — returns any currently running scan status
+librariesRouter.get('/active-scan', (_req, res) => {
+  // Check activeScanStatuses map for any non-idle entry
+  for (const [libraryId, status] of activeScanStatuses) {
+    if (status.status === 'scanning' || status.status === 'pending') {
+      res.json({ ...status, libraryId });
+      return;
+    }
+  }
+
+  // Check DB for any pending/processing scan jobs
+  const activeJob = db.select().from(schema.jobQueue)
+    .where(eq(schema.jobQueue.jobType, 'scan_library'))
+    .all()
+    .find((j) => j.status === 'pending' || j.status === 'processing');
+
+  if (activeJob) {
+    const payload = JSON.parse(activeJob.payload || '{}');
+    res.json({
+      libraryId: payload.libraryId,
+      status: activeJob.status === 'processing' ? 'scanning' : 'pending',
+      filesFound: 0,
+      filesProcessed: 0,
+      booksAdded: 0,
+      booksUpdated: 0,
+      errors: [],
+    });
+    return;
+  }
+
+  res.json(null);
+});
+
 // Trigger scan
 librariesRouter.post('/:id/scan', (req, res) => {
   try {
