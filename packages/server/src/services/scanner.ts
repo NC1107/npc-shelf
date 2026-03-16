@@ -267,6 +267,19 @@ async function persistCandidate(
     fileRecords.push({ fileId: fileRecord.id, file });
   }
 
+  // Detect companion files: PDFs under 5MB in audiobook directories
+  const hasAudio = candidate.files.some(f => f.extension === 'm4b' || f.extension === 'mp3');
+  if (hasAudio) {
+    for (const rec of fileRecords) {
+      if (rec.file.extension === 'pdf' && rec.file.size < 5 * 1024 * 1024) {
+        db.update(schema.files)
+          .set({ isCompanion: 1 })
+          .where(eq(schema.files.id, rec.fileId))
+          .run();
+      }
+    }
+  }
+
   // Create author(s) — handles multi-author strings and normalization
   if (authorName) {
     const authorIds = findOrCreateAuthors(authorName);

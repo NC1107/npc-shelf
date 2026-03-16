@@ -1178,6 +1178,9 @@ function BookDetailContent({
                             <Badge variant="outline" className={FORMAT_COLORS[file.format]}>
                               {file.format.toUpperCase()}
                             </Badge>
+                            {file.isCompanion === 1 && (
+                              <Badge variant="secondary" className="text-[10px]">Companion</Badge>
+                            )}
                             <span className="font-medium truncate">{file.filename}</span>
                             <span className="ml-auto shrink-0 text-muted-foreground">{formatBytes(file.sizeBytes)}</span>
                           </div>

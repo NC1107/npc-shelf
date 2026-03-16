@@ -110,6 +110,7 @@ export interface BookFile {
   sizeBytes: number;
   hashSha256: string;
   lastModified: string;
+  isCompanion: number;
   createdAt: string;
 }
 

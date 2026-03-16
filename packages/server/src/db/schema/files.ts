@@ -14,5 +14,6 @@ export const files = sqliteTable('files', {
   sizeBytes: integer('size_bytes').notNull(),
   hashSha256: text('hash_sha256').notNull(),
   lastModified: text('last_modified').notNull(),
+  isCompanion: integer('is_companion').notNull().default(0),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
