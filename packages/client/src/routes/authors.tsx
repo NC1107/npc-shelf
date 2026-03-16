@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import {
   Users,
   Search,
@@ -425,75 +426,78 @@ export function AuthorsPage() {
               ) : (
                 /* Display state */
                 <div className="flex items-start gap-3">
-                  {author.photoUrl ? (
-                    <img
-                      src={author.photoUrl}
-                      alt={author.name}
-                      className="h-10 w-10 shrink-0 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
-                      <User className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{author.name}</p>
-                        {author.sortName !== author.name && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {author.sortName}
-                          </p>
-                        )}
+                  <Link to="/authors/$authorId" params={{ authorId: String(author.id) }} className="flex items-start gap-3 min-w-0 flex-1">
+                    {author.photoUrl ? (
+                      <img
+                        src={author.photoUrl}
+                        alt={author.name}
+                        className="h-10 w-10 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+                        <User className="h-5 w-5 text-muted-foreground" />
                       </div>
-                      <div className="flex gap-0.5">
-                        {!author.hardcoverId && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 shrink-0"
-                                  onClick={() => {
-                                    setLinkingAuthorId(author.id);
-                                    setLinkSearch(author.name);
-                                  }}
-                                  aria-label="Link to Hardcover"
-                                >
-                                  <Link2 className="h-3 w-3" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Link to Hardcover</TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                        {author.hardcoverId && (
-                          <a
-                            href={`https://hardcover.app/authors/${author.hardcoverId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
-                            aria-label="View on Hardcover"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 shrink-0"
-                          onClick={() => startEdit(author)}
-                          aria-label="Edit author"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium truncate">{author.name}</p>
+                      {author.sortName !== author.name && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {author.sortName}
+                        </p>
+                      )}
+                      <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                        <BookOpen className="h-3 w-3" />
+                        {author.bookCount} {author.bookCount === 1 ? 'book' : 'books'}
                       </div>
                     </div>
-                    <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                      <BookOpen className="h-3 w-3" />
-                      {author.bookCount} {author.bookCount === 1 ? 'book' : 'books'}
-                    </div>
+                  </Link>
+                  <div className="flex gap-0.5 shrink-0">
+                    {!author.hardcoverId && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setLinkingAuthorId(author.id);
+                                setLinkSearch(author.name);
+                              }}
+                              aria-label="Link to Hardcover"
+                            >
+                              <Link2 className="h-3 w-3" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Link to Hardcover</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                    {author.hardcoverId && (
+                      <a
+                        href={`https://hardcover.app/authors/${author.hardcoverId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+                        aria-label="View on Hardcover"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        startEdit(author);
+                      }}
+                      aria-label="Edit author"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </Button>
                   </div>
                 </div>
               )}

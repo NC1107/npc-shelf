@@ -5,6 +5,7 @@ import { stringSimilarity } from '../utils/string-similarity.js';
 import { normalizeAuthorName } from '../utils/author-utils.js';
 import { getProvider } from '../services/metadata-pipeline.js';
 import { toSortName } from '../utils/filename-parser.js';
+import { enrichBooksWithMeta } from '../utils/book-enricher.js';
 
 export const authorsRouter = Router();
 
@@ -127,9 +128,32 @@ authorsRouter.get('/:id', (req, res) => {
           .all()
       : [];
 
-    const books = rawBooks.map((book) => ({ ...book, role: roleByBookId.get(book.id) }));
+    const enriched = enrichBooksWithMeta(rawBooks);
+    const books = enriched.map((book) => ({ ...book, role: roleByBookId.get(book.id) }));
 
-    res.json({ ...author, books });
+    // Get series for this author's books
+    const seriesEntries = bookIds.length > 0
+      ? db
+          .select({
+            seriesId: schema.bookSeries.seriesId,
+            bookId: schema.bookSeries.bookId,
+            position: schema.bookSeries.position,
+          })
+          .from(schema.bookSeries)
+          .where(inArray(schema.bookSeries.bookId, bookIds))
+          .all()
+      : [];
+
+    const seriesIds = [...new Set(seriesEntries.map((e) => e.seriesId))];
+    const seriesList = seriesIds.length > 0
+      ? db
+          .select()
+          .from(schema.series)
+          .where(inArray(schema.series.id, seriesIds))
+          .all()
+      : [];
+
+    res.json({ ...author, books, series: seriesList });
   } catch (error) {
     console.error('[Authors] Get error:', error);
     res.status(500).json({ error: 'Internal server error' });

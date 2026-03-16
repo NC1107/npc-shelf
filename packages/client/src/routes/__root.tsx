@@ -17,6 +17,7 @@ import { SeriesPage } from './series';
 import { SeriesDetailPage } from './series.$seriesId';
 import { DuplicatesPage } from './duplicates';
 import { AuthorsPage } from './authors';
+import { AuthorDetailPage } from './authors.$authorId';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -110,6 +111,12 @@ const authorsRoute = createRoute({
   component: AuthorsPage,
 });
 
+const authorDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/authors/$authorId',
+  component: AuthorDetailPage,
+});
+
 const readRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/library/$bookId/read',
@@ -136,4 +143,5 @@ export const routeTree = rootRoute.addChildren([
   settingsRoute,
   duplicatesRoute,
   authorsRoute,
+  authorDetailRoute,
 ]);
