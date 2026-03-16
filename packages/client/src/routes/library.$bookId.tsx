@@ -647,7 +647,7 @@ function BookDetailContent({
             return null;
           })()}
 
-          {/* Action buttons — always visible */}
+          {/* Primary actions */}
           <div className="flex flex-wrap gap-2">
             {hasEbook && (
               <Button
@@ -661,15 +661,20 @@ function BookDetailContent({
             {hasAudio && (
               <Button
                 size="lg"
-                variant="secondary"
+                variant={hasEbook ? 'secondary' : 'default'}
                 onClick={() => navigate({ to: '/library/$bookId/listen', params: { bookId } })}
               >
                 <Play className="h-4 w-4" />
                 Listen
               </Button>
             )}
+          </div>
+
+          {/* Secondary actions */}
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
+              size="sm"
               onClick={() => window.open(`/api/books/${bookId}/file`, '_blank')}
             >
               <Download className="h-4 w-4" />
@@ -678,6 +683,7 @@ function BookDetailContent({
             {hasEbook && (
               <Button
                 variant="outline"
+                size="sm"
                 onClick={() => sendToKindle.mutate()}
                 disabled={sendToKindle.isPending}
               >
@@ -686,11 +692,33 @@ function BookDetailContent({
                 ) : (
                   <Send className="h-4 w-4" />
                 )}
-                {(() => { if (sendToKindle.isSuccess) return 'Sent!'; if (sendToKindle.isError) return 'Failed'; return 'Send to Kindle'; })()}
+                {(() => { if (sendToKindle.isSuccess) return 'Sent!'; if (sendToKindle.isError) return 'Failed'; return 'Kindle'; })()}
+              </Button>
+            )}
+            {isEditing ? (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => saveEdit.mutate(editData)}
+                  disabled={saveEdit.isPending}
+                >
+                  {saveEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  Save
+                </Button>
+                <Button variant="ghost" size="sm" onClick={cancelEditing}>
+                  <X className="h-4 w-4" />
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={startEditing}>
+                <Edit className="h-4 w-4" />
+                Edit
               </Button>
             )}
             <Button
               variant="outline"
+              size="sm"
               onClick={() => matchMetadata.mutate()}
               disabled={matchMetadata.isPending || matchPolling}
             >
@@ -699,28 +727,8 @@ function BookDetailContent({
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              {(() => { if (matchMetadata.isPending || matchPolling) return 'Matching...'; if (matchMetadata.isError) return 'Failed'; if (book.hardcoverId) return 'Re-match'; return 'Match Metadata'; })()}
+              {(() => { if (matchMetadata.isPending || matchPolling) return 'Matching...'; if (matchMetadata.isError) return 'Failed'; if (book.hardcoverId) return 'Re-match'; return 'Match'; })()}
             </Button>
-            {isEditing ? (
-              <>
-                <Button
-                  onClick={() => saveEdit.mutate(editData)}
-                  disabled={saveEdit.isPending}
-                >
-                  {saveEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                  Save
-                </Button>
-                <Button variant="ghost" onClick={cancelEditing}>
-                  <X className="h-4 w-4" />
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button variant="ghost" onClick={startEditing}>
-                <Edit className="h-4 w-4" />
-                Edit
-              </Button>
-            )}
             {/* Tools dropdown */}
             {book.files && book.files.length > 0 && (
               <DropdownMenu>
