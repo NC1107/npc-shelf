@@ -1,5 +1,6 @@
 import { Menu, Sun, Moon } from 'lucide-react';
 import { Button } from '../ui/button';
+import { SearchCommand } from './SearchCommand';
 import { useUiStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
 import { api } from '../../lib/api';
@@ -23,7 +24,9 @@ export function TopBar() {
         <Menu className="h-5 w-5" />
       </Button>
 
-      <div className="flex-1" />
+      <div className="flex-1">
+        <SearchCommand />
+      </div>
 
       <Button
         variant="ghost"

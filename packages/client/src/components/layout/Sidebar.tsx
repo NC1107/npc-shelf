@@ -3,7 +3,6 @@ import { Link, useRouterState } from '@tanstack/react-router';
 import {
   BookOpen,
   Library,
-  Search,
   LayoutDashboard,
   Bookmark,
   Settings,
@@ -24,7 +23,6 @@ const navItems = [
   { to: '/collections', label: 'Collections', icon: Bookmark },
   { to: '/authors', label: 'Authors', icon: Users },
   { to: '/duplicates', label: 'Duplicates', icon: Copy },
-  { to: '/search', label: 'Search', icon: Search },
 ] as const;
 
 const bottomItems = [
