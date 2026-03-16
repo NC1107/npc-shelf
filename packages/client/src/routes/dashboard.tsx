@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { BookOpen, Library, Headphones, Clock, Users, ArrowRight, Play } from 'lucide-react';
+import { BookOpen, Library, Headphones, Clock, Users, ArrowRight, Play, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Progress } from '../components/ui/progress';
 import { BookCard } from '../components/books/BookCard';
@@ -26,6 +26,7 @@ interface LibraryStats {
   ebookCount: number;
   audiobookCount: number;
   inProgress: number;
+  needsReviewCount: number;
 }
 
 export function DashboardPage() {
@@ -79,6 +80,18 @@ export function DashboardPage() {
           icon={Clock}
         />
       </div>
+
+      {/* Alerts */}
+      {((stats?.needsReviewCount ?? 0) > 0) && (
+        <div className="flex flex-wrap gap-3">
+          {(stats?.needsReviewCount ?? 0) > 0 && (
+            <Link to="/library" className="flex items-center gap-2 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-2.5 text-sm transition-colors hover:bg-yellow-100 dark:border-yellow-800 dark:bg-yellow-950 dark:hover:bg-yellow-900">
+              <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+              <span className="text-yellow-700 dark:text-yellow-300">{stats!.needsReviewCount} book{stats!.needsReviewCount !== 1 ? 's' : ''} need review</span>
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* Continue Reading/Listening */}
       {inProgress && inProgress.length > 0 && (

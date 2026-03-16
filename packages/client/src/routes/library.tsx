@@ -24,7 +24,7 @@ import { BookCard } from '../components/books/BookCard';
 import { api } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 import type { PaginatedResponse, Book } from '@npc-shelf/shared';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 interface FilterOptions {
   authors: { id: number; name: string }[];
@@ -231,12 +231,36 @@ function BookGrid({
   selectedIds: Set<number>;
   onToggle: (id: number) => void;
 }>) {
+  const gridRef = useRef<HTMLDivElement>(null);
   const containerClass = view === 'grid'
     ? 'grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6'
     : 'space-y-2';
 
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!gridRef.current || view !== 'grid') return;
+    const links = Array.from(gridRef.current.querySelectorAll<HTMLElement>('a, button'));
+    const current = links.indexOf(document.activeElement as HTMLElement);
+    if (current === -1) return;
+
+    // Compute columns from grid
+    const cols = Math.round(gridRef.current.offsetWidth / (links[0]?.offsetWidth || 1)) || 1;
+    let next: number;
+
+    switch (e.key) {
+      case 'ArrowRight': next = Math.min(current + 1, links.length - 1); break;
+      case 'ArrowLeft': next = Math.max(current - 1, 0); break;
+      case 'ArrowDown': next = Math.min(current + cols, links.length - 1); break;
+      case 'ArrowUp': next = Math.max(current - cols, 0); break;
+      default: return;
+    }
+    if (next !== current) {
+      e.preventDefault();
+      links[next]?.focus();
+    }
+  }, [view]);
+
   return (
-    <div className={containerClass}>
+    <div ref={gridRef} className={containerClass} onKeyDown={handleKeyDown} role="grid">
       {items.map((book) =>
         selectMode ? (
           <SelectableBookCard
