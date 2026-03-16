@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react';
+import { useRouterState } from '@tanstack/react-router';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { AudioMiniPlayer } from '../audio/AudioMiniPlayer';
@@ -13,6 +14,8 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const bookId = useAudioStore((s) => s.bookId);
   const scanStatus = useScanStore((s) => s.scanStatus);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const onListenPage = pathname.endsWith('/listen');
 
   // Global scan polling
   useScanPolling();
@@ -38,10 +41,10 @@ export function AppShell({ children }: AppShellProps) {
             })()}
           </div>
         )}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className={`flex-1 overflow-y-auto p-4 md:p-6 ${bookId && !onListenPage ? 'pb-20' : ''}`}>
           {children}
         </main>
-        {bookId && <AudioMiniPlayer />}
+        {bookId && !onListenPage && <AudioMiniPlayer />}
       </div>
     </div>
   );

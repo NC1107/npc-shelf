@@ -357,7 +357,7 @@ function BookDetailContent({
         Back to Library
       </Link>
 
-      <div className="flex flex-col gap-6 md:flex-row">
+      <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
         {/* Cover */}
         <div className="shrink-0">
           <label className="group relative block h-80 w-52 cursor-pointer overflow-hidden rounded-lg bg-muted shadow-lg">

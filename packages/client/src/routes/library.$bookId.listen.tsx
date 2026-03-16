@@ -356,8 +356,9 @@ export function ListenPage() {
 
       {/* Main controls */}
       <div className="flex items-center justify-center gap-4">
-        <Button variant="ghost" size="icon" className="h-12 w-12" onClick={skipBack}>
+        <Button variant="ghost" size="icon" className="relative h-12 w-12" onClick={skipBack}>
           <SkipBack className="h-5 w-5" />
+          <span className="absolute -bottom-1 text-[10px] text-muted-foreground">-30s</span>
         </Button>
         <Button
           size="icon"
@@ -366,8 +367,9 @@ export function ListenPage() {
         >
           {store.isPlaying ? <Pause className="h-7 w-7" /> : <Play className="h-7 w-7 ml-1" />}
         </Button>
-        <Button variant="ghost" size="icon" className="h-12 w-12" onClick={skipForward}>
+        <Button variant="ghost" size="icon" className="relative h-12 w-12" onClick={skipForward}>
           <SkipForward className="h-5 w-5" />
+          <span className="absolute -bottom-1 text-[10px] text-muted-foreground">+30s</span>
         </Button>
       </div>
 
