@@ -386,12 +386,7 @@ export function SettingsPage() {
 
               <Separator />
 
-              {!showAddForm ? (
-                <Button variant="outline" onClick={() => setShowAddForm(true)}>
-                  <Plus className="h-4 w-4" />
-                  Add Library
-                </Button>
-              ) : (
+              {showAddForm ? (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium">Add Library</p>
@@ -442,6 +437,11 @@ export function SettingsPage() {
                     <p className="text-sm text-destructive">{(addLibrary.error as Error).message}</p>
                   )}
                 </div>
+              ) : (
+                <Button variant="outline" onClick={() => setShowAddForm(true)}>
+                  <Plus className="h-4 w-4" />
+                  Add Library
+                </Button>
               )}
 
               <DirectoryBrowser
@@ -618,7 +618,7 @@ export function SettingsPage() {
                   onClick={() => saveKindleSettings.mutate({
                     kindleEmail,
                     smtpHost,
-                    smtpPort: parseInt(smtpPort),
+                    smtpPort: Number.parseInt(smtpPort),
                     smtpUser,
                     smtpPass: smtpPass || undefined,
                     fromEmail,
@@ -667,7 +667,7 @@ export function SettingsPage() {
                 Your OPDS catalog is available at:
               </p>
               <code className="block rounded bg-muted px-3 py-2 text-sm">
-                {window.location.origin}/opds
+                {globalThis.location.origin}/opds
               </code>
               <p className="text-xs text-muted-foreground">
                 Use your NPC-Shelf username and password for HTTP Basic authentication.

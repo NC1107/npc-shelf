@@ -104,11 +104,37 @@ export async function writeBookMetadata(bookId: number): Promise<WriteResult[]> 
 
 // ===== EPUB =====
 
+function updateDublinCoreFields(metadata: Record<string, any>, meta: BookMeta): string[] {
+  const fieldsWritten: string[] = [];
+  if (meta.title) { metadata['dc:title'] = meta.title; fieldsWritten.push('title'); }
+  if (meta.authors.length > 0) { metadata['dc:creator'] = meta.authors.join(', '); fieldsWritten.push('creator'); }
+  if (meta.description) { metadata['dc:description'] = meta.description; fieldsWritten.push('description'); }
+  if (meta.publishDate) { metadata['dc:date'] = meta.publishDate; fieldsWritten.push('date'); }
+  if (meta.publisher) { metadata['dc:publisher'] = meta.publisher; fieldsWritten.push('publisher'); }
+  if (meta.isbn13) { metadata['dc:identifier'] = meta.isbn13; fieldsWritten.push('identifier'); }
+  if (meta.language) { metadata['dc:language'] = meta.language; fieldsWritten.push('language'); }
+  return fieldsWritten;
+}
+
+function updateCalibreSeriesMetadata(metadata: Record<string, any>, meta: BookMeta): string[] {
+  if (!meta.series) return [];
+  if (!Array.isArray(metadata.meta)) {
+    metadata.meta = metadata.meta ? [metadata.meta] : [];
+  }
+  metadata.meta = metadata.meta.filter((m: any) =>
+    m?.['@_name'] !== 'calibre:series' && m?.['@_name'] !== 'calibre:series_index',
+  );
+  metadata.meta.push({ '@_name': 'calibre:series', '@_content': meta.series });
+  if (meta.seriesPosition != null) {
+    metadata.meta.push({ '@_name': 'calibre:series_index', '@_content': String(meta.seriesPosition) });
+  }
+  return ['series'];
+}
+
 async function writeEpubMetadata(fileId: number, filePath: string, meta: BookMeta): Promise<WriteResult> {
   const data = fs.readFileSync(filePath);
   const zip = await JSZip.loadAsync(data);
 
-  // Find OPF file via container.xml
   const containerXml = await zip.file('META-INF/container.xml')?.async('string');
   if (!containerXml) return { fileId, success: false, fieldsWritten: [], error: 'No container.xml' };
 
@@ -123,33 +149,11 @@ async function writeEpubMetadata(fileId: number, filePath: string, meta: BookMet
 
   const opf = parser.parse(opfContent);
   const metadata = opf?.package?.metadata || {};
-  const fieldsWritten: string[] = [];
 
-  // Update Dublin Core fields
-  if (meta.title) { metadata['dc:title'] = meta.title; fieldsWritten.push('title'); }
-  if (meta.authors.length > 0) { metadata['dc:creator'] = meta.authors.join(', '); fieldsWritten.push('creator'); }
-  if (meta.description) { metadata['dc:description'] = meta.description; fieldsWritten.push('description'); }
-  if (meta.publishDate) { metadata['dc:date'] = meta.publishDate; fieldsWritten.push('date'); }
-  if (meta.publisher) { metadata['dc:publisher'] = meta.publisher; fieldsWritten.push('publisher'); }
-  if (meta.isbn13) { metadata['dc:identifier'] = meta.isbn13; fieldsWritten.push('identifier'); }
-  if (meta.language) { metadata['dc:language'] = meta.language; fieldsWritten.push('language'); }
-
-  // Add Calibre series metadata
-  if (meta.series) {
-    // Ensure meta array exists for calibre extensions
-    if (!Array.isArray(metadata.meta)) {
-      metadata.meta = metadata.meta ? [metadata.meta] : [];
-    }
-    // Remove existing calibre series/index entries
-    metadata.meta = metadata.meta.filter((m: any) =>
-      m?.['@_name'] !== 'calibre:series' && m?.['@_name'] !== 'calibre:series_index',
-    );
-    metadata.meta.push({ '@_name': 'calibre:series', '@_content': meta.series });
-    if (meta.seriesPosition != null) {
-      metadata.meta.push({ '@_name': 'calibre:series_index', '@_content': String(meta.seriesPosition) });
-    }
-    fieldsWritten.push('series');
-  }
+  const fieldsWritten = [
+    ...updateDublinCoreFields(metadata, meta),
+    ...updateCalibreSeriesMetadata(metadata, meta),
+  ];
 
   opf.package.metadata = metadata;
 

@@ -73,15 +73,18 @@ export function ReaderSettings() {
       <div className="space-y-2">
         <span className="text-xs font-medium text-muted-foreground" id="reader-theme-label">Theme</span>
         <div className="flex gap-1.5">
-          {THEMES.map((t) => (
+          {THEMES.map((t) => {
+            const activeClass = `ring-2 ring-primary ${t.border}`;
+            return (
             <button
               key={t.value}
               onClick={() => setTheme(t.value)}
-              className={`flex flex-1 items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-all ${t.bg} ${t.text} ${theme === t.value ? `ring-2 ring-primary ${t.border}` : 'border-transparent opacity-70 hover:opacity-100'}`}
+              className={`flex flex-1 items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-all ${t.bg} ${t.text} ${theme === t.value ? activeClass : 'border-transparent opacity-70 hover:opacity-100'}`}
             >
               {t.label}
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -93,7 +96,7 @@ export function ReaderSettings() {
             variant="outline"
             size="icon"
             className="h-8 w-8"
-            onClick={() => setLineHeight(Math.max(1.0, lineHeight - 0.1))}
+            onClick={() => setLineHeight(Math.max(1, lineHeight - 0.1))}
           >
             <Minus className="h-3 w-3" />
           </Button>

@@ -60,7 +60,7 @@ function DuplicateGroupRow({
   onConfirmMerge,
   onCancelMerge,
   onSetMergeTarget,
-}: {
+}: Readonly<{
   group: DuplicateGroup;
   groupIndex: number;
   confirmingMergeGroup: number | null;
@@ -70,7 +70,7 @@ function DuplicateGroupRow({
   onConfirmMerge: (group: DuplicateGroup) => void;
   onCancelMerge: () => void;
   onSetMergeTarget: (id: number) => void;
-}) {
+}>) {
   const isConfirming = confirmingMergeGroup === groupIndex;
   return (
     <div
@@ -85,7 +85,7 @@ function DuplicateGroupRow({
               <span className="text-muted-foreground ml-1">
                 ({author.bookCount} {author.bookCount === 1 ? 'book' : 'books'})
               </span>
-              {author !== group.authors[group.authors.length - 1] && (
+              {author !== group.authors.at(-1) && (
                 <span className="text-muted-foreground ml-2">/</span>
               )}
             </span>
@@ -156,11 +156,11 @@ function AuthorCardDisplay({
   author,
   onStartEdit,
   onStartLink,
-}: {
+}: Readonly<{
   author: Author;
   onStartEdit: (author: Author) => void;
   onStartLink: (author: Author) => void;
-}) {
+}>) {
   return (
     <div className="flex items-start gap-3">
       <Link to="/authors/$authorId" params={{ authorId: String(author.id) }} className="flex items-start gap-3 min-w-0 flex-1">
@@ -239,8 +239,153 @@ function AuthorCardDisplay({
   );
 }
 
-export function AuthorsPage() {
+// -- Custom hook to reduce cognitive complexity of AuthorsPage --
+
+function useAuthorMutations(callbacks: {
+  setEditingId: (id: number | null) => void;
+  setConfirmingMergeGroup: (id: number | null) => void;
+  setMergeTargetId: (id: number | null) => void;
+  setLinkingAuthorId: (id: number | null) => void;
+  setLinkSearch: (s: string) => void;
+}) {
   const queryClient = useQueryClient();
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['authors'] });
+    queryClient.invalidateQueries({ queryKey: ['author-duplicates'] });
+  };
+
+  const editAuthor = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: { name?: string; sortName?: string } }) =>
+      api.put(`/authors/${id}`, data),
+    onSuccess: () => { invalidateAll(); callbacks.setEditingId(null); },
+    onError: (err) => console.error('Failed to edit author:', err),
+  });
+
+  const mergeAuthors = useMutation({
+    mutationFn: (data: { sourceIds: number[]; targetId: number }) =>
+      api.post('/authors/merge', data),
+    onSuccess: () => { invalidateAll(); callbacks.setConfirmingMergeGroup(null); callbacks.setMergeTargetId(null); },
+    onError: (err) => console.error('Failed to merge authors:', err),
+  });
+
+  const autoDedup = useMutation({
+    mutationFn: () => api.post<{ merged: number; groups: number }>('/authors/auto-dedup'),
+    onSuccess: invalidateAll,
+    onError: (err) => console.error('Failed to auto-dedup:', err),
+  });
+
+  const linkHardcover = useMutation({
+    mutationFn: ({ authorId, hardcoverId }: { authorId: number; hardcoverId: number }) =>
+      api.post(`/authors/${authorId}/link-hardcover`, { hardcoverId }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['authors'] }); callbacks.setLinkingAuthorId(null); callbacks.setLinkSearch(''); },
+    onError: (err) => console.error('Failed to link author:', err),
+  });
+
+  return { editAuthor, mergeAuthors, autoDedup, linkHardcover };
+}
+
+function AuthorListContent({
+  isLoading,
+  filteredAuthors,
+  search,
+  editingId,
+  editData,
+  setEditData,
+  editAuthor,
+  saveEdit,
+  cancelEdit,
+  startEdit,
+  setLinkingAuthorId,
+  setLinkSearch,
+}: any) {
+  if (isLoading) {
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="h-20 animate-pulse rounded-lg bg-muted" />
+        ))}
+      </div>
+    );
+  }
+
+  if (filteredAuthors.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <Users className="mx-auto h-12 w-12 text-muted-foreground" />
+        <p className="mt-3 text-lg font-medium">
+          {search ? 'No authors match your search' : 'No authors found'}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          {search
+            ? 'Try a different search term.'
+            : 'Authors are added automatically when books are scanned.'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {filteredAuthors.map((author: Author) => (
+        <div
+          key={author.id}
+          className="rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50"
+        >
+          {editingId === author.id ? (
+            <div className="space-y-2">
+              <Input
+                value={editData.name}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditData((d: { name: string; sortName: string }) => ({ ...d, name: e.target.value }))}
+                placeholder="Name"
+                className="h-8 text-sm"
+              />
+              <Input
+                value={editData.sortName}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditData((d: { name: string; sortName: string }) => ({ ...d, sortName: e.target.value }))}
+                placeholder="Sort name"
+                className="h-8 text-sm"
+              />
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  onClick={saveEdit}
+                  disabled={editAuthor.isPending || !editData.name.trim()}
+                >
+                  {editAuthor.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Check className="h-3 w-3" />
+                  )}
+                  Save
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={cancelEdit}
+                  disabled={editAuthor.isPending}
+                >
+                  <X className="h-3 w-3" />
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <AuthorCardDisplay
+              author={author}
+              onStartEdit={startEdit}
+              onStartLink={(a: Author) => {
+                setLinkingAuthorId(a.id);
+                setLinkSearch(a.name);
+              }}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function AuthorsPage() {
   const [search, setSearch] = useState('');
   const [roleTab, setRoleTab] = useState<'author' | 'narrator'>('author');
   const [showDedupConfirm, setShowDedupConfirm] = useState(false);
@@ -251,6 +396,10 @@ export function AuthorsPage() {
   const [confirmingMergeGroup, setConfirmingMergeGroup] = useState<number | null>(null);
   const [linkingAuthorId, setLinkingAuthorId] = useState<number | null>(null);
   const [linkSearch, setLinkSearch] = useState('');
+
+  const { editAuthor, mergeAuthors, autoDedup, linkHardcover } = useAuthorMutations({
+    setEditingId, setConfirmingMergeGroup, setMergeTargetId, setLinkingAuthorId, setLinkSearch,
+  });
 
   const { data: authors, isLoading } = useQuery({
     queryKey: ['authors', roleTab],
@@ -263,53 +412,10 @@ export function AuthorsPage() {
     enabled: showDuplicates,
   });
 
-  const editAuthor = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: { name?: string; sortName?: string } }) =>
-      api.put(`/authors/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['authors'] });
-      queryClient.invalidateQueries({ queryKey: ['author-duplicates'] });
-      setEditingId(null);
-    },
-    onError: (err) => console.error('Failed to edit author:', err),
-  });
-
-  const mergeAuthors = useMutation({
-    mutationFn: (data: { sourceIds: number[]; targetId: number }) =>
-      api.post('/authors/merge', data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['authors'] });
-      queryClient.invalidateQueries({ queryKey: ['author-duplicates'] });
-      setConfirmingMergeGroup(null);
-      setMergeTargetId(null);
-    },
-    onError: (err) => console.error('Failed to merge authors:', err),
-  });
-
-  const autoDedup = useMutation({
-    mutationFn: () => api.post<{ merged: number; groups: number }>('/authors/auto-dedup'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['authors'] });
-      queryClient.invalidateQueries({ queryKey: ['author-duplicates'] });
-    },
-    onError: (err) => console.error('Failed to auto-dedup:', err),
-  });
-
   const { data: hardcoverResults, isLoading: hardcoverLoading } = useQuery({
     queryKey: ['hardcover-author-search', linkSearch],
     queryFn: () => api.get<HardcoverAuthor[]>(`/authors/search-hardcover?q=${encodeURIComponent(linkSearch)}`),
     enabled: !!linkSearch && linkSearch.length >= 2 && linkingAuthorId !== null,
-  });
-
-  const linkHardcover = useMutation({
-    mutationFn: ({ authorId, hardcoverId }: { authorId: number; hardcoverId: number }) =>
-      api.post(`/authors/${authorId}/link-hardcover`, { hardcoverId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['authors'] });
-      setLinkingAuthorId(null);
-      setLinkSearch('');
-    },
-    onError: (err) => console.error('Failed to link author:', err),
   });
 
   const filteredAuthors = useMemo(() => {
@@ -452,15 +558,17 @@ export function AuthorsPage() {
         </CardHeader>
         {showDuplicates && (
           <CardContent className="space-y-3">
-            {duplicatesLoading ? (
+            {duplicatesLoading && (
               <div className="flex items-center justify-center py-6">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-            ) : !duplicates || duplicates.length === 0 ? (
+            )}
+            {!duplicatesLoading && (!duplicates || duplicates.length === 0) && (
               <p className="py-4 text-center text-sm text-muted-foreground">
                 No potential duplicates found.
               </p>
-            ) : (
+            )}
+            {!duplicatesLoading && duplicates && duplicates.length > 0 &&
               duplicates.map((group, groupIndex) => (
                 <DuplicateGroupRow
                   key={group.authors.map((a) => a.id).join('-')}
@@ -475,7 +583,7 @@ export function AuthorsPage() {
                   onSetMergeTarget={setMergeTargetId}
                 />
               ))
-            )}
+            }
           </CardContent>
         )}
       </Card>
@@ -483,84 +591,20 @@ export function AuthorsPage() {
       <Separator />
 
       {/* Author List */}
-      {isLoading ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="h-20 animate-pulse rounded-lg bg-muted" />
-          ))}
-        </div>
-      ) : filteredAuthors.length === 0 ? (
-        <div className="py-12 text-center">
-          <Users className="mx-auto h-12 w-12 text-muted-foreground" />
-          <p className="mt-3 text-lg font-medium">
-            {search ? 'No authors match your search' : 'No authors found'}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {search
-              ? 'Try a different search term.'
-              : 'Authors are added automatically when books are scanned.'}
-          </p>
-        </div>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {filteredAuthors.map((author) => (
-            <div
-              key={author.id}
-              className="rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50"
-            >
-              {editingId === author.id ? (
-                /* Editing state */
-                <div className="space-y-2">
-                  <Input
-                    value={editData.name}
-                    onChange={(e) => setEditData((d) => ({ ...d, name: e.target.value }))}
-                    placeholder="Name"
-                    className="h-8 text-sm"
-                  />
-                  <Input
-                    value={editData.sortName}
-                    onChange={(e) => setEditData((d) => ({ ...d, sortName: e.target.value }))}
-                    placeholder="Sort name"
-                    className="h-8 text-sm"
-                  />
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      onClick={saveEdit}
-                      disabled={editAuthor.isPending || !editData.name.trim()}
-                    >
-                      {editAuthor.isPending ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Check className="h-3 w-3" />
-                      )}
-                      Save
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={cancelEdit}
-                      disabled={editAuthor.isPending}
-                    >
-                      <X className="h-3 w-3" />
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <AuthorCardDisplay
-                  author={author}
-                  onStartEdit={startEdit}
-                  onStartLink={(a) => {
-                    setLinkingAuthorId(a.id);
-                    setLinkSearch(a.name);
-                  }}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <AuthorListContent
+        isLoading={isLoading}
+        filteredAuthors={filteredAuthors}
+        search={search}
+        editingId={editingId}
+        editData={editData}
+        setEditData={setEditData}
+        editAuthor={editAuthor}
+        saveEdit={saveEdit}
+        cancelEdit={cancelEdit}
+        startEdit={startEdit}
+        setLinkingAuthorId={setLinkingAuthorId}
+        setLinkSearch={setLinkSearch}
+      />
 
       {/* Hardcover link dialog */}
       <Dialog open={linkingAuthorId !== null} onOpenChange={(open) => { if (!open) { setLinkingAuthorId(null); setLinkSearch(''); } }}>

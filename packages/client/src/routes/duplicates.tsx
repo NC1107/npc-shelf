@@ -109,13 +109,14 @@ export function DuplicatesPage() {
       </div>
 
       {/* Content */}
-      {isLoading ? (
+      {isLoading && (
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-36 animate-pulse rounded-xl bg-muted" />
           ))}
         </div>
-      ) : !filteredGroups || filteredGroups.length === 0 ? (
+      )}
+      {!isLoading && (!filteredGroups || filteredGroups.length === 0) && (
         <div className="py-12 text-center">
           <Copy className="mx-auto h-12 w-12 text-muted-foreground" />
           <p className="mt-3 text-lg font-medium">No duplicates detected</p>
@@ -125,7 +126,8 @@ export function DuplicatesPage() {
               : 'Your library looks clean. No duplicate books were found.'}
           </p>
         </div>
-      ) : (
+      )}
+      {!isLoading && filteredGroups && filteredGroups.length > 0 && (
         <div className="space-y-4">
           {filteredGroups.map((group, groupIndex) => {
             const config = METHOD_CONFIG[group.method];

@@ -373,9 +373,9 @@ function LibraryPagination({
   );
 }
 
-// -- Main component --
+// -- Custom hooks extracted to reduce cognitive complexity --
 
-export function LibraryPage() {
+function useLibraryFilters() {
   const {
     librarySearch: search,
     libraryPage: page,
@@ -391,12 +391,6 @@ export function LibraryPage() {
     clearLibraryFilters,
     setLibraryView,
   } = useUiStore();
-
-  const [showFilters, setShowFilters] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-
-  const queryClient = useQueryClient();
 
   const activeFilterCount = [format, authorId, seriesId, needsReview, readingStatus].filter(Boolean).length;
   const hasAnyFilter = !!search || activeFilterCount > 0;
@@ -422,6 +416,17 @@ export function LibraryPage() {
     queryKey: ['books', { page, sortBy, sortOrder, q: search, format, authorId, seriesId, needsReview, readingStatus }],
     queryFn: () => api.get<PaginatedResponse<Book>>(`/books?${queryParams.toString()}`),
   });
+
+  return {
+    search, page, sortBy, sortOrder, format, authorId, seriesId, needsReview, readingStatus,
+    libraryView, setLibraryFilters, clearLibraryFilters, setLibraryView,
+    activeFilterCount, hasAnyFilter, filters, data, isLoading,
+  };
+}
+
+function useBookSelection(data: PaginatedResponse<Book> | undefined) {
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const toggleSelection = useCallback((id: number) => {
     setSelectedIds((prev) => {
@@ -449,6 +454,23 @@ export function LibraryPage() {
     setSelectMode(false);
     setSelectedIds(new Set());
   }, []);
+
+  return { selectMode, setSelectMode, selectedIds, toggleSelection, selectAll, deselectAll, exitSelectMode };
+}
+
+// -- Main component --
+
+export function LibraryPage() {
+  const {
+    search, page, sortBy, sortOrder, format, authorId, seriesId, needsReview, readingStatus,
+    libraryView, setLibraryFilters, clearLibraryFilters, setLibraryView,
+    activeFilterCount, hasAnyFilter, filters, data, isLoading,
+  } = useLibraryFilters();
+
+  const { selectMode, setSelectMode, selectedIds, toggleSelection, selectAll, deselectAll, exitSelectMode } = useBookSelection(data);
+
+  const [showFilters, setShowFilters] = useState(false);
+  const queryClient = useQueryClient();
 
   // Bulk mutations
   const bulkDelete = useMutation({

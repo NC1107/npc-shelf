@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { jobQueue } from '../../db/schema/jobs.js';
 
 // In-memory DB for testing query logic

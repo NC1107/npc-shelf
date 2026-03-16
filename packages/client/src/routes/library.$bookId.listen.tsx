@@ -84,15 +84,11 @@ function TrackOrEmptyList({ tracks, currentTrackIndex, onSwitchTrack }: Readonly
   return <p className="p-4 text-center text-sm text-muted-foreground">No chapters available</p>;
 }
 
-export function ListenPage() {
-  const { bookId } = useParams({ strict: false }) as { bookId: string };
-  const [showChapters, setShowChapters] = useState(false);
-  const [showSpeed, setShowSpeed] = useState(false);
-  const [showSleep, setShowSleep] = useState(false);
+// -- Custom hook to reduce cognitive complexity of ListenPage --
 
-  const store = useAudioStore();
+function useAudioQueries(bookId: string) {
   const queryClient = useQueryClient();
-  const sleepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const store = useAudioStore();
 
   const { data: book } = useQuery({
     queryKey: ['book', bookId],
@@ -112,13 +108,6 @@ export function ListenPage() {
     enabled: !!bookId,
   });
 
-  // Sync chapters to audio store for mini player access
-  useEffect(() => {
-    if (chapters && chapters.length > 0) {
-      store.setChapters(chapters);
-    }
-  }, [chapters]);
-
   const { data: savedProgress } = useQuery({
     queryKey: ['audio-progress', bookId],
     queryFn: () => api.get<AudioProgress | null>(`/audiobooks/${bookId}/progress`),
@@ -133,13 +122,82 @@ export function ListenPage() {
     },
   });
 
+  // Sync chapters to audio store for mini player access
+  useEffect(() => {
+    if (chapters && chapters.length > 0) {
+      store.setChapters(chapters);
+    }
+  }, [chapters]);
+
+  return { book, tracks, chapters, savedProgress, saveProgress };
+}
+
+function setupPlaybackEffects(
+  store: any,
+  sleepTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+  book: BookDetail | undefined,
+) {
+  // Apply playback rate
+  useEffect(() => {
+    AudioEngine.playbackRate = store.playbackRate;
+  }, [store.playbackRate]);
+
+  // Apply volume
+  useEffect(() => {
+    AudioEngine.volume = store.volume;
+  }, [store.volume]);
+
+  // Sleep timer
+  useEffect(() => {
+    if (sleepTimerRef.current) {
+      clearTimeout(sleepTimerRef.current);
+      sleepTimerRef.current = null;
+    }
+    if (store.sleepTimerMinutes) {
+      sleepTimerRef.current = setTimeout(() => {
+        AudioEngine.pause();
+        store.setPlaying(false);
+        store.setSleepTimer(null);
+      }, store.sleepTimerMinutes * 60 * 1000);
+    }
+    return () => {
+      if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current);
+    };
+  }, [store.sleepTimerMinutes]);
+
+  // Media Session API
+  useEffect(() => {
+    if (!book) return;
+    AudioEngine.setupMediaSession({
+      title: book.title,
+      artist: book.authors?.[0]?.author.name || '',
+      album: book.title,
+      coverUrl: book.coverPath ? `/api/books/${book.id}/cover/medium` : undefined,
+    });
+    setupMediaSessionHandlers(store);
+  }, [book]);
+}
+
+export function ListenPage() {
+  const { bookId } = useParams({ strict: false }) as { bookId: string };
+  const [showChapters, setShowChapters] = useState(false);
+  const [showSpeed, setShowSpeed] = useState(false);
+  const [showSleep, setShowSleep] = useState(false);
+
+  const store = useAudioStore();
+  const sleepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { book, tracks, chapters, savedProgress, saveProgress } = useAudioQueries(bookId);
+
+  setupPlaybackEffects(store, sleepTimerRef, book);
+
   const lastSaveTimeRef = useRef(0);
 
   // Initialize audio when book data is ready
   useEffect(() => {
     if (!book || !tracks || tracks.length === 0) return;
 
-    const numericBookId = parseInt(bookId);
+    const numericBookId = Number.parseInt(bookId);
     const isCurrentBook = store.bookId === numericBookId;
 
     // If this book is already loaded, just continue
@@ -208,7 +266,7 @@ export function ListenPage() {
       if (hasNextTrack) {
         const nextTrack = store.currentTrackIndex + 1;
         store.setTrack(nextTrack);
-        loadTrack(parseInt(bookId), nextTrack);
+        loadTrack(Number.parseInt(bookId), nextTrack);
         AudioEngine.play();
       } else {
         store.setPlaying(false);
@@ -223,46 +281,6 @@ export function ListenPage() {
       }
     });
   }, [tracks]);
-
-  // Apply playback rate
-  useEffect(() => {
-    AudioEngine.playbackRate = store.playbackRate;
-  }, [store.playbackRate]);
-
-  // Apply volume
-  useEffect(() => {
-    AudioEngine.volume = store.volume;
-  }, [store.volume]);
-
-  // Sleep timer
-  useEffect(() => {
-    if (sleepTimerRef.current) {
-      clearTimeout(sleepTimerRef.current);
-      sleepTimerRef.current = null;
-    }
-    if (store.sleepTimerMinutes) {
-      sleepTimerRef.current = setTimeout(() => {
-        AudioEngine.pause();
-        store.setPlaying(false);
-        store.setSleepTimer(null);
-      }, store.sleepTimerMinutes * 60 * 1000);
-    }
-    return () => {
-      if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current);
-    };
-  }, [store.sleepTimerMinutes]);
-
-  // Media Session API
-  useEffect(() => {
-    if (!book) return;
-    AudioEngine.setupMediaSession({
-      title: book.title,
-      artist: book.authors?.[0]?.author.name || '',
-      album: book.title,
-      coverUrl: book.coverPath ? `/api/books/${book.id}/cover/medium` : undefined,
-    });
-    setupMediaSessionHandlers(store);
-  }, [book]);
 
   const togglePlay = () => {
     if (store.isPlaying) {
@@ -287,18 +305,18 @@ export function ListenPage() {
   const skipForward = () => AudioEngine.seek(AudioEngine.currentTime + 30);
 
   const seekToChapter = (chapter: AudioChapter) => {
-    if (chapter.trackIndex !== store.currentTrackIndex) {
-      store.setTrack(chapter.trackIndex);
-      loadTrack(parseInt(bookId), chapter.trackIndex, chapter.startTime);
-    } else {
+    if (chapter.trackIndex === store.currentTrackIndex) {
       AudioEngine.seek(chapter.startTime);
+    } else {
+      store.setTrack(chapter.trackIndex);
+      loadTrack(Number.parseInt(bookId), chapter.trackIndex, chapter.startTime);
     }
     setShowChapters(false);
   };
 
   const switchTrack = (trackIndex: number) => {
     store.setTrack(trackIndex);
-    loadTrack(parseInt(bookId), trackIndex);
+    loadTrack(Number.parseInt(bookId), trackIndex);
     if (store.isPlaying) {
       setTimeout(() => AudioEngine.play(), 100);
     }
@@ -500,7 +518,7 @@ export function ListenPage() {
             max="1"
             step="0.05"
             value={store.volume}
-            onChange={(e) => store.setVolume(parseFloat(e.target.value))}
+            onChange={(e) => store.setVolume(Number.parseFloat(e.target.value))}
             className="w-20 accent-primary"
           />
         </div>

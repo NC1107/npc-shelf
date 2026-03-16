@@ -26,14 +26,13 @@ interface DirectoryBrowserProps {
   onSelect: (path: string) => void;
 }
 
-export function DirectoryBrowser({ open, onOpenChange, onSelect }: DirectoryBrowserProps) {
+export function DirectoryBrowser({ open, onOpenChange, onSelect }: Readonly<DirectoryBrowserProps>) {
   const [currentPath, setCurrentPath] = useState<string | undefined>(undefined);
 
+  const browseQuery = currentPath ? `?path=${encodeURIComponent(currentPath)}` : '';
   const { data, isLoading } = useQuery({
     queryKey: ['directory-browse', currentPath],
-    queryFn: () => api.get<BrowseResponse>(
-      `/libraries/browse${currentPath ? `?path=${encodeURIComponent(currentPath)}` : ''}`,
-    ),
+    queryFn: () => api.get<BrowseResponse>(`/libraries/browse${browseQuery}`),
     enabled: open,
   });
 
@@ -106,7 +105,7 @@ export function DirectoryBrowser({ open, onOpenChange, onSelect }: DirectoryBrow
               {data?.parent && (
                 <button
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent"
-                  onClick={() => setCurrentPath(data.parent!)}
+                  onClick={() => setCurrentPath(data.parent || undefined)}
                 >
                   <ArrowUp className="h-4 w-4 text-muted-foreground" />
                   <span className="text-muted-foreground">..</span>

@@ -8,6 +8,35 @@ import { SUPPORTED_EBOOK_FORMATS, SUPPORTED_AUDIO_FORMATS } from '@npc-shelf/sha
 
 export const librariesRouter = Router();
 
+function categorizeDirectoryEntries(
+  entries: fs.Dirent[],
+  dirPath: string,
+  audioExts: Set<string>,
+  ebookExts: Set<string>,
+): { directories: { name: string; path: string }[]; audioFiles: number; ebookFiles: number } {
+  const directories: { name: string; path: string }[] = [];
+  let audioFiles = 0;
+  let ebookFiles = 0;
+
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    try {
+      if (entry.isDirectory()) {
+        directories.push({ name: entry.name, path: path.join(dirPath, entry.name) });
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (audioExts.has(ext)) audioFiles++;
+        if (ebookExts.has(ext)) ebookFiles++;
+      }
+    } catch {
+      // skip entries we can't stat
+    }
+  }
+
+  directories.sort((a, b) => a.name.localeCompare(b.name));
+  return { directories, audioFiles, ebookFiles };
+}
+
 // Browse directories for library setup
 librariesRouter.get('/browse', (req, res) => {
   try {
@@ -24,27 +53,7 @@ librariesRouter.get('/browse', (req, res) => {
 
     const audioExts = new Set(SUPPORTED_AUDIO_FORMATS.map((f) => `.${f}`));
     const ebookExts = new Set(SUPPORTED_EBOOK_FORMATS.map((f) => `.${f}`));
-
-    const directories: { name: string; path: string }[] = [];
-    let audioFiles = 0;
-    let ebookFiles = 0;
-
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue; // skip hidden
-      try {
-        if (entry.isDirectory()) {
-          directories.push({ name: entry.name, path: path.join(normalizedPath, entry.name) });
-        } else if (entry.isFile()) {
-          const ext = path.extname(entry.name).toLowerCase();
-          if (audioExts.has(ext)) audioFiles++;
-          if (ebookExts.has(ext)) ebookFiles++;
-        }
-      } catch {
-        // skip entries we can't stat
-      }
-    }
-
-    directories.sort((a, b) => a.name.localeCompare(b.name));
+    const { directories, audioFiles, ebookFiles } = categorizeDirectoryEntries(entries, normalizedPath, audioExts, ebookExts);
 
     const parentPath = path.dirname(normalizedPath);
     res.json({

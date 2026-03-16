@@ -9,7 +9,7 @@ interface EpubReaderProps {
   onLocationChange?: (cfi: string, progress: number) => void;
 }
 
-export function EpubReader({ url, initialCfi, onLocationChange }: EpubReaderProps) {
+export function EpubReader({ url, initialCfi, onLocationChange }: Readonly<EpubReaderProps>) {
   const [location, setLocation] = useState<string | null>(initialCfi || null);
   const [epubData, setEpubData] = useState<ArrayBuffer | null>(null);
   const renditionRef = useRef<Rendition | null>(null);

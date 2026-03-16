@@ -11,7 +11,7 @@ interface AppShellProps {
   children: React.ReactNode;
 }
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children }: Readonly<AppShellProps>) {
   const bookId = useAudioStore((s) => s.bookId);
   const scanStatus = useScanStore((s) => s.scanStatus);
   const pathname = useRouterState({ select: (s) => s.location.pathname });

@@ -142,70 +142,72 @@ function looksLikePersonName(name: string): boolean {
 
 // --- Pass 4: File Grouping into BookCandidates ---
 
-export function groupIntoCandidates(
+function buildCandidate(
   files: FileCandidate[],
   directoryHintsMap: Map<string, DirectoryHints>,
   filenameHintsMap: Map<string, FilenameHints>,
-  libraryRoot: string,
+  sidecarDir: string,
+  isMultiFileAudio: boolean,
+  isAudiobook: boolean,
+): BookCandidate {
+  const firstFile = files[0];
+  const dirHints = directoryHintsMap.get(firstFile.path) || { authorHint: null, seriesHint: null, titleHint: null, confidence: 0 };
+  const fnHints = filenameHintsMap.get(firstFile.path) || { author: null, title: null, series: null, seriesPosition: null, trackNumber: null, confidence: 0 };
+  const sidecarMeta = parseSidecarMetadata(sidecarDir);
+  const resolved = resolveMetadata(dirHints, fnHints, sidecarMeta, isMultiFileAudio);
+
+  return {
+    files,
+    directoryHints: dirHints,
+    filenameHints: fnHints,
+    sidecarMeta,
+    resolvedTitle: resolved.title,
+    resolvedAuthor: resolved.author,
+    resolvedSeries: resolved.series,
+    resolvedSeriesPosition: resolved.seriesPosition,
+    resolvedSeriesList: resolved.seriesList,
+    isAudiobook,
+    coverSource: sidecarMeta?.coverPath ? 'sidecar' : null,
+  };
+}
+
+function groupAudioFiles(
+  audioFiles: FileCandidate[],
+  consumed: Set<string>,
+  directoryHintsMap: Map<string, DirectoryHints>,
+  filenameHintsMap: Map<string, FilenameHints>,
 ): BookCandidate[] {
   const candidates: BookCandidate[] = [];
-  const consumed = new Set<string>();
-
-  // Separate audio and ebook files
-  const audioFiles = files.filter((f) => f.isAudio);
-  const ebookFiles = files.filter((f) => !f.isAudio);
-
-  // --- A. Audio directory grouping ---
-  // Group audio files by directory
   const audioDirMap = new Map<string, FileCandidate[]>();
+
   for (const file of audioFiles) {
-    const dir = file.directory;
-    let list = audioDirMap.get(dir);
+    let list = audioDirMap.get(file.directory);
     if (!list) {
       list = [];
-      audioDirMap.set(dir, list);
+      audioDirMap.set(file.directory, list);
     }
     list.push(file);
   }
 
   for (const [dir, dirFiles] of audioDirMap) {
-    if (dirFiles.length >= 1) {
-      // Sort files naturally by filename (numeric prefix)
-      dirFiles.sort((a, b) => naturalCompare(a.filename, b.filename));
-
-      // Mark all as consumed
-      for (const f of dirFiles) consumed.add(f.path);
-
-      // Build candidate
-      const firstFile = dirFiles[0];
-      const dirHints = directoryHintsMap.get(firstFile.path) || { authorHint: null, seriesHint: null, titleHint: null, confidence: 0 };
-      const fnHints = filenameHintsMap.get(firstFile.path) || { author: null, title: null, series: null, seriesPosition: null, trackNumber: null, confidence: 0 };
-
-      // Parse sidecar metadata from the directory
-      const sidecarMeta = parseSidecarMetadata(dir);
-
-      // Resolve title/author
-      const resolved = resolveMetadata(dirHints, fnHints, sidecarMeta, dirFiles.length > 1);
-
-      candidates.push({
-        files: dirFiles,
-        directoryHints: dirHints,
-        filenameHints: fnHints,
-        sidecarMeta,
-        resolvedTitle: resolved.title,
-        resolvedAuthor: resolved.author,
-        resolvedSeries: resolved.series,
-        resolvedSeriesPosition: resolved.seriesPosition,
-        resolvedSeriesList: resolved.seriesList,
-        isAudiobook: true,
-        coverSource: sidecarMeta?.coverPath ? 'sidecar' : null,
-      });
-    }
+    if (dirFiles.length < 1) continue;
+    dirFiles.sort((a, b) => naturalCompare(a.filename, b.filename));
+    for (const f of dirFiles) consumed.add(f.path);
+    candidates.push(buildCandidate(dirFiles, directoryHintsMap, filenameHintsMap, dir, dirFiles.length > 1, true));
   }
 
-  // --- C. Ebook duplicate format grouping ---
-  // Group ebooks by normalized title in the same directory
+  return candidates;
+}
+
+function groupEbookFiles(
+  ebookFiles: FileCandidate[],
+  consumed: Set<string>,
+  directoryHintsMap: Map<string, DirectoryHints>,
+  filenameHintsMap: Map<string, FilenameHints>,
+): BookCandidate[] {
+  const candidates: BookCandidate[] = [];
   const ebookGroups = new Map<string, FileCandidate[]>();
+
   for (const file of ebookFiles) {
     if (consumed.has(file.path)) continue;
     const fnHints = filenameHintsMap.get(file.path);
@@ -221,30 +223,26 @@ export function groupIntoCandidates(
 
   for (const [, groupFiles] of ebookGroups) {
     for (const f of groupFiles) consumed.add(f.path);
-
-    const firstFile = groupFiles[0];
-    const dirHints = directoryHintsMap.get(firstFile.path) || { authorHint: null, seriesHint: null, titleHint: null, confidence: 0 };
-    const fnHints = filenameHintsMap.get(firstFile.path) || { author: null, title: null, series: null, seriesPosition: null, trackNumber: null, confidence: 0 };
-
-    const sidecarMeta = parseSidecarMetadata(firstFile.directory);
-    const resolved = resolveMetadata(dirHints, fnHints, sidecarMeta, false);
-
-    candidates.push({
-      files: groupFiles,
-      directoryHints: dirHints,
-      filenameHints: fnHints,
-      sidecarMeta,
-      resolvedTitle: resolved.title,
-      resolvedAuthor: resolved.author,
-      resolvedSeries: resolved.series,
-      resolvedSeriesPosition: resolved.seriesPosition,
-      resolvedSeriesList: resolved.seriesList,
-      isAudiobook: false,
-      coverSource: sidecarMeta?.coverPath ? 'sidecar' : null,
-    });
+    candidates.push(buildCandidate(groupFiles, directoryHintsMap, filenameHintsMap, groupFiles[0].directory, false, false));
   }
 
   return candidates;
+}
+
+export function groupIntoCandidates(
+  files: FileCandidate[],
+  directoryHintsMap: Map<string, DirectoryHints>,
+  filenameHintsMap: Map<string, FilenameHints>,
+  libraryRoot: string,
+): BookCandidate[] {
+  const consumed = new Set<string>();
+  const audioFiles = files.filter((f) => f.isAudio);
+  const ebookFiles = files.filter((f) => !f.isAudio);
+
+  const audioCandidates = groupAudioFiles(audioFiles, consumed, directoryHintsMap, filenameHintsMap);
+  const ebookCandidates = groupEbookFiles(ebookFiles, consumed, directoryHintsMap, filenameHintsMap);
+
+  return [...audioCandidates, ...ebookCandidates];
 }
 
 // --- Pass 5: Candidate Resolution (Metadata merging) ---
@@ -257,43 +255,39 @@ interface ResolvedMeta {
   seriesList: { name: string; position: number | null }[];
 }
 
+function resolveBestCandidate(sources: { value: string; confidence: number }[]): string | null {
+  if (sources.length === 0) return null;
+  sources.sort((a, b) => b.confidence - a.confidence);
+  return sources[0].value;
+}
+
 function resolveMetadata(
   dirHints: DirectoryHints,
   fnHints: FilenameHints,
   sidecar: SidecarMetadata | null,
   isMultiFileAudio: boolean,
 ): ResolvedMeta {
-  // Title resolution by priority
-  const titleCandidates: { value: string; confidence: number }[] = [];
-  if (sidecar?.title) titleCandidates.push({ value: sidecar.title, confidence: 0.9 });
-  if (dirHints.titleHint && isMultiFileAudio) titleCandidates.push({ value: dirHints.titleHint, confidence: 0.6 });
-  if (fnHints.title) titleCandidates.push({ value: fnHints.title, confidence: 0.5 });
-  if (dirHints.titleHint && !isMultiFileAudio) titleCandidates.push({ value: dirHints.titleHint, confidence: 0.3 });
+  const titleSources: { value: string; confidence: number }[] = [];
+  if (sidecar?.title) titleSources.push({ value: sidecar.title, confidence: 0.9 });
+  if (dirHints.titleHint && isMultiFileAudio) titleSources.push({ value: dirHints.titleHint, confidence: 0.6 });
+  if (fnHints.title) titleSources.push({ value: fnHints.title, confidence: 0.5 });
+  if (dirHints.titleHint && !isMultiFileAudio) titleSources.push({ value: dirHints.titleHint, confidence: 0.3 });
+  const title = cleanTitle(resolveBestCandidate(titleSources) ?? 'Unknown Title');
 
-  titleCandidates.sort((a, b) => b.confidence - a.confidence);
-  const title = cleanTitle(titleCandidates[0]?.value ?? 'Unknown Title');
+  const authorSources: { value: string; confidence: number }[] = [];
+  if (sidecar?.author) authorSources.push({ value: sidecar.author, confidence: 0.9 });
+  if (dirHints.authorHint) authorSources.push({ value: dirHints.authorHint, confidence: 0.6 });
+  if (fnHints.author) authorSources.push({ value: fnHints.author, confidence: 0.5 });
+  const author = resolveBestCandidate(authorSources);
 
-  // Author resolution by priority
-  const authorCandidates: { value: string; confidence: number }[] = [];
-  if (sidecar?.author) authorCandidates.push({ value: sidecar.author, confidence: 0.9 });
-  if (dirHints.authorHint) authorCandidates.push({ value: dirHints.authorHint, confidence: 0.6 });
-  if (fnHints.author) authorCandidates.push({ value: fnHints.author, confidence: 0.5 });
-
-  authorCandidates.sort((a, b) => b.confidence - a.confidence);
-  const author = authorCandidates[0]?.value ?? null;
-
-  // Series resolution
-  const seriesCandidates: { value: string; confidence: number }[] = [];
-  if (sidecar?.series) seriesCandidates.push({ value: sidecar.series, confidence: 0.9 });
-  if (dirHints.seriesHint) seriesCandidates.push({ value: dirHints.seriesHint, confidence: 0.6 });
-  if (fnHints.series) seriesCandidates.push({ value: fnHints.series, confidence: 0.5 });
-
-  seriesCandidates.sort((a, b) => b.confidence - a.confidence);
-  const series = seriesCandidates[0]?.value ?? null;
+  const seriesSources: { value: string; confidence: number }[] = [];
+  if (sidecar?.series) seriesSources.push({ value: sidecar.series, confidence: 0.9 });
+  if (dirHints.seriesHint) seriesSources.push({ value: dirHints.seriesHint, confidence: 0.6 });
+  if (fnHints.series) seriesSources.push({ value: fnHints.series, confidence: 0.5 });
+  const series = resolveBestCandidate(seriesSources);
 
   const seriesPosition = fnHints.seriesPosition ?? null;
 
-  // Build full series list from sidecar or single resolved series
   let seriesList: { name: string; position: number | null }[];
   if (sidecar?.seriesList && sidecar.seriesList.length > 0) {
     seriesList = sidecar.seriesList;

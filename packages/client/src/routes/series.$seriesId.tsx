@@ -31,7 +31,7 @@ function buildOrderedItems(books: SeriesBook[]): OrderItem[] {
     .map((b) => b.position)
     .filter((p): p is number => p !== null)
     .sort((a, b) => a - b);
-  const maxPosition = positions.length > 0 ? positions[positions.length - 1]! : 0;
+  const maxPosition = positions.length > 0 ? positions.at(-1)! : 0;
   const positionSet = new Set(positions);
 
   const items: OrderItem[] = [];
@@ -59,7 +59,7 @@ function buildOrderedItems(books: SeriesBook[]): OrderItem[] {
   return items;
 }
 
-function GapRow({ position }: { position: number }) {
+function GapRow({ position }: Readonly<{ position: number }>) {
   return (
     <div
       className="flex items-center gap-4 rounded-lg border border-dashed p-4 opacity-50"
@@ -73,9 +73,12 @@ function GapRow({ position }: { position: number }) {
   );
 }
 
-function BookRow({ book }: { book: SeriesBook }) {
+function BookRow({ book }: Readonly<{ book: SeriesBook }>) {
   const isAudiobook = book.audioSeconds && book.audioSeconds > 0;
   const progress = book.progressPercent;
+  const fallbackIcon = isAudiobook
+    ? <Headphones className="h-4 w-4 text-muted-foreground" />
+    : <BookOpen className="h-4 w-4 text-muted-foreground" />;
 
   return (
     <Link
@@ -104,9 +107,7 @@ function BookRow({ book }: { book: SeriesBook }) {
             loading="lazy"
           />
         ) : (
-          isAudiobook
-            ? <Headphones className="h-4 w-4 text-muted-foreground" />
-            : <BookOpen className="h-4 w-4 text-muted-foreground" />
+          fallbackIcon
         )}
       </div>
 

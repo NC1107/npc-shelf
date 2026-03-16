@@ -3,7 +3,7 @@
  * Lives outside React to persist across route navigation.
  */
 class AudioEngineClass {
-  private audio: HTMLAudioElement;
+  private readonly audio: HTMLAudioElement;
   private onTimeUpdateCb: ((time: number) => void) | null = null;
   private onEndedCb: (() => void) | null = null;
 

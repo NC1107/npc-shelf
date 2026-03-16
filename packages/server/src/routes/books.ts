@@ -245,6 +245,68 @@ booksRouter.get('/recently-active', (req, res) => {
   }
 });
 
+function applyBookFilters(params: {
+  q?: string;
+  format?: string;
+  authorId?: string;
+  narratorId?: string;
+  seriesId?: string;
+  needsReview?: string;
+  readingStatus?: string;
+}): number[] | undefined {
+  let bookIds: number[] | undefined;
+
+  if (params.q) {
+    try {
+      const ftsQuery = params.q.trim().split(/\s+/).map(word => `"${word}"*`).join(' ');
+      const ftsResults = db
+        .all<{ rowid: number }>(
+          sql`SELECT rowid FROM books_fts WHERE books_fts MATCH ${ftsQuery} ORDER BY rank LIMIT 1000`,
+        );
+      bookIds = ftsResults.map((r) => r.rowid);
+    } catch (ftsErr) {
+      console.warn('[Books] FTS5 query failed:', ftsErr);
+      bookIds = [];
+    }
+    if (bookIds.length === 0) return [];
+  }
+
+  if (params.format) bookIds = filterBookIdsByFormat(bookIds, params.format);
+  if (params.authorId) bookIds = filterBookIdsByAuthor(bookIds, params.authorId);
+  if (params.narratorId) bookIds = filterBookIdsByNarrator(bookIds, params.narratorId);
+  if (params.seriesId) bookIds = filterBookIdsBySeries(bookIds, params.seriesId);
+  if (params.needsReview === 'true') bookIds = filterBookIdsByReview(bookIds);
+  if (params.readingStatus && ['unread', 'reading', 'finished'].includes(params.readingStatus)) {
+    bookIds = filterBookIdsByReadingStatus(bookIds, params.readingStatus);
+  }
+
+  if (bookIds === undefined) {
+    const booksWithFiles = db
+      .all<{ book_id: number }>(sql`SELECT DISTINCT book_id FROM files`);
+    bookIds = booksWithFiles.map(r => r.book_id);
+  }
+
+  return bookIds;
+}
+
+function buildBookQuery(bookIds: number[], sortBy: string, sortOrder: string, page: number, pageSize: number) {
+  const query = db.select().from(schema.books).$dynamic()
+    .where(inArray(schema.books.id, bookIds));
+
+  const sortColumnsMap: Record<string, any> = {
+    createdAt: schema.books.createdAt,
+    updatedAt: schema.books.updatedAt,
+  };
+  const orderColumn = sortColumnsMap[sortBy] ?? schema.books.title;
+  const orderFn = sortOrder === 'desc' ? desc : asc;
+
+  return query
+    .orderBy(orderFn(orderColumn))
+    .limit(pageSize)
+    .offset((page - 1) * pageSize)
+    .all();
+}
+
 // List books (paginated, filterable, searchable)
 booksRouter.get('/', (req, res) => {
   try {
@@ -252,86 +314,25 @@ booksRouter.get('/', (req, res) => {
     const pageSize = Math.min(100, Math.max(1, Number.parseInt(req.query.pageSize as string) || 24));
     const sortBy = (req.query.sortBy as string) || 'title';
     const sortOrder = (req.query.sortOrder as string) === 'desc' ? 'desc' : 'asc';
-    const q = req.query.q as string | undefined;
-    const format = req.query.format as string | undefined;
-    const authorId = req.query.authorId as string | undefined;
-    const seriesId = req.query.seriesId as string | undefined;
-    const needsReview = req.query.needsReview as string | undefined;
-    const narratorId = req.query.narratorId as string | undefined;
-    const readingStatus = req.query.readingStatus as string | undefined;
 
-    let bookIds: number[] | undefined;
+    const bookIds = applyBookFilters({
+      q: req.query.q as string | undefined,
+      format: req.query.format as string | undefined,
+      authorId: req.query.authorId as string | undefined,
+      narratorId: req.query.narratorId as string | undefined,
+      seriesId: req.query.seriesId as string | undefined,
+      needsReview: req.query.needsReview as string | undefined,
+      readingStatus: req.query.readingStatus as string | undefined,
+    });
 
-    // FTS5 search — transform multi-word queries for proper FTS5 syntax
-    if (q) {
-      try {
-        const ftsQuery = q.trim().split(/\s+/).map(word => `"${word}"*`).join(' ');
-        const ftsResults = db
-          .all<{ rowid: number }>(
-            sql`SELECT rowid FROM books_fts WHERE books_fts MATCH ${ftsQuery} ORDER BY rank LIMIT 1000`,
-          );
-        bookIds = ftsResults.map((r) => r.rowid);
-      } catch (ftsErr) {
-        console.warn('[Books] FTS5 query failed:', ftsErr);
-        bookIds = [];
-      }
-      if (bookIds.length === 0) {
-        res.json({ items: [], total: 0, page, pageSize, totalPages: 0 });
-        return;
-      }
+    if (!bookIds || bookIds.length === 0) {
+      res.json({ items: [], total: 0, page, pageSize, totalPages: 0 });
+      return;
     }
 
-    if (format) bookIds = filterBookIdsByFormat(bookIds, format);
-    if (authorId) bookIds = filterBookIdsByAuthor(bookIds, authorId);
-    if (narratorId) bookIds = filterBookIdsByNarrator(bookIds, narratorId);
-    if (seriesId) bookIds = filterBookIdsBySeries(bookIds, seriesId);
-    if (needsReview === 'true') bookIds = filterBookIdsByReview(bookIds);
-    if (readingStatus && ['unread', 'reading', 'finished'].includes(readingStatus)) {
-      bookIds = filterBookIdsByReadingStatus(bookIds, readingStatus);
-    }
-
-    // Default: only show books that have at least one file
-    if (bookIds === undefined) {
-      const booksWithFiles = db
-        .all<{ book_id: number }>(
-          sql`SELECT DISTINCT book_id FROM files`,
-        );
-      bookIds = booksWithFiles.map(r => r.book_id);
-    }
-
-    // Build query
-    let query = db.select().from(schema.books).$dynamic();
-
-    if (bookIds !== undefined) {
-      if (bookIds.length === 0) {
-        res.json({ items: [], total: 0, page, pageSize, totalPages: 0 });
-        return;
-      }
-      query = query.where(inArray(schema.books.id, bookIds));
-    }
-
-    // Count total
-    const countResult = bookIds === undefined
-      ? db.select({ count: sql<number>`count(*)` }).from(schema.books).get()!
-      : { count: bookIds.length };
-    const total = countResult.count;
+    const total = bookIds.length;
     const totalPages = Math.ceil(total / pageSize);
-
-    // Sort
-    const sortColumnsMap: Record<string, any> = {
-      createdAt: schema.books.createdAt,
-      updatedAt: schema.books.updatedAt,
-    };
-    const orderColumn = sortColumnsMap[sortBy] ?? schema.books.title;
-    const orderFn = sortOrder === 'desc' ? desc : asc;
-
-    const rawItems = query
-      .orderBy(orderFn(orderColumn))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize)
-      .all();
-
-    // Enrich with authors and formats for BookCard display
+    const rawItems = buildBookQuery(bookIds, sortBy, sortOrder, page, pageSize);
     const items = enrichBooksWithMeta(rawItems);
 
     res.json({ items, total, page, pageSize, totalPages });
@@ -894,6 +895,32 @@ booksRouter.post('/bulk/delete', (req, res) => {
   }
 });
 
+function addTagsToBooks(bookIds: number[], tagNames: string[]): void {
+  for (const tagName of tagNames) {
+    const name = tagName.trim();
+    if (!name) continue;
+    let tag = db.select().from(schema.tags).where(eq(schema.tags.name, name)).get();
+    tag ??= db.insert(schema.tags).values({ name }).returning().get();
+    for (const bookId of bookIds) {
+      db.insert(schema.bookTags)
+        .values({ bookId, tagId: tag.id })
+        .onConflictDoNothing().run();
+    }
+  }
+}
+
+function removeTagsFromBooks(bookIds: number[], tagNames: string[]): void {
+  for (const tagName of tagNames) {
+    const tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName.trim())).get();
+    if (!tag) continue;
+    for (const bookId of bookIds) {
+      db.delete(schema.bookTags)
+        .where(sql`${schema.bookTags.bookId} = ${bookId} AND ${schema.bookTags.tagId} = ${tag.id}`)
+        .run();
+    }
+  }
+}
+
 // Bulk add/remove tags
 booksRouter.post('/bulk/tag', (req, res) => {
   try {
@@ -908,33 +935,8 @@ booksRouter.post('/bulk/tag', (req, res) => {
     }
 
     const tagTx = sqlite.transaction(() => {
-      // Add tags
-      if (addTags && addTags.length > 0) {
-        for (const tagName of addTags) {
-          const name = tagName.trim();
-          if (!name) continue;
-          let tag = db.select().from(schema.tags).where(eq(schema.tags.name, name)).get();
-          tag ??= db.insert(schema.tags).values({ name }).returning().get();
-          for (const bookId of bookIds) {
-            db.insert(schema.bookTags)
-              .values({ bookId, tagId: tag.id })
-              .onConflictDoNothing().run();
-          }
-        }
-      }
-
-      // Remove tags
-      if (removeTags && removeTags.length > 0) {
-        for (const tagName of removeTags) {
-          const tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName.trim())).get();
-          if (!tag) continue;
-          for (const bookId of bookIds) {
-            db.delete(schema.bookTags)
-              .where(sql`${schema.bookTags.bookId} = ${bookId} AND ${schema.bookTags.tagId} = ${tag.id}`)
-              .run();
-          }
-        }
-      }
+      if (addTags && addTags.length > 0) addTagsToBooks(bookIds, addTags);
+      if (removeTags && removeTags.length > 0) removeTagsFromBooks(bookIds, removeTags);
     });
 
     tagTx();

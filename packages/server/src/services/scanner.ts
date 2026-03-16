@@ -18,6 +18,65 @@ const AUDIO_EXTENSIONS = new Set(SUPPORTED_AUDIO_FORMATS as readonly string[]);
 // Shared scan status map — read by the SSE endpoint
 export const activeScanStatuses = new Map<number, ScanStatus>();
 
+function detectAndRemoveDeletedFiles(libraryId: number, diskPathSet: Set<string>): void {
+  const indexedFiles = db
+    .select({ id: schema.files.id, path: schema.files.path, bookId: schema.files.bookId })
+    .from(schema.files)
+    .where(eq(schema.files.libraryId, libraryId))
+    .all();
+
+  for (const removed of indexedFiles.filter((f) => !diskPathSet.has(f.path))) {
+    db.delete(schema.files).where(eq(schema.files.id, removed.id)).run();
+    const remainingFiles = db
+      .select({ id: schema.files.id })
+      .from(schema.files)
+      .where(eq(schema.files.bookId, removed.bookId))
+      .all();
+    if (remainingFiles.length === 0) {
+      db.delete(schema.audioTracks).where(eq(schema.audioTracks.bookId, removed.bookId)).run();
+      db.delete(schema.audioChapters).where(eq(schema.audioChapters.bookId, removed.bookId)).run();
+      db.delete(schema.books).where(eq(schema.books.id, removed.bookId)).run();
+    }
+  }
+}
+
+async function processCandidateBatch(
+  batch: BookCandidate[],
+  libraryId: number,
+  status: ScanStatus,
+): Promise<void> {
+  const results = await Promise.allSettled(
+    batch.map(c => persistCandidate(c, libraryId, status)),
+  );
+  for (const [idx, result] of results.entries()) {
+    if (result.status === 'fulfilled') {
+      if (result.value === 'added') status.booksAdded++;
+      else if (result.value === 'updated') status.booksUpdated++;
+    } else {
+      status.errors.push(`${batch[idx].resolvedTitle}: ${result.reason?.message}`);
+    }
+    status.filesProcessed += batch[idx].files.length;
+  }
+  activeScanStatuses.set(libraryId, { ...status });
+}
+
+function autoQueueMetadataMatch(booksAdded: number): void {
+  if (booksAdded === 0) return;
+  try {
+    const autoMatch = db.select().from(schema.settings)
+      .where(eq(schema.settings.key, 'metadataAutoMatch')).get();
+    if (autoMatch?.value === 'true') {
+      db.insert(schema.jobQueue).values({
+        jobType: 'match_all_metadata',
+        payload: '{}',
+      }).run();
+      console.log(`[Scanner] Auto-queued metadata match for ${booksAdded} new books`);
+    }
+  } catch (e) {
+    console.error('[Scanner] Failed to queue auto-match:', e);
+  }
+}
+
 export async function scanLibrary(libraryId: number): Promise<ScanStatus> {
   const library = db.select().from(schema.libraries).where(eq(schema.libraries.id, libraryId)).get();
   if (!library) {
@@ -38,77 +97,27 @@ export async function scanLibrary(libraryId: number): Promise<ScanStatus> {
   activeScanStatuses.set(libraryId, status);
 
   try {
-    // Pass 0: Detect removed files
     const diskFiles = discoverFiles(library.path);
     const diskPathSet = new Set(diskFiles.map((f) => f.path));
 
-    const indexedFiles = db
-      .select({ id: schema.files.id, path: schema.files.path, bookId: schema.files.bookId })
-      .from(schema.files)
-      .where(eq(schema.files.libraryId, libraryId))
-      .all();
+    detectAndRemoveDeletedFiles(libraryId, diskPathSet);
 
-    for (const removed of indexedFiles.filter((f) => !diskPathSet.has(f.path))) {
-      db.delete(schema.files).where(eq(schema.files.id, removed.id)).run();
-      const remainingFiles = db
-        .select({ id: schema.files.id })
-        .from(schema.files)
-        .where(eq(schema.files.bookId, removed.bookId))
-        .all();
-      if (remainingFiles.length === 0) {
-        // Clean up audio tracks and chapters before deleting book
-        db.delete(schema.audioTracks).where(eq(schema.audioTracks.bookId, removed.bookId)).run();
-        db.delete(schema.audioChapters).where(eq(schema.audioChapters.bookId, removed.bookId)).run();
-        db.delete(schema.books).where(eq(schema.books.id, removed.bookId)).run();
-      }
-    }
-
-    // Run the multi-pass pipeline
     const candidates = runPipeline(library.path);
     status.filesFound = diskFiles.length;
     activeScanStatuses.set(libraryId, { ...status });
 
-    // Process candidates in parallel batches for I/O throughput
     const SCAN_CONCURRENCY = 5;
     for (let i = 0; i < candidates.length; i += SCAN_CONCURRENCY) {
       const batch = candidates.slice(i, i + SCAN_CONCURRENCY);
-      const results = await Promise.allSettled(
-        batch.map(c => persistCandidate(c, libraryId, status)),
-      );
-      for (const [idx, result] of results.entries()) {
-        if (result.status === 'fulfilled') {
-          if (result.value === 'added') status.booksAdded++;
-          else if (result.value === 'updated') status.booksUpdated++;
-        } else {
-          status.errors.push(`${batch[idx].resolvedTitle}: ${result.reason?.message}`);
-        }
-        status.filesProcessed += batch[idx].files.length;
-      }
-      activeScanStatuses.set(libraryId, { ...status });
+      await processCandidateBatch(batch, libraryId, status);
     }
 
-    // Update last scanned time
     db.update(schema.libraries)
       .set({ lastScannedAt: new Date().toISOString() })
       .where(eq(schema.libraries.id, libraryId))
       .run();
 
-    // Auto-queue metadata matching if setting is enabled and new books were added
-    if (status.booksAdded > 0) {
-      try {
-        const autoMatch = db.select().from(schema.settings)
-          .where(eq(schema.settings.key, 'metadataAutoMatch')).get();
-        if (autoMatch?.value === 'true') {
-          db.insert(schema.jobQueue).values({
-            jobType: 'match_all_metadata',
-            payload: '{}',
-          }).run();
-          console.log(`[Scanner] Auto-queued metadata match for ${status.booksAdded} new books`);
-        }
-      } catch (e) {
-        console.error('[Scanner] Failed to queue auto-match:', e);
-      }
-    }
+    autoQueueMetadataMatch(status.booksAdded);
 
     status.status = 'complete';
     status.completedAt = new Date().toISOString();

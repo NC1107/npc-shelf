@@ -100,7 +100,7 @@ export const BookCard = React.memo(function BookCard({ book, view = 'grid' }: Bo
         {isAudiobook && (
           <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 rounded bg-black/60 px-1 py-0.5 text-[9px] text-white backdrop-blur-sm">
             <Headphones className="h-2.5 w-2.5" aria-hidden="true" />
-            {formatDuration(book.audioSeconds!)}
+            {formatDuration(book.audioSeconds as number)}
           </div>
         )}
       </div>

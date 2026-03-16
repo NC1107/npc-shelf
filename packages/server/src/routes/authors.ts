@@ -35,57 +35,71 @@ authorsRouter.get('/', (req, res) => {
   }
 });
 
+function flipSortName(sortName: string): string {
+  return sortName
+    .split(',')
+    .map((p) => p.trim().toLowerCase())
+    .reverse()
+    .join(' ');
+}
+
+function computeAuthorSimilarity(
+  nameA: string,
+  flipA: string,
+  nameB: string,
+  flipB: string,
+): number {
+  const sim = stringSimilarity(nameA, nameB);
+  const flipSim = Math.max(
+    stringSimilarity(nameA, flipB),
+    stringSimilarity(flipA, nameB),
+  );
+  return Math.max(sim, flipSim);
+}
+
+function buildDuplicateGroups(
+  allAuthors: { id: number; name: string; sortName: string }[],
+): Array<{ authors: typeof allAuthors; similarity: number }> {
+  const groups: Array<{ authors: typeof allAuthors; similarity: number }> = [];
+  const seen = new Set<number>();
+
+  for (let i = 0; i < allAuthors.length; i++) {
+    if (seen.has(allAuthors[i].id)) continue;
+    const group = [allAuthors[i]];
+    let maxSim = 0;
+
+    const nameA = allAuthors[i].name.toLowerCase().trim();
+    const flipA = flipSortName(allAuthors[i].sortName);
+
+    for (let j = i + 1; j < allAuthors.length; j++) {
+      if (seen.has(allAuthors[j].id)) continue;
+
+      const nameB = allAuthors[j].name.toLowerCase().trim();
+      const flipB = flipSortName(allAuthors[j].sortName);
+      const best = computeAuthorSimilarity(nameA, flipA, nameB, flipB);
+
+      if (best >= 0.8) {
+        group.push(allAuthors[j]);
+        seen.add(allAuthors[j].id);
+        maxSim = Math.max(maxSim, best);
+      }
+    }
+
+    if (group.length > 1) {
+      seen.add(allAuthors[i].id);
+      groups.push({ authors: group, similarity: Math.round(maxSim * 1000) / 1000 });
+      if (groups.length >= 50) break;
+    }
+  }
+
+  return groups;
+}
+
 // Detect potential duplicate authors
 authorsRouter.get('/duplicates', (_req, res) => {
   try {
     const allAuthors = db.select().from(schema.authors).all();
-    const groups: Array<{ authors: typeof allAuthors; similarity: number }> = [];
-    const seen = new Set<number>();
-
-    for (let i = 0; i < allAuthors.length; i++) {
-      if (seen.has(allAuthors[i].id)) continue;
-      const group = [allAuthors[i]];
-      let maxSim = 0;
-
-      const nameA = allAuthors[i].name.toLowerCase().trim();
-      // Generate flipped sort name: "Last, First" -> "first last"
-      const flipA = allAuthors[i].sortName
-        .split(',')
-        .map((p) => p.trim().toLowerCase())
-        .reverse()
-        .join(' ');
-
-      for (let j = i + 1; j < allAuthors.length; j++) {
-        if (seen.has(allAuthors[j].id)) continue;
-
-        const nameB = allAuthors[j].name.toLowerCase().trim();
-        const flipB = allAuthors[j].sortName
-          .split(',')
-          .map((p) => p.trim().toLowerCase())
-          .reverse()
-          .join(' ');
-
-        const sim = stringSimilarity(nameA, nameB);
-        const flipSim = Math.max(
-          stringSimilarity(nameA, flipB),
-          stringSimilarity(flipA, nameB),
-        );
-        const best = Math.max(sim, flipSim);
-
-        if (best >= 0.8) {
-          group.push(allAuthors[j]);
-          seen.add(allAuthors[j].id);
-          maxSim = Math.max(maxSim, best);
-        }
-      }
-
-      if (group.length > 1) {
-        seen.add(allAuthors[i].id);
-        groups.push({ authors: group, similarity: Math.round(maxSim * 1000) / 1000 });
-        if (groups.length >= 50) break;
-      }
-    }
-
+    const groups = buildDuplicateGroups(allAuthors);
     res.json(groups);
   } catch (error) {
     console.error('[Authors] Duplicates error:', error);

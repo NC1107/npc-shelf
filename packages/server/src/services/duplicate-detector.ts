@@ -131,12 +131,12 @@ function detectHashDuplicates(booksMap: Map<number, BookWithAuthors>): Duplicate
  * Only compares pairs that share at least one authorId or have the same
  * first 3 characters of normalized title, to avoid full O(n^2).
  */
-function detectTitleAuthorDuplicates(allBooks: BookWithAuthors[]): DuplicateGroup[] {
-  if (allBooks.length < 2) return [];
-
-  // Build indexes for candidate pair generation
-  const byAuthorId = new Map<number, number[]>(); // authorId -> book indexes
-  const byTitlePrefix = new Map<string, number[]>(); // prefix -> book indexes
+function buildDuplicateIndexes(allBooks: BookWithAuthors[]): {
+  byAuthorId: Map<number, number[]>;
+  byTitlePrefix: Map<string, number[]>;
+} {
+  const byAuthorId = new Map<number, number[]>();
+  const byTitlePrefix = new Map<string, number[]>();
 
   for (let i = 0; i < allBooks.length; i++) {
     const book = allBooks[i];
@@ -160,27 +160,41 @@ function detectTitleAuthorDuplicates(allBooks: BookWithAuthors[]): DuplicateGrou
     }
   }
 
-  // Collect candidate pairs (deduplicated)
-  const candidatePairs = new Set<string>();
+  return { byAuthorId, byTitlePrefix };
+}
 
-  function addPairsFromList(indexes: number[]) {
-    for (let a = 0; a < indexes.length; a++) {
-      for (let b = a + 1; b < indexes.length; b++) {
-        const lo = Math.min(indexes[a], indexes[b]);
-        const hi = Math.max(indexes[a], indexes[b]);
-        candidatePairs.add(`${lo}:${hi}`);
-      }
+function addPairsFromList(indexes: number[], candidatePairs: Set<string>): void {
+  for (let a = 0; a < indexes.length; a++) {
+    for (let b = a + 1; b < indexes.length; b++) {
+      const lo = Math.min(indexes[a], indexes[b]);
+      const hi = Math.max(indexes[a], indexes[b]);
+      candidatePairs.add(`${lo}:${hi}`);
     }
   }
+}
+
+function collectCandidatePairs(
+  byAuthorId: Map<number, number[]>,
+  byTitlePrefix: Map<string, number[]>,
+): Set<string> {
+  const candidatePairs = new Set<string>();
 
   for (const [, indexes] of byAuthorId) {
-    if (indexes.length > 1) addPairsFromList(indexes);
+    if (indexes.length > 1) addPairsFromList(indexes, candidatePairs);
   }
   for (const [, indexes] of byTitlePrefix) {
-    if (indexes.length > 1) addPairsFromList(indexes);
+    if (indexes.length > 1) addPairsFromList(indexes, candidatePairs);
   }
 
-  // Evaluate candidates
+  return candidatePairs;
+}
+
+function detectTitleAuthorDuplicates(allBooks: BookWithAuthors[]): DuplicateGroup[] {
+  if (allBooks.length < 2) return [];
+
+  const { byAuthorId, byTitlePrefix } = buildDuplicateIndexes(allBooks);
+  const candidatePairs = collectCandidatePairs(byAuthorId, byTitlePrefix);
+
   const groups: DuplicateGroup[] = [];
   for (const pairKey of candidatePairs) {
     const [iStr, jStr] = pairKey.split(':');

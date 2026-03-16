@@ -143,31 +143,20 @@ export function previewRename(bookId: number): RenamePreview[] {
   return results;
 }
 
-/**
- * Execute renames for a book. Updates disk and database atomically.
- */
-export function executeRename(bookId: number): RenameResult[] {
-  const previews = previewRename(bookId);
-  const toRename = previews.filter(p => p.status === 'rename');
-
-  if (toRename.length === 0) return [];
-
+function executeDiskMoves(toRename: RenamePreview[]): {
+  results: RenameResult[];
+  renamedPaths: { fileId: number; oldPath: string; newPath: string }[];
+} {
   const results: RenameResult[] = [];
   const renamedPaths: { fileId: number; oldPath: string; newPath: string }[] = [];
 
-  // Phase 1: Move files on disk
   for (const preview of toRename) {
     try {
-      // Verify source exists
       if (!fs.existsSync(preview.currentPath)) {
         results.push({ fileId: preview.fileId, success: false, oldPath: preview.currentPath, newPath: preview.newPath, error: 'Source file not found' });
         continue;
       }
-
-      // Create target directory
       fs.mkdirSync(path.dirname(preview.newPath), { recursive: true });
-
-      // Move file
       fs.renameSync(preview.currentPath, preview.newPath);
       renamedPaths.push({ fileId: preview.fileId, oldPath: preview.currentPath, newPath: preview.newPath });
       results.push({ fileId: preview.fileId, success: true, oldPath: preview.currentPath, newPath: preview.newPath });
@@ -176,28 +165,44 @@ export function executeRename(bookId: number): RenameResult[] {
     }
   }
 
-  // Phase 2: Update database atomically
-  if (renamedPaths.length > 0) {
-    try {
-      const updateDb = sqlite.transaction(() => {
-        for (const { fileId, newPath } of renamedPaths) {
-          db.update(schema.files)
-            .set({ path: newPath, filename: path.basename(newPath) })
-            .where(eq(schema.files.id, fileId))
-            .run();
-        }
-      });
-      updateDb();
-    } catch (err: any) {
-      // DB failed — try to move files back
-      for (const { oldPath, newPath } of renamedPaths) {
-        try { fs.renameSync(newPath, oldPath); } catch { /* ignore */ }
+  return { results, renamedPaths };
+}
+
+function commitDbUpdates(renamedPaths: { fileId: number; oldPath: string; newPath: string }[]): RenameResult[] | null {
+  try {
+    const updateDb = sqlite.transaction(() => {
+      for (const { fileId, newPath } of renamedPaths) {
+        db.update(schema.files)
+          .set({ path: newPath, filename: path.basename(newPath) })
+          .where(eq(schema.files.id, fileId))
+          .run();
       }
-      return renamedPaths.map(r => ({ ...r, success: false, error: `DB update failed: ${err.message}` }));
+    });
+    updateDb();
+    return null;
+  } catch (err: any) {
+    for (const { oldPath, newPath } of renamedPaths) {
+      try { fs.renameSync(newPath, oldPath); } catch { /* ignore */ }
     }
+    return renamedPaths.map(r => ({ ...r, success: false, error: `DB update failed: ${err.message}` }));
+  }
+}
+
+/**
+ * Execute renames for a book. Updates disk and database atomically.
+ */
+export function executeRename(bookId: number): RenameResult[] {
+  const previews = previewRename(bookId);
+  const toRename = previews.filter(p => p.status === 'rename');
+  if (toRename.length === 0) return [];
+
+  const { results, renamedPaths } = executeDiskMoves(toRename);
+
+  if (renamedPaths.length > 0) {
+    const dbError = commitDbUpdates(renamedPaths);
+    if (dbError) return dbError;
   }
 
-  // Phase 3: Clean up empty directories
   for (const { oldPath } of renamedPaths) {
     cleanEmptyDirs(path.dirname(oldPath));
   }

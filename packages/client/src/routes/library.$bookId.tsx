@@ -359,6 +359,454 @@ function getMatchLabel(
   return 'Match Metadata';
 }
 
+// -- Sub-components extracted from BookDetailContent to reduce cognitive complexity --
+
+function NeedsReviewSection({ book, bookId, showReviewPanel, setShowReviewPanel, acceptMatch, clearMatch }: any) {
+  const qc = useQueryClient();
+  if (book.needsReview !== 1 || !book.hardcoverId) return null;
+
+  if (showReviewPanel) {
+    return (
+      <ReviewPanel
+        book={book}
+        onAccept={() => { acceptMatch.mutate(); setShowReviewPanel(false); }}
+        onReject={() => { clearMatch.mutate(); setShowReviewPanel(false); }}
+        onApplyMatch={() => {
+          qc.invalidateQueries({ queryKey: ['book', bookId] });
+          setShowReviewPanel(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm dark:border-yellow-800 dark:bg-yellow-950">
+      <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        <span>Low confidence match ({book.matchConfidence ? `${Math.round(book.matchConfidence * 100)}%` : 'unknown'})</span>
+      </div>
+      <div className="flex items-center gap-2 ml-4">
+        <Button size="sm" variant="outline" onClick={() => setShowReviewPanel(true)}>
+          Review Match
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => acceptMatch.mutate()} disabled={acceptMatch.isPending}>
+          <Check className="h-3 w-3 mr-1" />
+          Accept
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => clearMatch.mutate()} disabled={clearMatch.isPending}>
+          <X className="h-3 w-3 mr-1" />
+          Reject
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function EditableAuthorsList({ isEditing, editData, setEditData, book }: any) {
+  if (isEditing) {
+    return (
+      <div className="space-y-1">
+        <span className="text-sm text-muted-foreground">Authors</span>
+        {(editData.authors || []).map((a: any, i: number) => (
+          <div key={i} className="flex items-center gap-2"> {/* NOSONAR - editable list without stable IDs */}
+            <input
+              className="flex-1 rounded border bg-background px-2 py-1 text-sm"
+              value={a.name}
+              onChange={(e) => {
+                const next = [...editData.authors];
+                next[i] = { ...next[i], name: e.target.value };
+                setEditData({ ...editData, authors: next });
+              }}
+              placeholder="Author name"
+            />
+            <select
+              className="rounded border bg-background px-2 py-1 text-sm"
+              value={a.role}
+              onChange={(e) => {
+                const next = [...editData.authors];
+                next[i] = { ...next[i], role: e.target.value };
+                setEditData({ ...editData, authors: next });
+              }}
+            >
+              <option value="author">Author</option>
+              <option value="narrator">Narrator</option>
+              <option value="editor">Editor</option>
+            </select>
+            <button
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => {
+                const next = editData.authors.filter((_: any, j: number) => j !== i);
+                setEditData({ ...editData, authors: next });
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+        <button
+          className="text-sm text-muted-foreground hover:text-foreground"
+          onClick={() => setEditData({ ...editData, authors: [...(editData.authors || []), { name: '', role: 'author' }] })}
+        >
+          + Add author
+        </button>
+      </div>
+    );
+  }
+
+  if (!book.authors || book.authors.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-3">
+      {book.authors.some((a: any) => a.author.photoUrl) && (
+        <div className="flex -space-x-2">
+          {book.authors.filter((a: any) => a.author.photoUrl).map((a: any) => (
+            <img
+              key={a.author.id}
+              src={a.author.photoUrl}
+              alt={a.author.name}
+              className="h-8 w-8 rounded-full border-2 border-background object-cover"
+            />
+          ))}
+        </div>
+      )}
+      <p className="text-lg text-muted-foreground">
+        by{' '}
+        {book.authors.map((a: any, i: number) => (
+          <span key={a.author.id || i}>
+            {i > 0 && ', '}
+            <Link
+              to="/library"
+              search={{ authorId: String(a.author.id) }}
+              className="font-medium text-foreground hover:underline"
+            >
+              {a.author.name}
+            </Link>
+            {a.role !== 'author' && (
+              <span className="text-sm"> ({a.role})</span>
+            )}
+          </span>
+        ))}
+      </p>
+    </div>
+  );
+}
+
+function EditableSeriesList({ isEditing, editData, setEditData, book }: any) {
+  if (isEditing) {
+    return (
+      <div className="space-y-1">
+        <span className="text-sm text-muted-foreground">Series</span>
+        {(editData.series || []).map((s: any, i: number) => (
+          <div key={i} className="flex items-center gap-2"> {/* NOSONAR - editable list without stable IDs */}
+            <input
+              className="flex-1 rounded border bg-background px-2 py-1 text-sm"
+              value={s.name}
+              onChange={(e) => {
+                const next = [...editData.series];
+                next[i] = { ...next[i], name: e.target.value };
+                setEditData({ ...editData, series: next });
+              }}
+              placeholder="Series name"
+            />
+            <input
+              className="w-16 rounded border bg-background px-2 py-1 text-sm"
+              type="number"
+              value={s.position ?? ''}
+              onChange={(e) => {
+                const next = [...editData.series];
+                next[i] = { ...next[i], position: e.target.value ? Number.parseFloat(e.target.value) : null };
+                setEditData({ ...editData, series: next });
+              }}
+              placeholder="#"
+            />
+            <button
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => {
+                const next = editData.series.filter((_: any, j: number) => j !== i);
+                setEditData({ ...editData, series: next });
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+        <button
+          className="text-sm text-muted-foreground hover:text-foreground"
+          onClick={() => setEditData({ ...editData, series: [...(editData.series || []), { name: '', position: null }] })}
+        >
+          + Add series
+        </button>
+      </div>
+    );
+  }
+
+  if (!book.series || book.series.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {book.series.map((s: any) => (
+        <Badge key={s.series.id || s.series.name} variant="secondary">
+          {s.series.name}
+          {s.position && <span className="ml-1 opacity-70">#{s.position}</span>}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function ReadingProgressSection({ hasBothFormats, activeFormat, readingProgress, audioProgress, book }: any) {
+  const showEbookProgress = (!hasBothFormats || activeFormat === 'ebook') && readingProgress && readingProgress.progressPercent > 0;
+  const showAudio = !hasBothFormats || activeFormat === 'audiobook';
+
+  return (
+    <>
+      {showEbookProgress && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Reading progress</span>
+            <span className="font-medium">{Math.round(readingProgress.progressPercent * 100)}%</span>
+          </div>
+          <Progress value={readingProgress.progressPercent * 100} />
+        </div>
+      )}
+      {showAudio && audioProgress && audioProgress.totalElapsedSeconds > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Listening progress</span>
+            <span className="font-medium">
+              {formatDuration(audioProgress.totalElapsedSeconds)} / {formatDuration(audioProgress.totalDurationSeconds || book.audioTotalDuration)}
+            </span>
+          </div>
+          <Progress
+            value={(audioProgress.totalDurationSeconds || book.audioTotalDuration) > 0
+              ? (audioProgress.totalElapsedSeconds / (audioProgress.totalDurationSeconds || book.audioTotalDuration)) * 100
+              : 0}
+          />
+        </div>
+      )}
+      {showAudio && !(audioProgress && audioProgress.totalElapsedSeconds > 0) && book.audioTotalDuration > 0 && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Headphones className="h-4 w-4" />
+          <span>Total: {formatDuration(book.audioTotalDuration)}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
+function BookActionButtons({
+  book, bookId, hasEbook, hasAudio,
+  navigate, isEditing, editData, startEditing, cancelEditing, saveEdit,
+  sendToKindle, matchMetadata, matchPolling, deleteBook, mergeAudiobook, mergeJob,
+  clearMatch, previewRename, writeMetadata, convertFormat,
+  setShowFiles, setSplitMode,
+}: any) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  return (
+    <>
+      {/* Primary actions */}
+      <div className="flex flex-wrap gap-2">
+        {hasEbook && (
+          <Button
+            size="lg"
+            onClick={() => navigate({ to: '/library/$bookId/read', params: { bookId } })}
+          >
+            <BookOpen className="h-4 w-4" />
+            Read
+          </Button>
+        )}
+        {hasAudio && (
+          <Button
+            size="lg"
+            variant={hasEbook ? 'secondary' : 'default'}
+            onClick={() => navigate({ to: '/library/$bookId/listen', params: { bookId } })}
+          >
+            <Play className="h-4 w-4" />
+            Listen
+          </Button>
+        )}
+      </div>
+
+      {/* Secondary actions */}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.open(`/api/books/${bookId}/file`, '_blank')}
+        >
+          <Download className="h-4 w-4" />
+          Download
+        </Button>
+        {hasEbook && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => sendToKindle.mutate()}
+            disabled={sendToKindle.isPending}
+          >
+            {sendToKindle.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+            {getMutationLabel(sendToKindle, { pending: 'Kindle', success: 'Sent!', error: 'Failed', default: 'Kindle' })}
+          </Button>
+        )}
+        {isEditing ? (
+          <>
+            <Button
+              size="sm"
+              onClick={() => saveEdit.mutate(editData)}
+              disabled={saveEdit.isPending}
+            >
+              {saveEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              Save
+            </Button>
+            <Button variant="ghost" size="sm" onClick={cancelEditing}>
+              <X className="h-4 w-4" />
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button variant="outline" size="sm" onClick={startEditing}>
+            <Edit className="h-4 w-4" />
+            Edit
+          </Button>
+        )}
+        {/* Tools dropdown */}
+        <DropdownMenu>
+          <DropdownTrigger>
+            <Button variant="outline" size="sm">
+              <Wrench className="h-4 w-4" />
+              Tools
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownTrigger>
+          <DropdownContent>
+            <DropdownItem
+              onClick={() => matchMetadata.mutate()}
+              disabled={matchMetadata.isPending || matchPolling}
+            >
+              {(matchMetadata.isPending || matchPolling) ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {getMatchLabel(matchMetadata, matchPolling, book.hardcoverId)}
+            </DropdownItem>
+            {hasAudio && book.audioTrackCount > 1 && (
+              <DropdownItem
+                onClick={() => mergeAudiobook.mutate()}
+                disabled={mergeAudiobook.isPending || mergeJob?.status === 'pending' || mergeJob?.status === 'processing'}
+              >
+                {mergeAudiobook.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Merge className="h-4 w-4" />
+                )}
+                {mergeAudiobook.isSuccess ? 'Queued!' : 'Merge Audio Tracks'}
+              </DropdownItem>
+            )}
+            {book.files && book.files.length > 1 && (
+              <DropdownItem
+                onClick={() => { setSplitMode(true); setShowFiles(true); }}
+              >
+                <Scissors className="h-4 w-4" />
+                Split Files into New Book
+              </DropdownItem>
+            )}
+            <DropdownItem
+              onClick={() => previewRename.mutate()}
+              disabled={previewRename.isPending}
+            >
+              <FolderSync className="h-4 w-4" />
+              {previewRename.isPending ? 'Loading...' : 'Rename Files'}
+            </DropdownItem>
+            <DropdownItem
+              onClick={() => writeMetadata.mutate()}
+              disabled={writeMetadata.isPending}
+            >
+              <PenLine className="h-4 w-4" />
+              {getMutationLabel(writeMetadata, { pending: 'Writing...', success: 'Done!', error: 'Write Metadata to Files', default: 'Write Metadata to Files' })}
+            </DropdownItem>
+            {book.files?.some((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format)) && (
+              <DropdownItem
+                onClick={() => {
+                  const file = book.files.find((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format));
+                  if (!file) return;
+                  const conversions: Record<string, string[]> = {
+                    epub: ['mobi', 'azw3', 'pdf'], mobi: ['epub'], azw3: ['epub'], pdf: ['epub'],
+                  };
+                  const targets = conversions[file.format] || [];
+                  const target = targets[0];
+                  if (target) convertFormat.mutate({ fileId: file.id, targetFormat: target });
+                }}
+                disabled={convertFormat.isPending}
+              >
+                <RefreshCw className="h-4 w-4" />
+                {getMutationLabel(convertFormat, { pending: 'Converting...', success: 'Queued!', error: 'Convert Format', default: 'Convert Format' })}
+              </DropdownItem>
+            )}
+            {book.hardcoverId && (
+              <DropdownItem
+                onClick={() => clearMatch.mutate()}
+                disabled={clearMatch.isPending}
+              >
+                <RotateCcw className="h-4 w-4" />
+                {clearMatch.isSuccess ? 'Cleared!' : 'Clear Metadata Match'}
+              </DropdownItem>
+            )}
+            <DropdownSeparator />
+            <DropdownItem
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={deleteBook.isPending}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete Book
+            </DropdownItem>
+          </DropdownContent>
+        </DropdownMenu>
+        {/* Merge job status banner */}
+        {mergeJob && (mergeJob.status === 'pending' || mergeJob.status === 'processing') && (
+          <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {mergeJob.status === 'pending' ? 'Merge queued...' : 'Merging audio tracks...'}
+          </div>
+        )}
+        {mergeJob?.status === 'completed' && (
+          <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+            <CheckCircle2 className="h-4 w-4" />
+            Merge complete!
+          </div>
+        )}
+        {mergeJob?.status === 'failed' && (
+          <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+            <AlertCircle className="h-4 w-4" />
+            Merge failed{mergeJob.error ? `: ${mergeJob.error}` : ''}
+          </div>
+        )}
+        {writeMetadata.isSuccess && (
+          <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+            <CheckCircle2 className="h-4 w-4" />
+            Metadata written to files
+          </div>
+        )}
+        <ConfirmDialog
+          open={showDeleteConfirm}
+          onOpenChange={setShowDeleteConfirm}
+          title="Delete book"
+          description={`Delete "${book.title}" from your library? This cannot be undone.`}
+          confirmLabel="Delete"
+          variant="destructive"
+          onConfirm={() => deleteBook.mutate()}
+        />
+      </div>
+    </>
+  );
+}
+
 function BookDetailContent({
   book, bookId, hasEbook, hasAudio, hasBothFormats,
   readingProgress, audioProgress,
@@ -371,7 +819,6 @@ function BookDetailContent({
   convertFormat, hardcoverDetails, chapters, editingChapters, setEditingChapters, chapterData, setChapterData, saveChapters,
 }: any) {
   const [activeFormat, setActiveFormat] = useState<'ebook' | 'audiobook'>(hasAudio ? 'audiobook' : 'ebook');
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showReviewPanel, setShowReviewPanel] = useState(false);
   const statusQueryClient = useQueryClient();
 
@@ -398,40 +845,14 @@ function BookDetailContent({
         Back to Library
       </Link>
 
-      {/* Needs Review banner / panel */}
-      {book.needsReview === 1 && book.hardcoverId && (
-        showReviewPanel ? (
-          <ReviewPanel
-            book={book}
-            onAccept={() => { acceptMatch.mutate(); setShowReviewPanel(false); }}
-            onReject={() => { clearMatch.mutate(); setShowReviewPanel(false); }}
-            onApplyMatch={() => {
-              statusQueryClient.invalidateQueries({ queryKey: ['book', bookId] });
-              setShowReviewPanel(false);
-            }}
-          />
-        ) : (
-          <div className="flex items-center justify-between rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm dark:border-yellow-800 dark:bg-yellow-950">
-            <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>Low confidence match ({book.matchConfidence ? `${Math.round(book.matchConfidence * 100)}%` : 'unknown'})</span>
-            </div>
-            <div className="flex items-center gap-2 ml-4">
-              <Button size="sm" variant="outline" onClick={() => setShowReviewPanel(true)}>
-                Review Match
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => acceptMatch.mutate()} disabled={acceptMatch.isPending}>
-                <Check className="h-3 w-3 mr-1" />
-                Accept
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => clearMatch.mutate()} disabled={clearMatch.isPending}>
-                <X className="h-3 w-3 mr-1" />
-                Reject
-              </Button>
-            </div>
-          </div>
-        )
-      )}
+      <NeedsReviewSection
+        book={book}
+        bookId={bookId}
+        showReviewPanel={showReviewPanel}
+        setShowReviewPanel={setShowReviewPanel}
+        acceptMatch={acceptMatch}
+        clearMatch={clearMatch}
+      />
 
       <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
         {/* Cover */}
@@ -514,145 +935,8 @@ function BookDetailContent({
             )}
           </div>
 
-          {isEditing ? (
-            <div className="space-y-1">
-              <span className="text-sm text-muted-foreground">Authors</span>
-              {(editData.authors || []).map((a: any, i: number) => (
-                <div key={i} className="flex items-center gap-2"> {/* NOSONAR - editable list without stable IDs */}
-                  <input
-                    className="flex-1 rounded border bg-background px-2 py-1 text-sm"
-                    value={a.name}
-                    onChange={(e) => {
-                      const next = [...editData.authors];
-                      next[i] = { ...next[i], name: e.target.value };
-                      setEditData({ ...editData, authors: next });
-                    }}
-                    placeholder="Author name"
-                  />
-                  <select
-                    className="rounded border bg-background px-2 py-1 text-sm"
-                    value={a.role}
-                    onChange={(e) => {
-                      const next = [...editData.authors];
-                      next[i] = { ...next[i], role: e.target.value };
-                      setEditData({ ...editData, authors: next });
-                    }}
-                  >
-                    <option value="author">Author</option>
-                    <option value="narrator">Narrator</option>
-                    <option value="editor">Editor</option>
-                  </select>
-                  <button
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={() => {
-                      const next = editData.authors.filter((_: any, j: number) => j !== i);
-                      setEditData({ ...editData, authors: next });
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-              <button
-                className="text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => setEditData({ ...editData, authors: [...(editData.authors || []), { name: '', role: 'author' }] })}
-              >
-                + Add author
-              </button>
-            </div>
-          ) : (
-            book.authors && book.authors.length > 0 && (
-              <div className="flex items-center gap-3">
-                {book.authors.some((a: any) => a.author.photoUrl) && (
-                  <div className="flex -space-x-2">
-                    {book.authors.filter((a: any) => a.author.photoUrl).map((a: any) => (
-                      <img
-                        key={a.author.id}
-                        src={a.author.photoUrl}
-                        alt={a.author.name}
-                        className="h-8 w-8 rounded-full border-2 border-background object-cover"
-                      />
-                    ))}
-                  </div>
-                )}
-                <p className="text-lg text-muted-foreground">
-                  by{' '}
-                  {book.authors.map((a: any, i: number) => (
-                    <span key={a.author.id || i}>
-                      {i > 0 && ', '}
-                      <Link
-                        to="/library"
-                        search={{ authorId: String(a.author.id) }}
-                        className="font-medium text-foreground hover:underline"
-                      >
-                        {a.author.name}
-                      </Link>
-                      {a.role !== 'author' && (
-                        <span className="text-sm"> ({a.role})</span>
-                      )}
-                    </span>
-                  ))}
-                </p>
-              </div>
-            )
-          )}
-
-          {isEditing ? (
-            <div className="space-y-1">
-              <span className="text-sm text-muted-foreground">Series</span>
-              {(editData.series || []).map((s: any, i: number) => (
-                <div key={i} className="flex items-center gap-2"> {/* NOSONAR - editable list without stable IDs */}
-                  <input
-                    className="flex-1 rounded border bg-background px-2 py-1 text-sm"
-                    value={s.name}
-                    onChange={(e) => {
-                      const next = [...editData.series];
-                      next[i] = { ...next[i], name: e.target.value };
-                      setEditData({ ...editData, series: next });
-                    }}
-                    placeholder="Series name"
-                  />
-                  <input
-                    className="w-16 rounded border bg-background px-2 py-1 text-sm"
-                    type="number"
-                    value={s.position ?? ''}
-                    onChange={(e) => {
-                      const next = [...editData.series];
-                      next[i] = { ...next[i], position: e.target.value ? parseFloat(e.target.value) : null };
-                      setEditData({ ...editData, series: next });
-                    }}
-                    placeholder="#"
-                  />
-                  <button
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={() => {
-                      const next = editData.series.filter((_: any, j: number) => j !== i);
-                      setEditData({ ...editData, series: next });
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-              <button
-                className="text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => setEditData({ ...editData, series: [...(editData.series || []), { name: '', position: null }] })}
-              >
-                + Add series
-              </button>
-            </div>
-          ) : (
-            book.series && book.series.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {book.series.map((s: any) => (
-                  <Badge key={s.series.id || s.series.name} variant="secondary">
-                    {s.series.name}
-                    {s.position && <span className="ml-1 opacity-70">#{s.position}</span>}
-                  </Badge>
-                ))}
-              </div>
-            )
-          )}
+          <EditableAuthorsList isEditing={isEditing} editData={editData} setEditData={setEditData} book={book} />
+          <EditableSeriesList isEditing={isEditing} editData={editData} setEditData={setEditData} book={book} />
 
           {/* Reading status badge */}
           {book.readingStatus && book.readingStatus !== 'unread' && (
@@ -668,245 +952,38 @@ function BookDetailContent({
             </button>
           )}
 
-          {/* Progress */}
-          {(!hasBothFormats || activeFormat === 'ebook') && readingProgress && readingProgress.progressPercent > 0 && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Reading progress</span>
-                <span className="font-medium">{Math.round(readingProgress.progressPercent * 100)}%</span>
-              </div>
-              <Progress value={readingProgress.progressPercent * 100} />
-            </div>
-          )}
+          <ReadingProgressSection
+            hasBothFormats={hasBothFormats}
+            activeFormat={activeFormat}
+            readingProgress={readingProgress}
+            audioProgress={audioProgress}
+            book={book}
+          />
 
-          {(() => {
-            const showAudio = !hasBothFormats || activeFormat === 'audiobook';
-            if (showAudio && audioProgress && audioProgress.totalElapsedSeconds > 0) {
-              return (
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Listening progress</span>
-                    <span className="font-medium">
-                      {formatDuration(audioProgress.totalElapsedSeconds)} / {formatDuration(audioProgress.totalDurationSeconds || book.audioTotalDuration)}
-                    </span>
-                  </div>
-                  <Progress
-                    value={(audioProgress.totalDurationSeconds || book.audioTotalDuration) > 0
-                      ? (audioProgress.totalElapsedSeconds / (audioProgress.totalDurationSeconds || book.audioTotalDuration)) * 100
-                      : 0}
-                  />
-                </div>
-              );
-            }
-            if (showAudio && book.audioTotalDuration > 0) {
-              return (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Headphones className="h-4 w-4" />
-                  <span>Total: {formatDuration(book.audioTotalDuration)}</span>
-                </div>
-              );
-            }
-            return null;
-          })()}
-
-          {/* Primary actions */}
-          <div className="flex flex-wrap gap-2">
-            {hasEbook && (
-              <Button
-                size="lg"
-                onClick={() => navigate({ to: '/library/$bookId/read', params: { bookId } })}
-              >
-                <BookOpen className="h-4 w-4" />
-                Read
-              </Button>
-            )}
-            {hasAudio && (
-              <Button
-                size="lg"
-                variant={hasEbook ? 'secondary' : 'default'}
-                onClick={() => navigate({ to: '/library/$bookId/listen', params: { bookId } })}
-              >
-                <Play className="h-4 w-4" />
-                Listen
-              </Button>
-            )}
-          </div>
-
-          {/* Secondary actions */}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open(`/api/books/${bookId}/file`, '_blank')}
-            >
-              <Download className="h-4 w-4" />
-              Download
-            </Button>
-            {hasEbook && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => sendToKindle.mutate()}
-                disabled={sendToKindle.isPending}
-              >
-                {sendToKindle.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-                {getMutationLabel(sendToKindle, { pending: 'Kindle', success: 'Sent!', error: 'Failed', default: 'Kindle' })}
-              </Button>
-            )}
-            {isEditing ? (
-              <>
-                <Button
-                  size="sm"
-                  onClick={() => saveEdit.mutate(editData)}
-                  disabled={saveEdit.isPending}
-                >
-                  {saveEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                  Save
-                </Button>
-                <Button variant="ghost" size="sm" onClick={cancelEditing}>
-                  <X className="h-4 w-4" />
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button variant="outline" size="sm" onClick={startEditing}>
-                <Edit className="h-4 w-4" />
-                Edit
-              </Button>
-            )}
-            {/* Tools dropdown */}
-            <DropdownMenu>
-              <DropdownTrigger>
-                <Button variant="outline" size="sm">
-                  <Wrench className="h-4 w-4" />
-                  Tools
-                  <ChevronDown className="h-3 w-3" />
-                </Button>
-              </DropdownTrigger>
-              <DropdownContent>
-                <DropdownItem
-                  onClick={() => matchMetadata.mutate()}
-                  disabled={matchMetadata.isPending || matchPolling}
-                >
-                  {(matchMetadata.isPending || matchPolling) ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                  {getMatchLabel(matchMetadata, matchPolling, book.hardcoverId)}
-                </DropdownItem>
-                {hasAudio && book.audioTrackCount > 1 && (
-                  <DropdownItem
-                    onClick={() => mergeAudiobook.mutate()}
-                    disabled={mergeAudiobook.isPending || mergeJob?.status === 'pending' || mergeJob?.status === 'processing'}
-                  >
-                    {mergeAudiobook.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Merge className="h-4 w-4" />
-                    )}
-                    {mergeAudiobook.isSuccess ? 'Queued!' : 'Merge Audio Tracks'}
-                  </DropdownItem>
-                )}
-                {book.files && book.files.length > 1 && (
-                  <DropdownItem
-                    onClick={() => { setSplitMode(true); setShowFiles(true); }}
-                  >
-                    <Scissors className="h-4 w-4" />
-                    Split Files into New Book
-                  </DropdownItem>
-                )}
-                <DropdownItem
-                  onClick={() => previewRename.mutate()}
-                  disabled={previewRename.isPending}
-                >
-                  <FolderSync className="h-4 w-4" />
-                  {previewRename.isPending ? 'Loading...' : 'Rename Files'}
-                </DropdownItem>
-                <DropdownItem
-                  onClick={() => writeMetadata.mutate()}
-                  disabled={writeMetadata.isPending}
-                >
-                  <PenLine className="h-4 w-4" />
-                  {getMutationLabel(writeMetadata, { pending: 'Writing...', success: 'Done!', error: 'Write Metadata to Files', default: 'Write Metadata to Files' })}
-                </DropdownItem>
-                {book.files?.some((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format)) && (
-                  <DropdownItem
-                    onClick={() => {
-                      const file = book.files.find((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format));
-                      if (!file) return;
-                      const conversions: Record<string, string[]> = {
-                        epub: ['mobi', 'azw3', 'pdf'], mobi: ['epub'], azw3: ['epub'], pdf: ['epub'],
-                      };
-                      const targets = conversions[file.format] || [];
-                      const target = targets[0];
-                      if (target) convertFormat.mutate({ fileId: file.id, targetFormat: target });
-                    }}
-                    disabled={convertFormat.isPending}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    {getMutationLabel(convertFormat, { pending: 'Converting...', success: 'Queued!', error: 'Convert Format', default: 'Convert Format' })}
-                  </DropdownItem>
-                )}
-                {book.hardcoverId && (
-                  <DropdownItem
-                    onClick={() => clearMatch.mutate()}
-                    disabled={clearMatch.isPending}
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                    {clearMatch.isSuccess ? 'Cleared!' : 'Clear Metadata Match'}
-                  </DropdownItem>
-                )}
-                <DropdownSeparator />
-                <DropdownItem
-                  onClick={() => setShowDeleteConfirm(true)}
-                  disabled={deleteBook.isPending}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Delete Book
-                </DropdownItem>
-              </DropdownContent>
-            </DropdownMenu>
-            {/* Merge job status banner */}
-            {mergeJob && (mergeJob.status === 'pending' || mergeJob.status === 'processing') && (
-              <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {mergeJob.status === 'pending' ? 'Merge queued...' : 'Merging audio tracks...'}
-              </div>
-            )}
-            {mergeJob?.status === 'completed' && (
-              <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-                <CheckCircle2 className="h-4 w-4" />
-                Merge complete!
-              </div>
-            )}
-            {mergeJob?.status === 'failed' && (
-              <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-                <AlertCircle className="h-4 w-4" />
-                Merge failed{mergeJob.error ? `: ${mergeJob.error}` : ''}
-              </div>
-            )}
-            {writeMetadata.isSuccess && (
-              <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-                <CheckCircle2 className="h-4 w-4" />
-                Metadata written to files
-              </div>
-            )}
-            <ConfirmDialog
-              open={showDeleteConfirm}
-              onOpenChange={setShowDeleteConfirm}
-              title="Delete book"
-              description={`Delete "${book.title}" from your library? This cannot be undone.`}
-              confirmLabel="Delete"
-              variant="destructive"
-              onConfirm={() => deleteBook.mutate()}
-            />
-          </div>
+          <BookActionButtons
+            book={book}
+            bookId={bookId}
+            hasEbook={hasEbook}
+            hasAudio={hasAudio}
+            navigate={navigate}
+            isEditing={isEditing}
+            editData={editData}
+            startEditing={startEditing}
+            cancelEditing={cancelEditing}
+            saveEdit={saveEdit}
+            sendToKindle={sendToKindle}
+            matchMetadata={matchMetadata}
+            matchPolling={matchPolling}
+            deleteBook={deleteBook}
+            mergeAudiobook={mergeAudiobook}
+            mergeJob={mergeJob}
+            clearMatch={clearMatch}
+            previewRename={previewRename}
+            writeMetadata={writeMetadata}
+            convertFormat={convertFormat}
+            setShowFiles={setShowFiles}
+            setSplitMode={setSplitMode}
+          />
 
           {/* Rename suggestion banner */}
           {hasRenameSuggestion && (
@@ -1035,7 +1112,7 @@ function BookDetailContent({
                 <EditField label="Publisher" value={editData.publisher || ''} onChange={(v) => setEditData({ ...editData, publisher: v })} />
                 <EditField label="Published" value={editData.publishDate || ''} onChange={(v) => setEditData({ ...editData, publishDate: v })} />
                 <EditField label="Language" value={editData.language || ''} onChange={(v) => setEditData({ ...editData, language: v })} />
-                <EditField label="Pages" value={String(editData.pageCount || '')} onChange={(v) => setEditData({ ...editData, pageCount: v ? parseInt(v) || null : null })} />
+                <EditField label="Pages" value={String(editData.pageCount || '')} onChange={(v) => setEditData({ ...editData, pageCount: v ? Number.parseInt(v) || null : null })} />
                 <EditField label="ISBN-13" value={editData.isbn13 || ''} onChange={(v) => setEditData({ ...editData, isbn13: v })} />
                 <EditField label="ISBN-10" value={editData.isbn10 || ''} onChange={(v) => setEditData({ ...editData, isbn10: v })} />
               </div>
@@ -1345,7 +1422,7 @@ function getConfidenceLabel(confidence: number): string {
   return 'Weak match — consider re-matching';
 }
 
-function MatchBreakdownTooltip({ breakdown, confidence }: { breakdown: MatchBreakdown | null; confidence: number }) {
+function MatchBreakdownTooltip({ breakdown, confidence }: Readonly<{ breakdown: MatchBreakdown | null; confidence: number }>) {
   if (!breakdown) {
     return (
       <div className="space-y-1 text-xs">
@@ -1412,7 +1489,7 @@ function MatchBreakdownTooltip({ breakdown, confidence }: { breakdown: MatchBrea
   );
 }
 
-function EditField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function EditField({ label, value, onChange }: Readonly<{ label: string; value: string; onChange: (v: string) => void }>) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-muted-foreground w-20 shrink-0">{label}:</span>
@@ -1425,7 +1502,7 @@ function EditField({ label, value, onChange }: { label: string; value: string; o
   );
 }
 
-function DetailItem({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
+function DetailItem({ icon: Icon, label, value }: Readonly<{ icon: any; label: string; value: string }>) {
   return (
     <div className="flex items-center gap-2">
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />

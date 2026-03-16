@@ -35,10 +35,10 @@ function resolveReaderFormat<T extends { format: string }>(files: T[] | undefine
 function ConversionErrorMessage({
   errorData,
   convertibleFile,
-}: {
+}: Readonly<{
   errorData: Error | null;
   convertibleFile: { format: string } | undefined;
-}) {
+}>) {
   if ((errorData as any)?.status === 422) {
     return (
       <>
@@ -188,6 +188,7 @@ export function ReadPage() {
     <div
       ref={containerRef}
       className="fixed inset-0 z-50 flex flex-col bg-background"
+      role="application"
       onMouseMove={resetToolbarTimer}
       onTouchStart={resetToolbarTimer}
     >

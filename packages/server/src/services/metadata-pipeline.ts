@@ -383,6 +383,63 @@ function cacheMatchResult(bookId: number, providerName: string, externalId: stri
     .run();
 }
 
+async function resolveMatchDetails(match: MetadataMatchResult): Promise<{
+  slug: string | null | undefined;
+  allSeries: MetadataSearchResult['allSeries'] | null | undefined;
+  canonicalTitle: string;
+}> {
+  let slug = match.slug;
+  let allSeries = match.allSeries;
+  let canonicalTitle = match.title;
+  if (!slug) {
+    const details = await provider.getDetails(match.externalId);
+    if (details) {
+      slug = details.slug;
+      allSeries = details.allSeries;
+      if (details.title) canonicalTitle = details.title;
+    }
+  }
+  return { slug, allSeries, canonicalTitle };
+}
+
+function buildEnrichmentUpdates(
+  book: { title: string; description: string | null; publishDate: string | null; isbn13: string | null; isbn10: string | null; pageCount: number | null },
+  match: MetadataMatchResult,
+  slug: string | null | undefined,
+  canonicalTitle: string,
+  bookId: number,
+): Record<string, any> {
+  const needsReview = match.confidence >= METADATA.ACCEPT_THRESHOLD ? 0 : 1;
+  const updates: Record<string, any> = {
+    hardcoverId: match.externalId,
+    hardcoverSlug: slug || null,
+    matchConfidence: match.confidence,
+    matchBreakdown: (match as any).matchBreakdown ? JSON.stringify((match as any).matchBreakdown) : null,
+    needsReview,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (!book.description && match.description) updates.description = sanitizeDescription(match.description);
+  if (!book.publishDate && match.publishDate) updates.publishDate = match.publishDate;
+  if (!book.isbn13 && match.isbn13) updates.isbn13 = match.isbn13;
+  if (!book.pageCount && match.pageCount) updates.pageCount = match.pageCount;
+  if (!book.isbn10 && match.isbn10) updates.isbn10 = match.isbn10;
+
+  if (canonicalTitle && isDirtyTitle(book.title, bookId)) {
+    updates.title = canonicalTitle;
+    console.log(`[Metadata] Fixed title "${book.title}" -> "${canonicalTitle}"`);
+  }
+
+  return updates;
+}
+
+async function downloadMatchCover(match: MetadataMatchResult, bookId: number): Promise<void> {
+  const coverPath = await downloadAndResizeCover(match.coverUrl!, bookId);
+  if (coverPath) {
+    db.update(schema.books).set({ coverPath }).where(eq(schema.books.id, bookId)).run();
+  }
+}
+
 /**
  * Match and enrich a single book by its database ID.
  * Downloads cover and updates all metadata.
@@ -412,47 +469,12 @@ export async function enrichBook(bookId: number): Promise<void> {
 
   console.log(`[Metadata] Matched "${book.title}" -> "${match.title}" (${(match.confidence * 100).toFixed(0)}% confidence)`);
 
-  // Fetch details for slug + allSeries if not present
-  let slug = match.slug;
-  let allSeries = match.allSeries;
-  let canonicalTitle = match.title;
-  if (!slug) {
-    const details = await provider.getDetails(match.externalId);
-    if (details) {
-      slug = details.slug;
-      allSeries = details.allSeries;
-      if (details.title) canonicalTitle = details.title;
-    }
-  }
-
-  const needsReview = match.confidence >= METADATA.ACCEPT_THRESHOLD ? 0 : 1;
-  const updates: Record<string, any> = {
-    hardcoverId: match.externalId,
-    hardcoverSlug: slug || null,
-    matchConfidence: match.confidence,
-    matchBreakdown: (match as any).matchBreakdown ? JSON.stringify((match as any).matchBreakdown) : null,
-    needsReview,
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (!book.description && match.description) updates.description = sanitizeDescription(match.description);
-  if (!book.publishDate && match.publishDate) updates.publishDate = match.publishDate;
-  if (!book.isbn13 && match.isbn13) updates.isbn13 = match.isbn13;
-  if (!book.pageCount && match.pageCount) updates.pageCount = match.pageCount;
-  if (!book.isbn10 && match.isbn10) updates.isbn10 = match.isbn10;
-
-  if (canonicalTitle && isDirtyTitle(book.title, bookId)) {
-    updates.title = canonicalTitle;
-    console.log(`[Metadata] Fixed title "${book.title}" -> "${canonicalTitle}"`);
-  }
-
+  const { slug, allSeries, canonicalTitle } = await resolveMatchDetails(match);
+  const updates = buildEnrichmentUpdates(book, match, slug, canonicalTitle, bookId);
   db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
 
   if (!book.coverPath && match.coverUrl) {
-    const coverPath = await downloadAndResizeCover(match.coverUrl, bookId);
-    if (coverPath) {
-      db.update(schema.books).set({ coverPath }).where(eq(schema.books.id, bookId)).run();
-    }
+    await downloadMatchCover(match, bookId);
   }
 
   await syncSeriesFromMatch(bookId, allSeries, match.series, match.seriesPosition);
@@ -705,6 +727,36 @@ function fixUnmatchedDirtyTitle(book: { id: number; title: string }): boolean {
 /**
  * Enrich local author records with bio and photo from Hardcover.
  */
+function findHardcoverAuthorMatch(
+  localAuthor: { name: string },
+  hcAuthors: { id: number; name: string }[],
+): { id: number; name: string } | undefined {
+  const normalizedLocal = normalizeForComparison(localAuthor.name);
+  return hcAuthors.find(
+    (a) => stringSimilarity(normalizeForComparison(a.name), normalizedLocal) > 0.85,
+  );
+}
+
+async function applyAuthorEnrichment(
+  localAuthor: { authorId: number; name: string; bio: string | null; photoUrl: string | null },
+  hcMatch: { id: number; name: string },
+): Promise<void> {
+  const details = await provider.getAuthorDetails(String(hcMatch.id));
+  if (!details) return;
+
+  const authorUpdates: Record<string, string> = {};
+  if (!localAuthor.bio && details.bio) authorUpdates.bio = details.bio;
+  if (!localAuthor.photoUrl && details.imageUrl) authorUpdates.photoUrl = details.imageUrl;
+
+  if (Object.keys(authorUpdates).length > 0) {
+    db.update(schema.authors)
+      .set(authorUpdates)
+      .where(eq(schema.authors.id, localAuthor.authorId))
+      .run();
+    console.log(`[Metadata] Enriched author "${localAuthor.name}" with ${Object.keys(authorUpdates).join(', ')}`);
+  }
+}
+
 async function enrichAuthorsFromMatch(bookId: number): Promise<void> {
   const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
   if (!book?.hardcoverId) return;
@@ -720,38 +772,18 @@ async function enrichAuthorsFromMatch(bookId: number): Promise<void> {
     .where(eq(schema.bookAuthors.bookId, bookId))
     .all();
 
-  // Skip if all authors already have bio and photo
   const needsEnrichment = localAuthors.filter(a => !a.bio || !a.photoUrl);
   if (needsEnrichment.length === 0) return;
 
-  // Get Hardcover author IDs from the book's contributions
   const hcAuthors = await provider.getBookAuthorIds(book.hardcoverId);
   if (hcAuthors.length === 0) return;
 
   for (const localAuthor of needsEnrichment) {
-    const normalizedLocal = normalizeForComparison(localAuthor.name);
-
-    // Match local author to Hardcover author by name similarity
-    const hcMatch = hcAuthors.find(
-      (a) => stringSimilarity(normalizeForComparison(a.name), normalizedLocal) > 0.85,
-    );
+    const hcMatch = findHardcoverAuthorMatch(localAuthor, hcAuthors);
     if (!hcMatch) continue;
 
     try {
-      const details = await provider.getAuthorDetails(String(hcMatch.id));
-      if (!details) continue;
-
-      const authorUpdates: Record<string, string> = {};
-      if (!localAuthor.bio && details.bio) authorUpdates.bio = details.bio;
-      if (!localAuthor.photoUrl && details.imageUrl) authorUpdates.photoUrl = details.imageUrl;
-
-      if (Object.keys(authorUpdates).length > 0) {
-        db.update(schema.authors)
-          .set(authorUpdates)
-          .where(eq(schema.authors.id, localAuthor.authorId))
-          .run();
-        console.log(`[Metadata] Enriched author "${localAuthor.name}" with ${Object.keys(authorUpdates).join(', ')}`);
-      }
+      await applyAuthorEnrichment(localAuthor, hcMatch);
     } catch (err) {
       console.warn(`[Metadata] Failed to enrich author "${localAuthor.name}":`, err);
     }

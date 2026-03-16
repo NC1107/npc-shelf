@@ -15,7 +15,7 @@ interface PdfReaderProps {
   onPageChange?: (page: number, totalPages: number) => void;
 }
 
-export function PdfReader({ url, initialPage, onPageChange }: PdfReaderProps) {
+export function PdfReader({ url, initialPage, onPageChange }: Readonly<PdfReaderProps>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
@@ -105,8 +105,8 @@ export function PdfReader({ url, initialPage, onPageChange }: PdfReaderProps) {
         renderPage(currentPage);
       }, 200);
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    globalThis.addEventListener('resize', handleResize);
+    return () => globalThis.removeEventListener('resize', handleResize);
   }, [currentPage, renderPage]);
 
   const goToPage = useCallback(
@@ -132,8 +132,8 @@ export function PdfReader({ url, initialPage, onPageChange }: PdfReaderProps) {
   );
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    globalThis.addEventListener('keydown', handleKeyDown);
+    return () => globalThis.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
   if (loading) {
@@ -171,7 +171,7 @@ export function PdfReader({ url, initialPage, onPageChange }: PdfReaderProps) {
             max={totalPages}
             value={currentPage}
             onChange={(e) => {
-              const p = parseInt(e.target.value);
+              const p = Number.parseInt(e.target.value);
               if (p >= 1 && p <= totalPages) goToPage(p);
             }}
             className="w-14 rounded border bg-background px-2 py-1 text-center text-sm"
