@@ -14,6 +14,83 @@ import { parseFilename, cleanTitle } from '../utils/filename-parser.js';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const { files } = schema;
 
+function filterBookIdsByFormat(bookIds: number[] | undefined, format: string): number[] {
+  const fileResults = db
+    .selectDistinct({ bookId: schema.files.bookId })
+    .from(schema.files)
+    .where(eq(schema.files.format, format as 'epub' | 'pdf' | 'mobi' | 'azw3' | 'm4b' | 'mp3'))
+    .all();
+  const formatBookIds = fileResults.map((r) => r.bookId);
+  return bookIds ? bookIds.filter((id) => formatBookIds.includes(id)) : formatBookIds;
+}
+
+function filterBookIdsByAuthor(bookIds: number[] | undefined, authorId: string): number[] {
+  const authorResults = db
+    .select({ bookId: schema.bookAuthors.bookId })
+    .from(schema.bookAuthors)
+    .where(eq(schema.bookAuthors.authorId, Number.parseInt(authorId)))
+    .all();
+  const authorBookIds = authorResults.map((r) => r.bookId);
+  return bookIds ? bookIds.filter((id) => authorBookIds.includes(id)) : authorBookIds;
+}
+
+function filterBookIdsByNarrator(bookIds: number[] | undefined, narratorId: string): number[] {
+  const narratorResults = db
+    .select({ bookId: schema.bookAuthors.bookId })
+    .from(schema.bookAuthors)
+    .where(sql`${schema.bookAuthors.authorId} = ${Number.parseInt(narratorId)} AND ${schema.bookAuthors.role} = 'narrator'`)
+    .all();
+  const narratorBookIds = narratorResults.map((r) => r.bookId);
+  return bookIds ? bookIds.filter((id) => narratorBookIds.includes(id)) : narratorBookIds;
+}
+
+function filterBookIdsBySeries(bookIds: number[] | undefined, seriesId: string): number[] {
+  const seriesResults = db
+    .select({ bookId: schema.bookSeries.bookId })
+    .from(schema.bookSeries)
+    .where(eq(schema.bookSeries.seriesId, Number.parseInt(seriesId)))
+    .all();
+  const seriesBookIds = seriesResults.map((r) => r.bookId);
+  return bookIds ? bookIds.filter((id) => seriesBookIds.includes(id)) : seriesBookIds;
+}
+
+function filterBookIdsByReview(bookIds: number[] | undefined): number[] {
+  const reviewResults = db.all<{ id: number }>(sql`SELECT id FROM books WHERE needs_review = 1`);
+  const reviewBookIds = reviewResults.map((r) => r.id);
+  return bookIds ? bookIds.filter((id) => reviewBookIds.includes(id)) : reviewBookIds;
+}
+
+function syncBookAuthors(bookId: number, authors: { name: string; role?: string }[]): void {
+  db.delete(schema.bookAuthors).where(eq(schema.bookAuthors.bookId, bookId)).run();
+  for (const a of authors) {
+    if (!a.name?.trim()) continue;
+    const name = a.name.trim();
+    const role = a.role || 'author';
+    let authorRow = db.select().from(schema.authors).where(eq(schema.authors.name, name)).get();
+    if (!authorRow) {
+      const parts = name.split(/\s+/);
+      const sortName = parts.length > 1 ? `${parts.at(-1)}, ${parts.slice(0, -1).join(' ')}` : name;
+      authorRow = db.insert(schema.authors).values({ name, sortName }).returning().get();
+    }
+    db.insert(schema.bookAuthors)
+      .values({ bookId, authorId: authorRow.id, role: role as 'author' | 'narrator' | 'editor' })
+      .onConflictDoNothing().run();
+  }
+}
+
+function syncBookSeries(bookId: number, series: { name: string; position?: number }[]): void {
+  db.delete(schema.bookSeries).where(eq(schema.bookSeries.bookId, bookId)).run();
+  for (const s of series) {
+    if (!s.name?.trim()) continue;
+    const name = s.name.trim();
+    let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, name)).get();
+    seriesRow ??= db.insert(schema.series).values({ name }).returning().get();
+    db.insert(schema.bookSeries)
+      .values({ bookId, seriesId: seriesRow.id, position: s.position ?? null })
+      .onConflictDoNothing().run();
+  }
+}
+
 export const booksRouter = Router();
 
 // Library stats
@@ -144,69 +221,11 @@ booksRouter.get('/', (req, res) => {
       }
     }
 
-    // Filter by format
-    if (format) {
-      const fileResults = db
-        .selectDistinct({ bookId: schema.files.bookId })
-        .from(schema.files)
-        .where(eq(schema.files.format, format as 'epub' | 'pdf' | 'mobi' | 'azw3' | 'm4b' | 'mp3'))
-        .all();
-      const formatBookIds = fileResults.map((r) => r.bookId);
-      bookIds = bookIds
-        ? bookIds.filter((id) => formatBookIds.includes(id))
-        : formatBookIds;
-    }
-
-    // Filter by author
-    if (authorId) {
-      const authorResults = db
-        .select({ bookId: schema.bookAuthors.bookId })
-        .from(schema.bookAuthors)
-        .where(eq(schema.bookAuthors.authorId, Number.parseInt(authorId)))
-        .all();
-      const authorBookIds = authorResults.map((r) => r.bookId);
-      bookIds = bookIds
-        ? bookIds.filter((id) => authorBookIds.includes(id))
-        : authorBookIds;
-    }
-
-    // Filter by narrator
-    if (narratorId) {
-      const narratorResults = db
-        .select({ bookId: schema.bookAuthors.bookId })
-        .from(schema.bookAuthors)
-        .where(sql`${schema.bookAuthors.authorId} = ${Number.parseInt(narratorId)} AND ${schema.bookAuthors.role} = 'narrator'`)
-        .all();
-      const narratorBookIds = narratorResults.map((r) => r.bookId);
-      bookIds = bookIds
-        ? bookIds.filter((id) => narratorBookIds.includes(id))
-        : narratorBookIds;
-    }
-
-    // Filter by series
-    if (seriesId) {
-      const seriesResults = db
-        .select({ bookId: schema.bookSeries.bookId })
-        .from(schema.bookSeries)
-        .where(eq(schema.bookSeries.seriesId, Number.parseInt(seriesId)))
-        .all();
-      const seriesBookIds = seriesResults.map((r) => r.bookId);
-      bookIds = bookIds
-        ? bookIds.filter((id) => seriesBookIds.includes(id))
-        : seriesBookIds;
-    }
-
-    // Filter by needs_review
-    if (needsReview === 'true') {
-      const reviewResults = db
-        .all<{ id: number }>(
-          sql`SELECT id FROM books WHERE needs_review = 1`,
-        );
-      const reviewBookIds = reviewResults.map((r) => r.id);
-      bookIds = bookIds
-        ? bookIds.filter((id) => reviewBookIds.includes(id))
-        : reviewBookIds;
-    }
+    if (format) bookIds = filterBookIdsByFormat(bookIds, format);
+    if (authorId) bookIds = filterBookIdsByAuthor(bookIds, authorId);
+    if (narratorId) bookIds = filterBookIdsByNarrator(bookIds, narratorId);
+    if (seriesId) bookIds = filterBookIdsBySeries(bookIds, seriesId);
+    if (needsReview === 'true') bookIds = filterBookIdsByReview(bookIds);
 
     // Default: only show books that have at least one file
     if (bookIds === undefined) {
@@ -535,49 +554,11 @@ booksRouter.put('/:id', (req, res) => {
 
     db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
 
-    // Update authors if provided: { authors: [{ name: string, role?: string }] }
     if (req.body.authors && Array.isArray(req.body.authors)) {
-      // Remove existing author links
-      db.delete(schema.bookAuthors).where(eq(schema.bookAuthors.bookId, bookId)).run();
-
-      for (const a of req.body.authors as { name: string; role?: string }[]) {
-        if (!a.name?.trim()) continue;
-        const name = a.name.trim();
-        const role = a.role || 'author';
-
-        // Find or create author
-        let authorRow = db.select().from(schema.authors).where(eq(schema.authors.name, name)).get();
-        if (!authorRow) {
-          const parts = name.split(/\s+/);
-          const sortName = parts.length > 1 ? `${parts.at(-1)}, ${parts.slice(0, -1).join(' ')}` : name;
-          authorRow = db.insert(schema.authors).values({ name, sortName }).returning().get();
-        }
-
-        db.insert(schema.bookAuthors)
-          .values({ bookId, authorId: authorRow.id, role: role as 'author' | 'narrator' | 'editor' })
-          .onConflictDoNothing()
-          .run();
-      }
+      syncBookAuthors(bookId, req.body.authors);
     }
-
-    // Update series if provided: { series: [{ name: string, position?: number }] }
     if (req.body.series && Array.isArray(req.body.series)) {
-      // Remove existing series links
-      db.delete(schema.bookSeries).where(eq(schema.bookSeries.bookId, bookId)).run();
-
-      for (const s of req.body.series as { name: string; position?: number }[]) {
-        if (!s.name?.trim()) continue;
-        const name = s.name.trim();
-
-        // Find or create series
-        let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, name)).get();
-        seriesRow ??= db.insert(schema.series).values({ name }).returning().get();
-
-        db.insert(schema.bookSeries)
-          .values({ bookId, seriesId: seriesRow.id, position: s.position ?? null })
-          .onConflictDoNothing()
-          .run();
-      }
+      syncBookSeries(bookId, req.body.series);
     }
 
     const updated = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();

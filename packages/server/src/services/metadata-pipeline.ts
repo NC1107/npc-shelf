@@ -76,6 +76,16 @@ export interface ScoreBreakdown {
   matchedAuthor: string | null;
 }
 
+function bestAuthorSimilarity(localAuthor: string, resultAuthors: string[]): number {
+  const localNorm = normalizeForComparison(localAuthor);
+  let best = 0;
+  for (const ra of resultAuthors) {
+    const sim = stringSimilarity(localNorm, normalizeForComparison(ra));
+    if (sim > best) best = sim;
+  }
+  return best;
+}
+
 export function scoreResult(result: MetadataSearchResult, context: ScoringContext): ScoreBreakdown {
   const titleSim = stringSimilarity(
     normalizeForComparison(context.localTitle),
@@ -83,79 +93,38 @@ export function scoreResult(result: MetadataSearchResult, context: ScoringContex
   );
   const titleScore = titleSim * 50;
 
-  // Author similarity — check against all result authors, take best
-  let authorSim = 0;
-  if (context.localAuthor) {
-    const localNorm = normalizeForComparison(context.localAuthor);
-    for (const ra of result.authors) {
-      const sim = stringSimilarity(localNorm, normalizeForComparison(ra));
-      if (sim > authorSim) authorSim = sim;
-    }
-  }
+  const authorSim = context.localAuthor
+    ? bestAuthorSimilarity(context.localAuthor, result.authors)
+    : 0;
   const authorScore = context.localAuthor ? authorSim * 30 : 0;
 
-  // Series bonus: +10 if local series matches result series
-  let seriesBonus = 0;
-  if (context.localSeries && result.series) {
-    const seriesSim = stringSimilarity(
-      normalizeForComparison(context.localSeries),
-      normalizeForComparison(result.series),
-    );
-    if (seriesSim > 0.7) seriesBonus = 10;
-  }
+  const seriesBonus = (context.localSeries && result.series &&
+    stringSimilarity(normalizeForComparison(context.localSeries), normalizeForComparison(result.series)) > 0.7)
+    ? 10 : 0;
 
-  // Index bonus: +5 if series matches AND positions equal
-  let indexBonus = 0;
-  if (seriesBonus > 0 && context.localSeriesPosition != null && result.seriesPosition != null) {
-    if (context.localSeriesPosition === result.seriesPosition) indexBonus = 5;
-  }
+  const indexBonus = (seriesBonus > 0 && context.localSeriesPosition != null &&
+    result.seriesPosition != null && context.localSeriesPosition === result.seriesPosition)
+    ? 5 : 0;
 
-  // Format bonus: +5 placeholder (would need audiobook edition data from API)
   const formatBonus = 0;
 
-  // Directory author bonus: +5 if dir author matches result author
-  let dirAuthorBonus = 0;
-  if (context.directoryAuthor) {
-    const dirNorm = normalizeForComparison(context.directoryAuthor);
-    for (const ra of result.authors) {
-      if (stringSimilarity(dirNorm, normalizeForComparison(ra)) > 0.7) {
-        dirAuthorBonus = 5;
-        break;
-      }
-    }
-  }
+  const dirAuthorBonus = context.directoryAuthor
+    ? (bestAuthorSimilarity(context.directoryAuthor, result.authors) > 0.7 ? 5 : 0)
+    : 0;
 
-  // Author mismatch penalty: -30 if local author present but doesn't match ANY result author
-  let authorPenalty = 0;
-  if (context.localAuthor && result.authors.length > 0) {
-    const localNorm = normalizeForComparison(context.localAuthor);
-    const bestMatch = Math.max(...result.authors.map(ra =>
-      stringSimilarity(localNorm, normalizeForComparison(ra)),
-    ));
-    if (bestMatch < 0.3) authorPenalty = -30;
-  }
+  const authorPenalty = (context.localAuthor && result.authors.length > 0 &&
+    bestAuthorSimilarity(context.localAuthor, result.authors) < 0.3)
+    ? -30 : 0;
 
   const raw = titleScore + authorScore + seriesBonus + indexBonus + formatBonus + dirAuthorBonus + authorPenalty;
   const total = Math.max(0, Math.min(100, raw));
 
   return {
-    titleScore,
-    authorScore,
-    seriesBonus,
-    indexBonus,
-    formatBonus,
-    dirAuthorBonus,
-    authorPenalty,
-    total,
-    // Legacy fields
-    titleSimilarity: titleSim,
-    authorSimilarity: authorSim,
-    titleWeight: 0.5,
-    authorWeight: 0.3,
-    localTitle: context.localTitle,
-    matchedTitle: result.title,
-    localAuthor: context.localAuthor,
-    matchedAuthor: result.authors[0] || null,
+    titleScore, authorScore, seriesBonus, indexBonus, formatBonus, dirAuthorBonus, authorPenalty, total,
+    titleSimilarity: titleSim, authorSimilarity: authorSim,
+    titleWeight: 0.5, authorWeight: 0.3,
+    localTitle: context.localTitle, matchedTitle: result.title,
+    localAuthor: context.localAuthor, matchedAuthor: result.authors[0] || null,
   };
 }
 
@@ -327,27 +296,8 @@ function buildScoringContext(bookId: number, _searchTitle: string, _authorName: 
   return ctx;
 }
 
-/**
- * Match and enrich a single book by its database ID.
- * Downloads cover and updates all metadata.
- */
-export async function enrichBook(bookId: number): Promise<void> {
-  const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
-  if (!book) return;
-
-  // Get existing author for matching
-  const authorRow = db
-    .select({ name: schema.authors.name })
-    .from(schema.bookAuthors)
-    .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
-    .where(eq(schema.bookAuthors.bookId, bookId))
-    .get();
-
-  const isbn = book.isbn13 || book.isbn10 || undefined;
+function resolveSearchTitle(book: { title: string; isbn13: string | null; isbn10: string | null }, bookId: number, authorName: string | null): string {
   let searchTitle = cleanTitle(book.title);
-
-  // When stored title is garbage (equals author name, has format artifacts, etc.),
-  // extract a search title from the filename instead
   if (isDirtyTitle(book.title, bookId)) {
     const file = db.select({ path: schema.files.path, filename: schema.files.filename })
       .from(schema.files)
@@ -357,18 +307,100 @@ export async function enrichBook(bookId: number): Promise<void> {
       const dirPath = file.path.replace(/[\\/][^\\/]+$/, '');
       const parsed = parseFilename(file.filename, dirPath);
       const fileTitle = cleanTitle(parsed.title);
-      if (fileTitle.toLowerCase() !== (authorRow?.name || '').toLowerCase()) {
+      if (fileTitle.toLowerCase() !== (authorName || '').toLowerCase()) {
         searchTitle = fileTitle;
         console.log(`[Metadata] Using filename title "${searchTitle}" instead of dirty "${book.title}"`);
       }
     }
   }
+  return searchTitle;
+}
+
+async function syncSeriesFromMatch(
+  bookId: number,
+  allSeries: MetadataSearchResult['allSeries'] | null | undefined,
+  fallbackSeries: string | null | undefined,
+  fallbackPosition: number | null | undefined,
+): Promise<void> {
+  const existingSeries = db.select().from(schema.bookSeries).where(eq(schema.bookSeries.bookId, bookId)).get();
+  if (existingSeries) return;
+
+  if (allSeries && allSeries.length > 0) {
+    for (const s of allSeries) {
+      let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, s.name)).get();
+      seriesRow ??= db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
+      db.insert(schema.bookSeries)
+        .values({ bookId, seriesId: seriesRow.id, position: s.position })
+        .onConflictDoNothing()
+        .run();
+
+      if (!seriesRow.description && s.seriesId) {
+        try {
+          const seriesDetails = await provider.getSeriesDetails(s.seriesId);
+          if (seriesDetails?.description) {
+            db.update(schema.series)
+              .set({ description: seriesDetails.description })
+              .where(eq(schema.series.id, seriesRow.id))
+              .run();
+          }
+        } catch { /* ignore series detail fetch errors */ }
+      }
+    }
+  } else if (fallbackSeries) {
+    let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, fallbackSeries)).get();
+    seriesRow ??= db.insert(schema.series).values({ name: fallbackSeries }).returning().get();
+    db.insert(schema.bookSeries)
+      .values({ bookId, seriesId: seriesRow.id, position: fallbackPosition ?? null })
+      .onConflictDoNothing()
+      .run();
+  }
+}
+
+function syncTagsFromMatch(bookId: number, tags: string[] | null | undefined): void {
+  if (!tags || tags.length === 0) return;
+  for (const tagName of tags) {
+    let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get();
+    tag ??= db.insert(schema.tags).values({ name: tagName, source: 'hardcover' }).returning().get();
+    db.insert(schema.bookTags)
+      .values({ bookId, tagId: tag.id })
+      .onConflictDoNothing()
+      .run();
+  }
+}
+
+function cacheMatchResult(bookId: number, providerName: string, externalId: string, data: object): void {
+  db.insert(schema.metadataCache)
+    .values({
+      bookId,
+      provider: providerName,
+      externalId,
+      rawData: JSON.stringify(data),
+      fetchedAt: new Date().toISOString(),
+    })
+    .onConflictDoNothing()
+    .run();
+}
+
+/**
+ * Match and enrich a single book by its database ID.
+ * Downloads cover and updates all metadata.
+ */
+export async function enrichBook(bookId: number): Promise<void> {
+  const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
+  if (!book) return;
+
+  const authorRow = db
+    .select({ name: schema.authors.name })
+    .from(schema.bookAuthors)
+    .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+    .where(eq(schema.bookAuthors.bookId, bookId))
+    .get();
+
+  const isbn = book.isbn13 || book.isbn10 || undefined;
+  const searchTitle = resolveSearchTitle(book, bookId, authorRow?.name || null);
 
   ensureToken();
-
-  // Build scoring context with series, directory, and format info
   const scoringCtx = buildScoringContext(bookId, searchTitle, authorRow?.name || null);
-
   const match = await matchBook(provider, searchTitle, authorRow?.name, isbn, scoringCtx);
 
   if (!match) {
@@ -378,7 +410,7 @@ export async function enrichBook(bookId: number): Promise<void> {
 
   console.log(`[Metadata] Matched "${book.title}" -> "${match.title}" (${(match.confidence * 100).toFixed(0)}% confidence)`);
 
-  // If we matched via search (no slug), fetch details to get slug + all series
+  // Fetch details for slug + allSeries if not present
   let slug = match.slug;
   let allSeries = match.allSeries;
   let canonicalTitle = match.title;
@@ -391,10 +423,7 @@ export async function enrichBook(bookId: number): Promise<void> {
     }
   }
 
-  // Determine needs_review flag based on confidence
   const needsReview = match.confidence >= METADATA.ACCEPT_THRESHOLD ? 0 : 1;
-
-  // Update book metadata
   const updates: Record<string, any> = {
     hardcoverId: match.externalId,
     hardcoverSlug: slug || null,
@@ -404,14 +433,12 @@ export async function enrichBook(bookId: number): Promise<void> {
     updatedAt: new Date().toISOString(),
   };
 
-  // Only overwrite fields that are currently empty
   if (!book.description && match.description) updates.description = sanitizeDescription(match.description);
   if (!book.publishDate && match.publishDate) updates.publishDate = match.publishDate;
   if (!book.isbn13 && match.isbn13) updates.isbn13 = match.isbn13;
   if (!book.pageCount && match.pageCount) updates.pageCount = match.pageCount;
   if (!book.isbn10 && match.isbn10) updates.isbn10 = match.isbn10;
 
-  // Use canonical title (from books_by_pk) when fixing dirty titles
   if (canonicalTitle && isDirtyTitle(book.title, bookId)) {
     updates.title = canonicalTitle;
     console.log(`[Metadata] Fixed title "${book.title}" -> "${canonicalTitle}"`);
@@ -419,7 +446,6 @@ export async function enrichBook(bookId: number): Promise<void> {
 
   db.update(schema.books).set(updates).where(eq(schema.books.id, bookId)).run();
 
-  // Download cover if we don't have one
   if (!book.coverPath && match.coverUrl) {
     const coverPath = await downloadAndResizeCover(match.coverUrl, bookId);
     if (coverPath) {
@@ -427,72 +453,10 @@ export async function enrichBook(bookId: number): Promise<void> {
     }
   }
 
-  // Add series if not already set
-  const existingSeries = db
-    .select()
-    .from(schema.bookSeries)
-    .where(eq(schema.bookSeries.bookId, bookId))
-    .get();
-
-  if (!existingSeries) {
-    if (allSeries && allSeries.length > 0) {
-      for (const s of allSeries) {
-        let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, s.name)).get();
-        seriesRow ??= db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
-        db.insert(schema.bookSeries)
-          .values({ bookId, seriesId: seriesRow.id, position: s.position })
-          .onConflictDoNothing()
-          .run();
-
-        // Fetch series-level metadata (description) if not already set
-        if (!seriesRow.description && s.seriesId) {
-          try {
-            const seriesDetails = await provider.getSeriesDetails(s.seriesId);
-            if (seriesDetails?.description) {
-              db.update(schema.series)
-                .set({ description: seriesDetails.description })
-                .where(eq(schema.series.id, seriesRow.id))
-                .run();
-            }
-          } catch { /* ignore series detail fetch errors */ }
-        }
-      }
-    } else if (match.series) {
-      let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, match.series)).get();
-      seriesRow ??= db.insert(schema.series).values({ name: match.series }).returning().get();
-      db.insert(schema.bookSeries)
-        .values({ bookId, seriesId: seriesRow.id, position: match.seriesPosition })
-        .onConflictDoNothing()
-        .run();
-    }
-  }
-
-  // Enrich author details (bio, photo) from Hardcover
+  await syncSeriesFromMatch(bookId, allSeries, match.series, match.seriesPosition);
   await enrichAuthorsFromMatch(bookId);
-
-  // Cache the raw metadata
-  db.insert(schema.metadataCache)
-    .values({
-      bookId,
-      provider: match.provider,
-      externalId: match.externalId,
-      rawData: JSON.stringify(match),
-      fetchedAt: new Date().toISOString(),
-    })
-    .onConflictDoNothing()
-    .run();
-
-  // Create tags from metadata
-  if (match.tags && match.tags.length > 0) {
-    for (const tagName of match.tags) {
-      let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get();
-      tag ??= db.insert(schema.tags).values({ name: tagName, source: 'hardcover' }).returning().get();
-      db.insert(schema.bookTags)
-        .values({ bookId, tagId: tag.id })
-        .onConflictDoNothing()
-        .run();
-    }
-  }
+  cacheMatchResult(bookId, match.provider, match.externalId, match);
+  syncTagsFromMatch(bookId, match.tags);
 }
 
 /**
@@ -610,66 +574,40 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
     }
   }
 
-  // Add all series from details
-  if (details.allSeries && details.allSeries.length > 0) {
-    for (const s of details.allSeries) {
-      let seriesRow = db.select().from(schema.series).where(eq(schema.series.name, s.name)).get();
-      seriesRow ??= db.insert(schema.series).values({ name: s.name, hardcoverId: s.seriesId || null }).returning().get();
-      db.insert(schema.bookSeries)
-        .values({ bookId, seriesId: seriesRow.id, position: s.position })
-        .onConflictDoNothing()
-        .run();
-    }
-  }
+  await syncSeriesFromMatch(bookId, details.allSeries, null, null);
+  storeCorrection(book, bookId, externalId, details);
+  cacheMatchResult(bookId, provider.name, externalId, details);
+  syncTagsFromMatch(bookId, details.tags);
+}
 
-  // Store correction for future auto-matching
-  if (book) {
-    try {
-      const normalizedTitle = normalizeForComparison(book.title);
-      const authorRow = db
-        .select({ name: schema.authors.name })
-        .from(schema.bookAuthors)
-        .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
-        .where(eq(schema.bookAuthors.bookId, bookId))
-        .get();
+function storeCorrection(
+  book: { title: string } | undefined,
+  bookId: number,
+  externalId: string,
+  details: { title: string; authors: string[] },
+): void {
+  if (!book) return;
+  try {
+    const normalizedTitle = normalizeForComparison(book.title);
+    const authorRow = db
+      .select({ name: schema.authors.name })
+      .from(schema.bookAuthors)
+      .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+      .where(eq(schema.bookAuthors.bookId, bookId))
+      .get();
 
-      db.insert(schema.matchCorrections)
-        .values({
-          localTitle: normalizedTitle,
-          localAuthor: authorRow?.name || null,
-          matchedExternalId: externalId,
-          matchedTitle: details.title,
-          matchedAuthor: details.authors[0] || null,
-        })
-        .onConflictDoNothing()
-        .run();
-    } catch {
-      // matchCorrections table may not exist yet
-    }
-  }
-
-  // Cache
-  db.insert(schema.metadataCache)
-    .values({
-      bookId,
-      provider: provider.name,
-      externalId,
-      rawData: JSON.stringify(details),
-      fetchedAt: new Date().toISOString(),
-    })
-    .onConflictDoNothing()
-    .run();
-
-  // Create tags from metadata
-  if (details.tags && details.tags.length > 0) {
-    for (const tagName of details.tags) {
-      let tag = db.select().from(schema.tags).where(eq(schema.tags.name, tagName)).get();
-      tag ??= db.insert(schema.tags).values({ name: tagName, source: 'hardcover' }).returning().get();
-      db.insert(schema.bookTags)
-        .values({ bookId, tagId: tag.id })
-        .onConflictDoNothing()
-        .run();
-    }
+    db.insert(schema.matchCorrections)
+      .values({
+        localTitle: normalizedTitle,
+        localAuthor: authorRow?.name || null,
+        matchedExternalId: externalId,
+        matchedTitle: details.title,
+        matchedAuthor: details.authors[0] || null,
+      })
+      .onConflictDoNothing()
+      .run();
+  } catch {
+    // matchCorrections table may not exist yet
   }
 }
 

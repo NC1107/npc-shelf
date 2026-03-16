@@ -125,12 +125,21 @@ export async function scanLibrary(libraryId: number): Promise<ScanStatus> {
 
 type PersistResult = 'added' | 'updated' | 'skipped';
 
-async function persistCandidate(
-  candidate: BookCandidate,
-  libraryId: number,
-  _status: ScanStatus,
-): Promise<PersistResult> {
-  // Check if any file in the candidate already exists in DB
+interface MergedMetadata {
+  title: string;
+  authorName: string | null;
+  description: string | null;
+  language: string | null;
+  publisher: string | null;
+  publishDate: string | null;
+  isbn: string | null;
+  subjects: string[];
+  totalDuration: number | null;
+  hasAudioFiles: boolean;
+  embedded: EmbeddedMetadata;
+}
+
+function checkExistingFiles(candidate: BookCandidate): { existingBookId: number | null; allSkipped: boolean } {
   let existingBookId: number | null = null;
   let allSkipped = true;
 
@@ -143,7 +152,6 @@ async function persistCandidate(
 
     if (existing) {
       existingBookId = existing.bookId;
-      // Check if modified
       if (existing.lastModified !== file.modifiedTime || existing.sizeBytes !== file.size) {
         allSkipped = false;
       }
@@ -152,260 +160,217 @@ async function persistCandidate(
     }
   }
 
-  if (existingBookId && allSkipped) {
-    return 'skipped';
-  }
+  return { existingBookId, allSkipped };
+}
 
-  // Extract embedded metadata from the first (or only) file
+async function extractAndMergeMetadata(candidate: BookCandidate): Promise<MergedMetadata | null> {
   const primaryFile = candidate.files[0];
-  if (!primaryFile) return 'skipped';
+  if (!primaryFile) return null;
+
   const embedded = await extractEmbeddedMetadata(primaryFile.path, primaryFile.extension);
 
-  // Merge embedded metadata with pipeline-resolved metadata
-  // Embedded takes priority for title/author if higher quality than filename/directory
   let title = embedded.title || candidate.resolvedTitle;
   const authorName = embedded.author || candidate.resolvedAuthor;
 
-  // Reject embedded title when it equals the author name (garbage metadata)
-  if (embedded.title && authorName) {
-    if (embedded.title.toLowerCase().trim() === authorName.toLowerCase().trim()) {
-      title = candidate.resolvedTitle;
-      console.log(`[Scanner] Rejected embedded title "${embedded.title}" (equals author), using "${title}"`);
-    }
+  // Reject embedded title when it equals the author name
+  if (embedded.title && authorName &&
+    embedded.title.toLowerCase().trim() === authorName.toLowerCase().trim()) {
+    title = candidate.resolvedTitle;
+    console.log(`[Scanner] Rejected embedded title "${embedded.title}" (equals author), using "${title}"`);
   }
-  const description = embedded.description || null;
-  const language = embedded.language || null;
-  const publisher = embedded.publisher || null;
-  const publishDate = embedded.date || null;
-  const isbn = embedded.isbn || null;
-  const subjects = embedded.subjects || [];
 
-  // Calculate total duration for audiobooks — check actual file content, not just candidate flag
   const hasAudioFiles = candidate.files.some(f => f.isAudio);
   let totalDuration: number | null = null;
   if (hasAudioFiles) {
     const audioFileCount = candidate.files.filter(f => f.isAudio).length;
-    if (audioFileCount === 1) {
-      totalDuration = embedded.duration || null;
-    } else {
-      // For multi-file audiobooks, we'll compute duration per-track below
-      totalDuration = 0;
-    }
+    totalDuration = audioFileCount === 1 ? (embedded.duration || null) : 0;
   }
 
-  if (existingBookId) {
-    // Update existing book
-    db.update(schema.books)
-      .set({
-        title,
-        description: description || undefined,
-        language: language || undefined,
-        publisher: publisher || undefined,
-        publishDate: publishDate || undefined,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.books.id, existingBookId))
-      .run();
+  return {
+    title, authorName,
+    description: embedded.description || null,
+    language: embedded.language || null,
+    publisher: embedded.publisher || null,
+    publishDate: embedded.date || null,
+    isbn: embedded.isbn || null,
+    subjects: embedded.subjects || [],
+    totalDuration, hasAudioFiles, embedded,
+  };
+}
 
-    // Update/add files
-    await syncFiles(candidate, existingBookId, libraryId);
+async function createFileRecords(
+  candidate: BookCandidate, bookId: number, libraryId: number,
+): Promise<{ fileId: number; file: FileCandidate }[]> {
+  const hashes = await Promise.all(candidate.files.map(f => computeHash(f.path, f.extension)));
+  const records: { fileId: number; file: FileCandidate }[] = [];
 
-    // Handle audiobook tracks
-    if (hasAudioFiles) {
-      await syncAudioTracks(candidate, existingBookId);
-    }
-
-    // Handle cover
-    await handleCover(candidate, existingBookId, embedded);
-
-    return 'updated';
-  }
-
-  // --- Create new book ---
-  const book = db
-    .insert(schema.books)
-    .values({
-      title,
-      description,
-      language,
-      publisher,
-      publishDate,
-      isbn13: isbn?.length === 13 ? isbn : null,
-      isbn10: isbn?.length === 10 ? isbn : null,
-      audioSeconds: totalDuration,
-    })
-    .returning()
-    .get();
-
-  // Create file records — parallelize hashing for I/O throughput
-  const hashes = await Promise.all(
-    candidate.files.map(f => computeHash(f.path, f.extension)),
-  );
-  const fileRecords: { fileId: number; file: FileCandidate }[] = [];
   for (let fi = 0; fi < candidate.files.length; fi++) {
     const file = candidate.files[fi];
     const hash = hashes[fi];
     const format = file.extension as 'epub' | 'pdf' | 'mobi' | 'azw3' | 'm4b' | 'mp3';
     const mimeType = MIME_TYPES[format] || 'application/octet-stream';
 
-    const fileRecord = db
-      .insert(schema.files)
-      .values({
-        bookId: book.id,
-        libraryId,
-        path: file.path,
-        filename: file.filename,
-        format,
-        mimeType,
-        sizeBytes: file.size,
-        hashSha256: hash,
-        lastModified: file.modifiedTime,
-      })
-      .returning()
-      .get();
-
-    fileRecords.push({ fileId: fileRecord.id, file });
+    const fileRecord = db.insert(schema.files)
+      .values({ bookId, libraryId, path: file.path, filename: file.filename, format, mimeType, sizeBytes: file.size, hashSha256: hash, lastModified: file.modifiedTime })
+      .returning().get();
+    records.push({ fileId: fileRecord.id, file });
   }
 
-  // Detect companion files: PDFs under 5MB in audiobook directories
+  return records;
+}
+
+function markCompanionFiles(candidate: BookCandidate, fileRecords: { fileId: number; file: FileCandidate }[]): void {
   const hasAudio = candidate.files.some(f => f.extension === 'm4b' || f.extension === 'mp3');
-  if (hasAudio) {
-    for (const rec of fileRecords) {
-      if (rec.file.extension === 'pdf' && rec.file.size < 5 * 1024 * 1024) {
-        db.update(schema.files)
-          .set({ isCompanion: 1 })
-          .where(eq(schema.files.id, rec.fileId))
-          .run();
-      }
+  if (!hasAudio) return;
+  for (const rec of fileRecords) {
+    if (rec.file.extension === 'pdf' && rec.file.size < 5 * 1024 * 1024) {
+      db.update(schema.files).set({ isCompanion: 1 }).where(eq(schema.files.id, rec.fileId)).run();
     }
   }
+}
 
-  // Create author(s) — handles multi-author strings and normalization
+function linkAuthors(bookId: number, authorName: string | null, embedded: EmbeddedMetadata, candidate: BookCandidate): void {
   if (authorName) {
-    const authorIds = findOrCreateAuthors(authorName);
-    for (const authorId of authorIds) {
-      db.insert(schema.bookAuthors)
-        .values({ bookId: book.id, authorId, role: 'author' })
-        .onConflictDoNothing()
-        .run();
+    for (const authorId of findOrCreateAuthors(authorName)) {
+      db.insert(schema.bookAuthors).values({ bookId, authorId, role: 'author' }).onConflictDoNothing().run();
     }
   }
 
-  // Additional creators from embedded metadata
   if (embedded.creators) {
     for (const creator of embedded.creators) {
       if (creator.name === authorName) continue;
-      const creatorIds = findOrCreateAuthors(creator.name);
-      for (const creatorId of creatorIds) {
+      for (const creatorId of findOrCreateAuthors(creator.name)) {
         db.insert(schema.bookAuthors)
-          .values({ bookId: book.id, authorId: creatorId, role: creator.role as 'author' | 'narrator' | 'editor' })
-          .onConflictDoNothing()
-          .run();
+          .values({ bookId, authorId: creatorId, role: creator.role as 'author' | 'narrator' | 'editor' })
+          .onConflictDoNothing().run();
       }
     }
   }
 
-  // Narrator from sidecar
   if (candidate.sidecarMeta?.narrator) {
-    const narratorIds = findOrCreateAuthors(candidate.sidecarMeta.narrator);
-    for (const narratorId of narratorIds) {
-      db.insert(schema.bookAuthors)
-        .values({ bookId: book.id, authorId: narratorId, role: 'narrator' })
-        .onConflictDoNothing()
-        .run();
+    for (const narratorId of findOrCreateAuthors(candidate.sidecarMeta.narrator)) {
+      db.insert(schema.bookAuthors).values({ bookId, authorId: narratorId, role: 'narrator' }).onConflictDoNothing().run();
     }
   }
+}
 
-  // Series — support multiple
+function linkSeries(bookId: number, candidate: BookCandidate): void {
   let seriesList: { name: string; position: number | null }[];
   if (candidate.resolvedSeriesList.length > 0) {
     seriesList = candidate.resolvedSeriesList;
   } else if (candidate.resolvedSeries) {
     seriesList = [{ name: candidate.resolvedSeries, position: candidate.resolvedSeriesPosition }];
   } else {
-    seriesList = [];
+    return;
   }
 
   for (const s of seriesList) {
     const seriesId = findOrCreateSeries(s.name);
-    db.insert(schema.bookSeries)
-      .values({ bookId: book.id, seriesId, position: s.position })
-      .onConflictDoNothing()
-      .run();
+    db.insert(schema.bookSeries).values({ bookId, seriesId, position: s.position }).onConflictDoNothing().run();
   }
+}
 
-  // Tags from embedded metadata + sidecar
+function linkTags(bookId: number, subjects: string[], candidate: BookCandidate): void {
   const allTags = [...subjects, ...(candidate.sidecarMeta?.tags || [])];
   const uniqueTags = [...new Set(allTags)];
   for (const tagName of uniqueTags) {
     const tagId = findOrCreateTag(tagName, 'user');
-    db.insert(schema.bookTags)
-      .values({ bookId: book.id, tagId })
-      .onConflictDoNothing()
+    db.insert(schema.bookTags).values({ bookId, tagId }).onConflictDoNothing().run();
+  }
+}
+
+async function createAudioTracks(
+  bookId: number, title: string, fileRecords: { fileId: number; file: FileCandidate }[], embedded: EmbeddedMetadata,
+): Promise<void> {
+  const audioRecords = fileRecords.filter(r => r.file.isAudio);
+  let cumulativeOffset = 0;
+
+  for (let i = 0; i < audioRecords.length; i++) {
+    const rec = audioRecords[i];
+    if (!rec) continue;
+    let trackDuration = 0;
+
+    if (i === 0 && embedded.duration) {
+      trackDuration = embedded.duration;
+    } else {
+      try {
+        const trackMeta = await parseAudioMetadata(rec.file.path);
+        trackDuration = trackMeta.duration;
+      } catch { /* fallback: 0 */ }
+    }
+
+    db.insert(schema.audioTracks).values({
+      bookId, fileId: rec.fileId, trackIndex: i,
+      title: audioRecords.length === 1 ? title : `Track ${i + 1}`,
+      durationSeconds: trackDuration, startOffsetSeconds: cumulativeOffset,
+    }).run();
+
+    cumulativeOffset += trackDuration;
+  }
+
+  if (cumulativeOffset > 0) {
+    db.update(schema.books).set({ audioSeconds: cumulativeOffset }).where(eq(schema.books.id, bookId)).run();
+  }
+
+  if (embedded.chapters) {
+    for (const chapter of embedded.chapters) {
+      db.insert(schema.audioChapters).values({
+        bookId, title: chapter.title, startTime: chapter.startTime, endTime: chapter.endTime, trackIndex: 0,
+      }).run();
+    }
+  }
+}
+
+async function persistCandidate(
+  candidate: BookCandidate,
+  libraryId: number,
+  _status: ScanStatus,
+): Promise<PersistResult> {
+  const { existingBookId, allSkipped } = checkExistingFiles(candidate);
+  if (existingBookId && allSkipped) return 'skipped';
+
+  const meta = await extractAndMergeMetadata(candidate);
+  if (!meta) return 'skipped';
+
+  if (existingBookId) {
+    db.update(schema.books)
+      .set({
+        title: meta.title,
+        description: meta.description || undefined,
+        language: meta.language || undefined,
+        publisher: meta.publisher || undefined,
+        publishDate: meta.publishDate || undefined,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.books.id, existingBookId))
       .run();
+
+    await syncFiles(candidate, existingBookId, libraryId);
+    if (meta.hasAudioFiles) await syncAudioTracks(candidate, existingBookId);
+    await handleCover(candidate, existingBookId, meta.embedded);
+    return 'updated';
   }
 
-  // Audio tracks — only process audio files in the candidate
-  if (hasAudioFiles) {
-    const audioRecords = fileRecords.filter(r => r.file.isAudio);
-    let cumulativeOffset = 0;
-    for (let i = 0; i < audioRecords.length; i++) {
-      const rec = audioRecords[i];
-      if (!rec) continue;
-      let trackDuration = 0;
+  // Create new book
+  const book = db.insert(schema.books).values({
+    title: meta.title, description: meta.description, language: meta.language,
+    publisher: meta.publisher, publishDate: meta.publishDate,
+    isbn13: meta.isbn?.length === 13 ? meta.isbn : null,
+    isbn10: meta.isbn?.length === 10 ? meta.isbn : null,
+    audioSeconds: meta.totalDuration,
+  }).returning().get();
 
-      if (i === 0 && embedded.duration) {
-        trackDuration = embedded.duration;
-      } else {
-        try {
-          const trackMeta = await parseAudioMetadata(rec.file.path);
-          trackDuration = trackMeta.duration;
-        } catch {
-          // fallback: 0
-        }
-      }
+  const fileRecords = await createFileRecords(candidate, book.id, libraryId);
+  markCompanionFiles(candidate, fileRecords);
+  linkAuthors(book.id, meta.authorName, meta.embedded, candidate);
+  linkSeries(book.id, candidate);
+  linkTags(book.id, meta.subjects, candidate);
 
-      db.insert(schema.audioTracks)
-        .values({
-          bookId: book.id,
-          fileId: rec.fileId,
-          trackIndex: i,
-          title: audioRecords.length === 1 ? title : `Track ${i + 1}`,
-          durationSeconds: trackDuration,
-          startOffsetSeconds: cumulativeOffset,
-        })
-        .run();
-
-      cumulativeOffset += trackDuration;
-    }
-
-    // Update total duration
-    if (cumulativeOffset > 0) {
-      db.update(schema.books)
-        .set({ audioSeconds: cumulativeOffset })
-        .where(eq(schema.books.id, book.id))
-        .run();
-    }
-
-    // Store chapters from first audio file
-    if (embedded.chapters) {
-      for (const chapter of embedded.chapters) {
-        db.insert(schema.audioChapters)
-          .values({
-            bookId: book.id,
-            title: chapter.title,
-            startTime: chapter.startTime,
-            endTime: chapter.endTime,
-            trackIndex: 0,
-          })
-          .run();
-      }
-    }
+  if (meta.hasAudioFiles) {
+    await createAudioTracks(book.id, meta.title, fileRecords, meta.embedded);
   }
 
-  // Handle cover
-  await handleCover(candidate, book.id, embedded);
-
+  await handleCover(candidate, book.id, meta.embedded);
   return 'added';
 }
 

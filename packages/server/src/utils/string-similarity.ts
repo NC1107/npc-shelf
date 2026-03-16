@@ -83,8 +83,8 @@ export function jaroWinkler(a: string, b: string): number {
  * Catches word order differences like "The Final Empire" vs "Final Empire The".
  */
 export function tokenSortRatio(a: string, b: string): number {
-  const sorted1 = a.split(/\s+/).sort().join(' ');
-  const sorted2 = b.split(/\s+/).sort().join(' ');
+  const sorted1 = a.split(/\s+/).sort((x, y) => x.localeCompare(y)).join(' ');
+  const sorted2 = b.split(/\s+/).sort((x, y) => x.localeCompare(y)).join(' ');
   return bigramJaccard(sorted1, sorted2);
 }
 

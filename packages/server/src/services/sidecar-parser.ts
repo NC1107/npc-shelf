@@ -49,13 +49,7 @@ export function parseSidecarMetadata(directoryPath: string): SidecarMetadata | n
   if (metaJson) {
     const jsonResult = parseMetadataJson(path.join(directoryPath, metaJson));
     if (jsonResult) {
-      // Only fill in fields not already set by OPF
-      if (!result.title && jsonResult.title) result.title = jsonResult.title;
-      if (!result.author && jsonResult.author) result.author = jsonResult.author;
-      if (!result.narrator && jsonResult.narrator) result.narrator = jsonResult.narrator;
-      if (!result.series && jsonResult.series) result.series = jsonResult.series;
-      if (jsonResult.seriesList && jsonResult.seriesList.length > 0 && result.seriesList.length === 0) result.seriesList = jsonResult.seriesList;
-      if (jsonResult.tags && jsonResult.tags.length > 0 && result.tags.length === 0) result.tags = jsonResult.tags;
+      mergeSidecarFields(result, jsonResult);
       found = true;
     }
   }
@@ -71,6 +65,15 @@ export function parseSidecarMetadata(directoryPath: string): SidecarMetadata | n
   }
 
   return found ? result : null;
+}
+
+function mergeSidecarFields(target: SidecarMetadata, source: Partial<SidecarMetadata>): void {
+  if (!target.title && source.title) target.title = source.title;
+  if (!target.author && source.author) target.author = source.author;
+  if (!target.narrator && source.narrator) target.narrator = source.narrator;
+  if (!target.series && source.series) target.series = source.series;
+  if (source.seriesList && source.seriesList.length > 0 && target.seriesList.length === 0) target.seriesList = source.seriesList;
+  if (source.tags && source.tags.length > 0 && target.tags.length === 0) target.tags = source.tags;
 }
 
 /**
@@ -115,6 +118,21 @@ function parseOpfFile(filePath: string): Partial<SidecarMetadata> | null {
   }
 }
 
+function parseSeriesEntry(s: string): { name: string; position: number | null } {
+  const match = /^(.{1,500}?)\s*#(\d{1,5}(?:\.\d{1,3})?)$/.exec(String(s));
+  if (match) return { name: match[1].trim(), position: Number.parseFloat(match[2]) };
+  return { name: String(s).trim(), position: null };
+}
+
+function parseSeriesField(series: unknown): { seriesList: { name: string; position: number | null }[]; series: string | null } {
+  if (Array.isArray(series)) {
+    const parsed = series.map((s: string) => parseSeriesEntry(s));
+    return { seriesList: parsed, series: parsed[0]?.name || null };
+  }
+  const entry = parseSeriesEntry(String(series));
+  return { seriesList: [entry], series: entry.name };
+}
+
 /**
  * Parse a metadata.json file (Audiobookshelf / Abs format).
  */
@@ -132,25 +150,9 @@ function parseMetadataJson(filePath: string): Partial<SidecarMetadata> | null {
     if (data.narrator) result.narrator = String(data.narrator);
     if (data.narrators) result.narrator = Array.isArray(data.narrators) ? data.narrators.join(', ') : String(data.narrators);
     if (data.series) {
-      if (Array.isArray(data.series)) {
-        const parsed = data.series.map((s: string) => {
-          const match = /^(.{1,500}?)\s*#(\d{1,5}(?:\.\d{1,3})?)$/.exec(String(s));
-          if (match) return { name: match[1].trim(), position: Number.parseFloat(match[2]) };
-          return { name: String(s).trim(), position: null };
-        });
-        result.seriesList = parsed;
-        result.series = parsed[0]?.name || null;
-      } else {
-        const seriesStr = String(data.series);
-        const match = /^(.+?)\s*#(\d+(?:\.\d+)?)$/.exec(seriesStr);
-        if (match) {
-          result.seriesList = [{ name: match[1].trim(), position: Number.parseFloat(match[2]) }];
-          result.series = match[1].trim();
-        } else {
-          result.seriesList = [{ name: seriesStr, position: null }];
-          result.series = seriesStr;
-        }
-      }
+      const { seriesList, series } = parseSeriesField(data.series);
+      result.seriesList = seriesList;
+      result.series = series;
     }
     if (data.tags && Array.isArray(data.tags)) result.tags = data.tags.map(String);
 
