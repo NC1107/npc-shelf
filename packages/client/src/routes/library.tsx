@@ -183,73 +183,6 @@ function BulkActionBar({
   );
 }
 
-function FilterPanel({
-  filters,
-  format,
-  authorId,
-  seriesId,
-  activeFilterCount,
-  setLibraryFilters,
-}: Readonly<{
-  filters: FilterOptions | undefined;
-  format: string;
-  authorId: string;
-  seriesId: string;
-  activeFilterCount: number;
-  setLibraryFilters: (filters: Record<string, any>) => void;
-}>) {
-  return (
-    <Card>
-      <CardContent className="flex flex-wrap gap-3 p-4">
-        {filters?.formats && filters.formats.length > 0 && (
-          <div className="space-y-1">
-            <label htmlFor="filter-format" className="text-xs font-medium text-muted-foreground">Format</label>
-            <Select id="filter-format" value={format} onChange={(e) => { setLibraryFilters({ libraryFormat: e.target.value, libraryPage: 1 }); }}>
-              <option value="">All formats</option>
-              {filters.formats.map((f) => (
-                <option key={f} value={f}>{f.toUpperCase()}</option>
-              ))}
-            </Select>
-          </div>
-        )}
-        {filters?.authors && filters.authors.length > 0 && (
-          <div className="space-y-1">
-            <span id="filter-author-label" className="text-xs font-medium text-muted-foreground">Author</span>
-            <Combobox
-              options={filters.authors.map(a => ({ value: String(a.id), label: a.name }))}
-              value={authorId}
-              onChange={(v) => setLibraryFilters({ libraryAuthorId: v, libraryPage: 1 })}
-              placeholder="All authors"
-              aria-labelledby="filter-author-label"
-            />
-          </div>
-        )}
-        {filters?.series && filters.series.length > 0 && (
-          <div className="space-y-1">
-            <span id="filter-series-label" className="text-xs font-medium text-muted-foreground">Series</span>
-            <Combobox
-              options={filters.series.map(s => ({ value: String(s.id), label: s.name }))}
-              value={seriesId}
-              onChange={(v) => setLibraryFilters({ librarySeriesId: v, libraryPage: 1 })}
-              placeholder="All series"
-              aria-labelledby="filter-series-label"
-            />
-          </div>
-        )}
-        {activeFilterCount > 0 && (
-          <div className="flex items-end">
-            <Button variant="ghost" size="sm" onClick={() => {
-              setLibraryFilters({ libraryFormat: '', libraryAuthorId: '', librarySeriesId: '', libraryNeedsReview: false, libraryPage: 1 });
-            }}>
-              <X className="h-3 w-3" />
-              Clear
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
 
 function EmptyState({ hasFilters }: Readonly<{ hasFilters: boolean }>) {
   const title = hasFilters
@@ -538,7 +471,7 @@ export function LibraryPage() {
       </div>
 
       {/* Search and controls */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -550,44 +483,110 @@ export function LibraryPage() {
             className="pl-9"
           />
         </div>
-        <Select
-          value={sortBy}
-          onChange={(e) => { setLibraryFilters({ librarySortBy: e.target.value, libraryPage: 1 }); }}
-        >
-          <option value="title">Title</option>
-          <option value="createdAt">Date Added</option>
-          <option value="updatedAt">Last Updated</option>
-        </Select>
+
+        {/* Sort: combined field + direction */}
         <Button
           variant="outline"
-          size="icon"
-          onClick={() => setLibraryFilters({ librarySortOrder: sortOrder === 'asc' ? 'desc' : 'asc' })}
-          title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
-          aria-label={sortOrder === 'asc' ? 'Sort ascending' : 'Sort descending'}
-        >
-          {sortOrder === 'asc' ? '\u2191' : '\u2193'}
-        </Button>
-        <Button
-          variant={needsReview ? 'secondary' : 'outline'}
-          onClick={() => setLibraryFilters({ libraryNeedsReview: !needsReview, libraryPage: 1 })}
+          size="sm"
+          onClick={() => {
+            const fields = ['title', 'createdAt', 'updatedAt'] as const;
+            const idx = fields.indexOf(sortBy as typeof fields[number]);
+            if (sortOrder === 'asc') {
+              setLibraryFilters({ librarySortOrder: 'desc' });
+            } else {
+              const nextIdx = (idx + 1) % fields.length;
+              setLibraryFilters({ librarySortBy: fields[nextIdx], librarySortOrder: 'asc', libraryPage: 1 });
+            }
+          }}
           className="gap-1.5"
         >
-          <AlertCircle className="h-4 w-4" />
-          Needs Review
+          {sortBy === 'title' ? 'Title' : sortBy === 'createdAt' ? 'Added' : 'Updated'}
+          {sortOrder === 'asc' ? ' \u2191' : ' \u2193'}
         </Button>
-        <Button
-          variant={showFilters ? 'secondary' : 'outline'}
-          onClick={() => setShowFilters(!showFilters)}
-          className="gap-1.5"
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          Filters
-          {activeFilterCount > 0 && (
-            <Badge variant="default" className="ml-1 h-5 w-5 rounded-full p-0 text-[10px] flex items-center justify-center">
-              {activeFilterCount}
-            </Badge>
+
+        {/* Filter dropdown */}
+        <div className="relative">
+          <Button
+            variant={showFilters ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={() => setShowFilters(!showFilters)}
+            className="gap-1.5"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge variant="default" className="ml-1 h-5 w-5 rounded-full p-0 text-[10px] flex items-center justify-center">
+                {activeFilterCount}
+              </Badge>
+            )}
+          </Button>
+          {showFilters && (
+            <div className="absolute left-0 top-full z-20 mt-2 w-72 rounded-lg border bg-card p-4 shadow-lg space-y-3 sm:w-80">
+              {/* Needs Review */}
+              <label className="flex items-center gap-2 cursor-pointer text-sm">
+                <input
+                  type="checkbox"
+                  checked={needsReview}
+                  onChange={() => setLibraryFilters({ libraryNeedsReview: !needsReview, libraryPage: 1 })}
+                  className="accent-primary"
+                />
+                <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                Needs Review
+              </label>
+
+              {/* Format */}
+              {filters?.formats && filters.formats.length > 0 && (
+                <div className="space-y-1">
+                  <label htmlFor="filter-format" className="text-xs font-medium text-muted-foreground">Format</label>
+                  <Select id="filter-format" value={format} onChange={(e) => { setLibraryFilters({ libraryFormat: e.target.value, libraryPage: 1 }); }}>
+                    <option value="">All formats</option>
+                    {filters.formats.map((f) => (
+                      <option key={f} value={f}>{f.toUpperCase()}</option>
+                    ))}
+                  </Select>
+                </div>
+              )}
+
+              {/* Author */}
+              {filters?.authors && filters.authors.length > 0 && (
+                <div className="space-y-1">
+                  <span id="filter-author-label" className="text-xs font-medium text-muted-foreground">Author</span>
+                  <Combobox
+                    options={filters.authors.map(a => ({ value: String(a.id), label: a.name }))}
+                    value={authorId}
+                    onChange={(v) => setLibraryFilters({ libraryAuthorId: v, libraryPage: 1 })}
+                    placeholder="All authors"
+                    aria-labelledby="filter-author-label"
+                  />
+                </div>
+              )}
+
+              {/* Series */}
+              {filters?.series && filters.series.length > 0 && (
+                <div className="space-y-1">
+                  <span id="filter-series-label" className="text-xs font-medium text-muted-foreground">Series</span>
+                  <Combobox
+                    options={filters.series.map(s => ({ value: String(s.id), label: s.name }))}
+                    value={seriesId}
+                    onChange={(v) => setLibraryFilters({ librarySeriesId: v, libraryPage: 1 })}
+                    placeholder="All series"
+                    aria-labelledby="filter-series-label"
+                  />
+                </div>
+              )}
+
+              {activeFilterCount > 0 && (
+                <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={() => {
+                  setLibraryFilters({ libraryFormat: '', libraryAuthorId: '', librarySeriesId: '', libraryNeedsReview: false, libraryPage: 1 });
+                }}>
+                  <X className="h-3 w-3 mr-1" />
+                  Clear all filters
+                </Button>
+              )}
+            </div>
           )}
-        </Button>
+        </div>
+
         {hasAnyFilter && (
           <Button variant="ghost" size="sm" onClick={clearLibraryFilters} className="text-muted-foreground">
             <X className="h-3 w-3" />
@@ -596,16 +595,42 @@ export function LibraryPage() {
         )}
       </div>
 
-      {/* Filter panel */}
-      {showFilters && (
-        <FilterPanel
-          filters={filters}
-          format={format}
-          authorId={authorId}
-          seriesId={seriesId}
-          activeFilterCount={activeFilterCount}
-          setLibraryFilters={setLibraryFilters}
-        />
+      {/* Active filter chips */}
+      {activeFilterCount > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {needsReview && (
+            <Badge variant="secondary" className="gap-1 pr-1">
+              Needs Review
+              <button onClick={() => setLibraryFilters({ libraryNeedsReview: false, libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
+          {format && (
+            <Badge variant="secondary" className="gap-1 pr-1">
+              {format.toUpperCase()}
+              <button onClick={() => setLibraryFilters({ libraryFormat: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
+          {authorId && filters?.authors && (
+            <Badge variant="secondary" className="gap-1 pr-1">
+              {filters.authors.find(a => String(a.id) === authorId)?.name || 'Author'}
+              <button onClick={() => setLibraryFilters({ libraryAuthorId: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
+          {seriesId && filters?.series && (
+            <Badge variant="secondary" className="gap-1 pr-1">
+              {filters.series.find(s => String(s.id) === seriesId)?.name || 'Series'}
+              <button onClick={() => setLibraryFilters({ librarySeriesId: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
+        </div>
       )}
 
       {/* Book grid/list */}
