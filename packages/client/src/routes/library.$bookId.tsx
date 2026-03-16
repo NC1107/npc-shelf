@@ -893,8 +893,8 @@ function BookDetailContent({
                   <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     Description
                   </h2>
-                  <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">
-                    <p>{book.description}</p>
+                  <div className="max-w-none text-sm leading-relaxed text-foreground whitespace-pre-line">
+                    {book.description}
                   </div>
                 </div>
               </>

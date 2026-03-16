@@ -7,6 +7,7 @@ import { stringSimilarity, normalizeForComparison } from '../utils/string-simila
 import { cleanTitle, parseFilename, getDirAuthorHint } from '../utils/filename-parser.js';
 import { downloadAndResizeCover } from './cover.js';
 import { HardcoverProvider } from '../providers/hardcover.js';
+import { sanitizeDescription } from '../utils/sanitize-html.js';
 
 // Singleton provider — re-initialized when API token changes
 const provider: HardcoverProvider = new HardcoverProvider(
@@ -404,7 +405,7 @@ export async function enrichBook(bookId: number): Promise<void> {
   };
 
   // Only overwrite fields that are currently empty
-  if (!book.description && match.description) updates.description = match.description;
+  if (!book.description && match.description) updates.description = sanitizeDescription(match.description);
   if (!book.publishDate && match.publishDate) updates.publishDate = match.publishDate;
   if (!book.isbn13 && match.isbn13) updates.isbn13 = match.isbn13;
   if (!book.pageCount && match.pageCount) updates.pageCount = match.pageCount;
@@ -594,7 +595,7 @@ export async function applyMatch(bookId: number, externalId: string): Promise<vo
   };
 
   if (details.title) updates.title = details.title;
-  if (details.description) updates.description = details.description;
+  if (details.description) updates.description = sanitizeDescription(details.description);
   if (details.publishDate) updates.publishDate = details.publishDate;
   if (details.isbn13) updates.isbn13 = details.isbn13;
   if (details.pageCount) updates.pageCount = details.pageCount;
