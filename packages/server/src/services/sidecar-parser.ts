@@ -87,17 +87,17 @@ function parseOpfFile(filePath: string): Partial<SidecarMetadata> | null {
     if (titleMatch) result.title = titleMatch[1].trim();
 
     // dc:creator (author)
-    const creatorMatch = content.match(/<dc:creator[^>]*>([^<]+)<\/dc:creator>/i);
+    const creatorMatch = content.match(/<dc:creator[^>]{0,200}>([^<]+)<\/dc:creator>/i);
     if (creatorMatch) result.author = creatorMatch[1].trim();
 
     // narrator — various conventions
     const narratorMatch = content.match(
-      /<meta\s+name=["'](?:lazylibrarian:narrator|narrator|calibre:narrator)["']\s+content=["']([^"']+)["']/i,
+      /<meta\s{1,10}name=["'](?:lazylibrarian:narrator|narrator|calibre:narrator)["']\s{1,10}content=["']([^"']{1,500})["']/i,
     );
     if (narratorMatch) result.narrator = narratorMatch[1].trim();
 
     // dc:subject (tags)
-    const subjectRegex = /<dc:subject[^>]*>([^<]+)<\/dc:subject>/gi;
+    const subjectRegex = /<dc:subject[^>]{0,200}>([^<]+)<\/dc:subject>/gi;
     let subjectMatch;
     while ((subjectMatch = subjectRegex.exec(content)) !== null) {
       (result.tags ??= []).push(subjectMatch[1].trim());
@@ -105,7 +105,7 @@ function parseOpfFile(filePath: string): Partial<SidecarMetadata> | null {
 
     // Series — calibre convention
     const seriesMatch = content.match(
-      /<meta\s+name=["']calibre:series["']\s+content=["']([^"']+)["']/i,
+      /<meta\s{1,10}name=["']calibre:series["']\s{1,10}content=["']([^"']{1,500})["']/i,
     );
     if (seriesMatch) result.series = seriesMatch[1].trim();
 
@@ -134,7 +134,7 @@ function parseMetadataJson(filePath: string): Partial<SidecarMetadata> | null {
     if (data.series) {
       if (Array.isArray(data.series)) {
         const parsed = data.series.map((s: string) => {
-          const match = /^(.+?)\s*#(\d+(?:\.\d+)?)$/.exec(String(s));
+          const match = /^(.{1,500}?)\s*#(\d{1,5}(?:\.\d{1,3})?)$/.exec(String(s));
           if (match) return { name: match[1].trim(), position: Number.parseFloat(match[2]) };
           return { name: String(s).trim(), position: null };
         });

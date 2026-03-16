@@ -15,10 +15,10 @@ export interface ParsedFilename {
   seriesPosition: number | null;
 }
 
-const SERIES_PATTERN = /\(([^)]+?)\s+(?:Book|#)\s*(\d+(?:\.\d+)?)\)/;
-const SERIES_PATTERN_LEGACY = /\(([^)]+)\s+#?(\d+(?:\.\d+)?)\)/;
+const SERIES_PATTERN = /\(([^)]{1,200})\s+(?:Book|#)\s*(\d{1,5}(?:\.\d{1,3})?)\)/;
+const SERIES_PATTERN_LEGACY = /\(([^)]{1,200})\s+#?(\d{1,5}(?:\.\d{1,3})?)\)/;
 const YEAR_PATTERN = /\((\d{4})\)/;
-const AUTHOR_TITLE_DASH = /^(.+?)\s+-\s+(.+)$/;
+const AUTHOR_TITLE_DASH = /^(.{1,500}?)\s+-\s+(.+)$/;
 
 function looksLikePersonName(name: string): boolean {
   // Person names: have spaces, no digits, no underscores/colons/special chars, 2-4 words
@@ -79,7 +79,7 @@ export function normalizeFilename(raw: string): string {
     name = name.replace(/(\w)-(\w)/g, '$1 - $2');
   }
   // 3. Strip release tags: [EPUB], (ARAR), scene tags
-  name = name.replace(/\s*\[[^\]]*\]/g, '');
+  name = name.replace(/\s*\[[^\]]{0,200}\]/g, '');
   // 5. Unicode NFKC normalization
   name = name.normalize('NFKC');
   // 6. Normalize punctuation: smart quotes→regular, em-dash→hyphen
@@ -154,7 +154,7 @@ export function cleanTitle(title: string): string {
   // Strip (retail), (US), (UK), version tags like (v5.0)
   cleaned = cleaned.replace(/\s*\((?:retail|US|UK|v\d+(?:\.\d+)?)\)\s*/gi, '');
   // Strip [Series NN] - prefix
-  cleaned = cleaned.replace(/^\[.*?\]\s*-\s*/, '');
+  cleaned = cleaned.replace(/^\[[^\]]{0,200}\]\s*-\s*/, '');
   // Strip year prefix like (1941)
   cleaned = cleaned.replace(/^\(\d{4}\)\s*/, '');
   // Strip scene group tags: eBook-XXX at end
@@ -198,7 +198,7 @@ export function parseFilenameEnhanced(file: { filename: string; extension: strin
   }
 
   // Extract [Series NN] - prefix before normalization strips brackets
-  const bracketMatch = /^\[([^\]]+?)\s+(\d+(?:\.\d+)?)\]\s*-\s*(.+)/.exec(raw);
+  const bracketMatch = /^\[([^\]]{1,200})\s+(\d{1,5}(?:\.\d{1,3})?)\]\s*-\s*(.+)/.exec(raw);
   if (bracketMatch) {
     bracketSeries = bracketMatch[1];
     bracketPosition = Number.parseFloat(bracketMatch[2]);

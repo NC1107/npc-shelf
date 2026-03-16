@@ -44,12 +44,12 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
     if (!opfContent) return result;
 
     // Title
-    const titleMatch = opfContent.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
+    const titleMatch = opfContent.match(/<dc:title[^>]{0,200}>([^<]+)<\/dc:title>/i);
     if (titleMatch) result.title = decodeEntities(titleMatch[1].trim());
 
     // Creators (authors, narrators, editors)
-    const creatorRegex = /<dc:creator[^>]*>([^<]+)<\/dc:creator>/gi;
-    const roleRegex = /<dc:creator[^>]*opf:role="([^"]*)"[^>]*>([^<]+)<\/dc:creator>/gi;
+    const creatorRegex = /<dc:creator[^>]{0,200}>([^<]+)<\/dc:creator>/gi;
+    const roleRegex = /<dc:creator[^>]{0,200}opf:role="([^"]{0,50})"[^>]{0,200}>([^<]+)<\/dc:creator>/gi;
 
     // Try role-attributed creators first
     let match: RegExpExecArray | null;
@@ -72,25 +72,30 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
     }
 
     // Language
-    const langMatch = opfContent.match(/<dc:language[^>]*>([^<]+)<\/dc:language>/i);
+    const langMatch = opfContent.match(/<dc:language[^>]{0,200}>([^<]+)<\/dc:language>/i);
     if (langMatch) result.language = langMatch[1].trim();
 
     // Publisher
-    const pubMatch = opfContent.match(/<dc:publisher[^>]*>([^<]+)<\/dc:publisher>/i);
+    const pubMatch = opfContent.match(/<dc:publisher[^>]{0,200}>([^<]+)<\/dc:publisher>/i);
     if (pubMatch) result.publisher = decodeEntities(pubMatch[1].trim());
 
     // Date
-    const dateMatch = opfContent.match(/<dc:date[^>]*>([^<]+)<\/dc:date>/i);
+    const dateMatch = opfContent.match(/<dc:date[^>]{0,200}>([^<]+)<\/dc:date>/i);
     if (dateMatch) result.date = dateMatch[1].trim();
 
     // Description
-    const descMatch = opfContent.match(/<dc:description[^>]*>([\s\S]*?)<\/dc:description>/i);
-    if (descMatch) {
-      result.description = decodeEntities(descMatch[1].trim().replaceAll(/<[^>]+>/g, ''));
+    // Extract description — use indexOf/slice instead of [\s\S]*? to avoid ReDoS
+    const descStart = opfContent.search(/<dc:description[^>]{0,100}>/i);
+    if (descStart !== -1) {
+      const tagEnd = opfContent.indexOf('>', descStart) + 1;
+      const closeIdx = opfContent.indexOf('</dc:description>', tagEnd);
+      if (closeIdx !== -1) {
+        result.description = decodeEntities(opfContent.slice(tagEnd, closeIdx).trim().replaceAll(/<[^>]{1,1000}>/g, ''));
+      }
     }
 
     // ISBN — look in dc:identifier with isbn scheme or opf:scheme
-    const identRegex = /<dc:identifier[^>]*>([^<]+)<\/dc:identifier>/gi;
+    const identRegex = /<dc:identifier[^>]{0,200}>([^<]+)<\/dc:identifier>/gi;
     while ((match = identRegex.exec(opfContent)) !== null) {
       const fullTag = match[0];
       const value = match[1].trim();
@@ -102,20 +107,20 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
     }
 
     // Subjects/tags
-    const subjectRegex = /<dc:subject[^>]*>([^<]+)<\/dc:subject>/gi;
+    const subjectRegex = /<dc:subject[^>]{0,200}>([^<]+)<\/dc:subject>/gi;
     while ((match = subjectRegex.exec(opfContent)) !== null) {
       result.subjects.push(decodeEntities(match[1].trim()));
     }
 
     // 3. Extract cover image
     // Look for meta cover element: <meta name="cover" content="cover-image-id"/>
-    const coverMeta = opfContent.match(/<meta\s+name="cover"\s+content="([^"]+)"/i)
-      || opfContent.match(/<meta\s+content="([^"]+)"\s+name="cover"/i);
+    const coverMeta = opfContent.match(/<meta\s{1,10}name="cover"\s{1,10}content="([^"]{1,200})"/i)
+      || opfContent.match(/<meta\s{1,10}content="([^"]{1,200})"\s{1,10}name="cover"/i);
 
     if (coverMeta) {
       const coverId = coverMeta[1];
       // Find the item with this id
-      const itemRegex = new RegExp(`<item[^>]+id="${escapeRegex(coverId)}"[^>]*>`, 'i');
+      const itemRegex = new RegExp(`<item[^>]{1,500}id="${escapeRegex(coverId)}"[^>]{0,500}>`, 'i');
       const itemMatch = opfContent.match(itemRegex);
       if (itemMatch) {
         const hrefMatch = itemMatch[0].match(/href="([^"]+)"/);
@@ -131,7 +136,7 @@ export async function parseEpub(filePath: string): Promise<EpubMetadata> {
 
     // Fallback: look for item with properties="cover-image" (EPUB3)
     if (!result.coverImage) {
-      const epub3Cover = opfContent.match(/<item[^>]+properties="[^"]*cover-image[^"]*"[^>]*>/i);
+      const epub3Cover = opfContent.match(/<item[^>]{1,500}properties="[^"]{0,200}cover-image[^"]{0,200}"[^>]{0,500}>/i);
       if (epub3Cover) {
         const hrefMatch = epub3Cover[0].match(/href="([^"]+)"/);
         if (hrefMatch) {

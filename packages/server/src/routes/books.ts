@@ -726,7 +726,7 @@ booksRouter.delete('/:id/match', (req, res) => {
       .get();
     let restoredTitle: string | undefined;
     if (file) {
-      const dirPath = file.path.replace(/[\\/][^\\/]+$/, '');
+      const dirPath = file.path.replace(/[\\/][^\\/]{1,500}$/, '');
       const parsed = parseFilename(file.filename, dirPath);
       const cleaned = cleanTitle(parsed.title);
       if (cleaned && cleaned.toLowerCase() !== book.title.toLowerCase()) {

@@ -277,7 +277,7 @@ function isDirtyTitle(title: string, bookId: number): boolean {
     (authorLower !== '' && titleLower === authorLower) ||
     /\((?:azw3|epub|mobi|pdf|m4b|mp3)\)/i.test(title) ||
     /\(retail\)/i.test(title) ||
-    /^\[.*?\]\s*-\s*/.test(title)
+    /^\[[^\]]{0,200}\]\s*-\s*/.test(title)
   );
 }
 

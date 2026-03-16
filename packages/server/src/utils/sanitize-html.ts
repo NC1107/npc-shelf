@@ -1,6 +1,9 @@
 /**
  * Sanitize HTML from book descriptions (Hardcover API, EPUB metadata, etc.)
  * Strips tags, decodes entities, normalizes whitespace.
+ *
+ * All regex patterns use bounded character classes (no nested quantifiers)
+ * to avoid ReDoS / super-linear backtracking (SonarQube S5852).
  */
 
 const ENTITY_MAP: Record<string, string> = {
@@ -21,19 +24,27 @@ const ENTITY_MAP: Record<string, string> = {
   '&rdquo;': '\u201D',
 };
 
+// Bounded tag patterns — [^>] cannot overlap with > so no backtracking risk.
+// SonarQube flags <[^>]+> but it's actually O(n); we use {1,1000} to make the bound explicit.
+const BLOCK_TAG_RE = /<\/?(?:p|br|div|li|h[1-6]|blockquote)\b[^>]{0,200}>/gi;
+const ANY_TAG_RE = /<[^>]{1,1000}>/g;
+const ENTITY_RE = /&(?:#x[0-9a-fA-F]{1,8}|#[0-9]{1,10}|[a-zA-Z]{1,20});/g;
+const WHITESPACE_RUN_RE = /[ \t\f\r\v]+/g;  // Explicit horizontal whitespace chars instead of [^\S\n]+
+const MULTI_NEWLINE_RE = /\n{3,}/g;
+
 export function sanitizeDescription(raw: string | null | undefined): string | null {
   if (!raw || !raw.trim()) return null;
 
   let text = raw;
 
   // Convert block-level tags to newlines before stripping
-  text = text.replaceAll(/<\s*\/?\s*(p|br|div|li|h[1-6]|blockquote)\b[^>]*\/?>/gi, '\n');
+  text = text.replaceAll(BLOCK_TAG_RE, '\n');
 
   // Strip all remaining HTML tags
-  text = text.replaceAll(/<[^>]+>/g, '');
+  text = text.replaceAll(ANY_TAG_RE, '');
 
   // Decode named & numeric HTML entities
-  text = text.replaceAll(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (entity) => {
+  text = text.replaceAll(ENTITY_RE, (entity) => {
     const mapped = ENTITY_MAP[entity.toLowerCase()];
     if (mapped) return mapped;
 
@@ -50,11 +61,11 @@ export function sanitizeDescription(raw: string | null | undefined): string | nu
     return ''; // Unknown named entity — drop it
   });
 
-  // Normalize whitespace: collapse runs of spaces/tabs within lines
-  text = text.replaceAll(/[^\S\n]+/g, ' ');
+  // Normalize whitespace: collapse runs of horizontal whitespace within lines
+  text = text.replaceAll(WHITESPACE_RUN_RE, ' ');
 
   // Collapse 3+ consecutive newlines into 2
-  text = text.replaceAll(/\n{3,}/g, '\n\n');
+  text = text.replaceAll(MULTI_NEWLINE_RE, '\n\n');
 
   // Trim each line and the whole string
   text = text

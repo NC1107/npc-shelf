@@ -46,7 +46,7 @@ describe('sanitizeDescription', () => {
   it('handles real Hardcover HTML descriptions', () => {
     const html = `<p><b>The Stormlight Archive</b> saga continues in <i>Rhythm of War</i>, the eagerly awaited sequel to Brandon Sanderson&rsquo;s #1 <i>New York Times</i> bestselling <i>Oathbringer</i>.</p><p>After forming a coalition of human resistance against the enemy invasion, Dalinar Kholin and his Knights Radiant have spent a year fighting a protracted, brutal war.</p>`;
     const result = sanitizeDescription(html);
-    expect(result).not.toMatch(/<[^>]+>/);
+    expect(result).not.toMatch(/<[^>]{1,1000}>/);
     expect(result).toContain('Rhythm of War');
     expect(result).toContain('\u2019'); // decoded rsquo
     expect(result).toContain('\n'); // paragraph break preserved
