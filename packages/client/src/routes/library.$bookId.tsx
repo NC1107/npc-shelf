@@ -17,6 +17,7 @@ import { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem, DropdownS
 import { api } from '../lib/api';
 import { FORMAT_COLORS } from '../lib/format-colors';
 import { ComparePanel } from '../components/book/ComparePanel';
+import { ReviewPanel } from '../components/book/ReviewPanel';
 import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import type { BookDetail, MatchBreakdown, Job, AudioChapter, MetadataSearchResult } from '@npc-shelf/shared';
 
@@ -350,6 +351,7 @@ function BookDetailContent({
 }: any) {
   const [activeFormat, setActiveFormat] = useState<'ebook' | 'audiobook'>(hasAudio ? 'audiobook' : 'ebook');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showReviewPanel, setShowReviewPanel] = useState(false);
   const statusQueryClient = useQueryClient();
 
   const cycleReadingStatus = useMutation({
@@ -374,24 +376,39 @@ function BookDetailContent({
         Back to Library
       </Link>
 
-      {/* Needs Review banner */}
+      {/* Needs Review banner / panel */}
       {book.needsReview === 1 && book.hardcoverId && (
-        <div className="flex items-center justify-between rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm dark:border-yellow-800 dark:bg-yellow-950">
-          <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>Low confidence metadata match ({book.matchConfidence ? `${Math.round(book.matchConfidence * 100)}%` : 'unknown'}). Review and accept or reject.</span>
+        showReviewPanel ? (
+          <ReviewPanel
+            book={book}
+            onAccept={() => { acceptMatch.mutate(); setShowReviewPanel(false); }}
+            onReject={() => { clearMatch.mutate(); setShowReviewPanel(false); }}
+            onApplyMatch={() => {
+              statusQueryClient.invalidateQueries({ queryKey: ['book', bookId] });
+              setShowReviewPanel(false);
+            }}
+          />
+        ) : (
+          <div className="flex items-center justify-between rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm dark:border-yellow-800 dark:bg-yellow-950">
+            <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Low confidence match ({book.matchConfidence ? `${Math.round(book.matchConfidence * 100)}%` : 'unknown'})</span>
+            </div>
+            <div className="flex items-center gap-2 ml-4">
+              <Button size="sm" variant="outline" onClick={() => setShowReviewPanel(true)}>
+                Review Match
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => acceptMatch.mutate()} disabled={acceptMatch.isPending}>
+                <Check className="h-3 w-3 mr-1" />
+                Accept
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => clearMatch.mutate()} disabled={clearMatch.isPending}>
+                <X className="h-3 w-3 mr-1" />
+                Reject
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2 ml-4">
-            <Button size="sm" variant="outline" onClick={() => acceptMatch.mutate()} disabled={acceptMatch.isPending}>
-              <Check className="h-3 w-3 mr-1" />
-              Accept
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => clearMatch.mutate()} disabled={clearMatch.isPending}>
-              <X className="h-3 w-3 mr-1" />
-              Reject
-            </Button>
-          </div>
-        </div>
+        )
       )}
 
       <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">

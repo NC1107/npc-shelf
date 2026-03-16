@@ -8,6 +8,7 @@ import { Separator } from '../components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import { DirectoryBrowser } from '../components/DirectoryBrowser';
+import { HardcoverSyncPanel } from '../components/settings/HardcoverSyncPanel';
 import { api } from '../lib/api';
 import { useScanStore } from '../stores/scanStore';
 import type { Library as LibraryType, KindleSettings } from '@npc-shelf/shared';
@@ -543,6 +544,8 @@ export function SettingsPage() {
                 {matchAllBooks.isSuccess && (
                   <p className="text-sm text-green-600">Metadata matching queued. Books will be enriched in the background.</p>
                 )}
+
+                {hasToken && <HardcoverSyncPanel />}
               </div>
             </CardContent>
           </Card>

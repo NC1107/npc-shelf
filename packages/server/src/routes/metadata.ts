@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { eq } from 'drizzle-orm';
-import { db, schema } from '../db/index.js';
+import { eq, sql } from 'drizzle-orm';
+import { db, schema, sqlite } from '../db/index.js';
 import { searchProvider, applyMatch, getProvider } from '../services/metadata-pipeline.js';
 
 export const metadataRouter = Router();
@@ -97,9 +97,27 @@ metadataRouter.post('/apply/:bookId', async (req, res) => {
       return;
     }
 
+    // Get primary author for correction record
+    const authorRow = db.select({ name: schema.authors.name })
+      .from(schema.bookAuthors)
+      .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+      .where(eq(schema.bookAuthors.bookId, bookId))
+      .get();
+
     await applyMatch(bookId, externalId);
 
+    // Store match correction for future auto-matching
     const updated = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
+    if (updated) {
+      db.insert(schema.matchCorrections).values({
+        localTitle: book.title,
+        localAuthor: authorRow?.name ?? null,
+        matchedExternalId: externalId,
+        matchedTitle: updated.title,
+        matchedAuthor: authorRow?.name ?? null,
+      }).run();
+    }
+
     res.json(updated);
   } catch (error) {
     console.error('[Metadata] Apply error:', error);
@@ -139,6 +157,139 @@ metadataRouter.put('/books/:id/metadata', (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[Metadata] Update error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Fetch user's Hardcover reading list and cross-reference with local books
+metadataRouter.get('/hardcover-library', async (req, res) => {
+  try {
+    const provider = getProvider();
+    if (!('getUserBooks' in provider)) {
+      res.status(400).json({ error: 'Hardcover provider does not support user book fetching' });
+      return;
+    }
+    const userBooks = await (provider as any).getUserBooks();
+    if (!userBooks || userBooks.length === 0) {
+      res.json({ matched: [], missing: [], stats: { total: 0, matched: 0, missing: 0 } });
+      return;
+    }
+
+    const HC_STATUS_NAMES: Record<number, string> = { 1: 'Want to Read', 2: 'Currently Reading', 3: 'Read', 4: 'Paused', 5: 'Did Not Finish' };
+    const HC_TO_LOCAL: Record<number, string> = { 1: 'unread', 2: 'reading', 3: 'finished', 4: 'reading', 5: 'finished' };
+
+    const matched: any[] = [];
+    const missing: any[] = [];
+
+    for (const hcBook of userBooks) {
+      const localBook = db.select().from(schema.books)
+        .where(eq(schema.books.hardcoverId, String(hcBook.hardcoverId)))
+        .get();
+
+      if (localBook) {
+        matched.push({
+          localBook,
+          hardcoverStatus: hcBook.statusId,
+          hardcoverStatusName: HC_STATUS_NAMES[hcBook.statusId] || 'Unknown',
+          suggestedLocalStatus: HC_TO_LOCAL[hcBook.statusId] || null,
+        });
+      } else {
+        missing.push({
+          hardcoverId: hcBook.hardcoverId,
+          title: hcBook.title,
+          slug: hcBook.slug,
+          imageUrl: hcBook.imageUrl,
+          authorNames: hcBook.authorNames,
+          statusId: hcBook.statusId,
+          statusName: HC_STATUS_NAMES[hcBook.statusId] || 'Unknown',
+        });
+      }
+    }
+
+    res.json({
+      matched,
+      missing,
+      stats: { total: userBooks.length, matched: matched.length, missing: missing.length },
+    });
+  } catch (error) {
+    console.error('[Metadata] Hardcover library error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Batch-update reading status from Hardcover sync
+metadataRouter.post('/sync-hardcover-status', (req, res) => {
+  try {
+    const { updates } = req.body as { updates?: { bookId: number; readingStatus: string }[] };
+    if (!Array.isArray(updates) || updates.length === 0) {
+      res.status(400).json({ error: 'updates array is required' });
+      return;
+    }
+
+    const validStatuses = ['unread', 'reading', 'finished'];
+    const syncTx = sqlite.transaction(() => {
+      let updated = 0;
+      for (const { bookId, readingStatus } of updates) {
+        if (!validStatuses.includes(readingStatus)) continue;
+        db.update(schema.books)
+          .set({ readingStatus, updatedAt: new Date().toISOString() })
+          .where(eq(schema.books.id, bookId))
+          .run();
+        updated++;
+      }
+      return updated;
+    });
+
+    const count = syncTx();
+    res.json({ message: `Updated ${count} books`, updated: count });
+  } catch (error) {
+    console.error('[Metadata] Sync status error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create collections from Hardcover reading lists
+metadataRouter.post('/sync-hardcover-collections', (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const { books } = req.body as {
+      books?: { bookId: number; statusName: string }[];
+    };
+    if (!Array.isArray(books) || books.length === 0) {
+      res.status(400).json({ error: 'books array is required' });
+      return;
+    }
+
+    const collectionNames = [...new Set(books.map(b => b.statusName))];
+    let collectionsCreated = 0;
+    let booksAdded = 0;
+
+    const syncTx = sqlite.transaction(() => {
+      for (const name of collectionNames) {
+        let collection = db.select().from(schema.collections)
+          .where(sql`${schema.collections.userId} = ${userId} AND ${schema.collections.name} = ${name}`)
+          .get();
+        if (!collection) {
+          collection = db.insert(schema.collections)
+            .values({ userId, name })
+            .returning().get();
+          collectionsCreated++;
+        }
+
+        const booksForCollection = books.filter(b => b.statusName === name);
+        for (const { bookId } of booksForCollection) {
+          db.insert(schema.bookCollections)
+            .values({ bookId, collectionId: collection.id })
+            .onConflictDoNothing().run();
+          booksAdded++;
+        }
+      }
+    });
+
+    syncTx();
+    res.json({ collectionsCreated, booksAdded });
+  } catch (error) {
+    console.error('[Metadata] Sync collections error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

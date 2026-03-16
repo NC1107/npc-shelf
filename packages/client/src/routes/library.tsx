@@ -13,6 +13,7 @@ import {
   Tag,
   MousePointerClick,
   AlertCircle,
+  FolderPlus,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -70,6 +71,11 @@ function SelectableBookCard({
   );
 }
 
+interface CollectionOption {
+  id: number;
+  name: string;
+}
+
 function BulkActionBar({
   selectedCount,
   onSelectAll,
@@ -77,6 +83,8 @@ function BulkActionBar({
   onDelete,
   onMatch,
   onTag,
+  onAddToCollection,
+  collections,
   isBulkLoading,
 }: Readonly<{
   selectedCount: number;
@@ -85,10 +93,13 @@ function BulkActionBar({
   onDelete: () => void;
   onMatch: () => void;
   onTag: (tags: string[]) => void;
+  onAddToCollection: (collectionId: number) => void;
+  collections: CollectionOption[];
   isBulkLoading: boolean;
 }>) {
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInput, setTagInput] = useState('');
+  const [showCollectionPicker, setShowCollectionPicker] = useState(false);
 
   const handleSubmitTag = () => {
     const tags = tagInput.split(',').map((t) => t.trim()).filter(Boolean);
@@ -156,6 +167,37 @@ function BulkActionBar({
               Add Tag
             </Button>
           )}
+
+          {/* Add to Collection */}
+          <div className="relative">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowCollectionPicker(!showCollectionPicker)}
+              disabled={isBulkLoading}
+              className="gap-1.5"
+            >
+              <FolderPlus className="h-3.5 w-3.5" />
+              Collection
+            </Button>
+            {showCollectionPicker && collections.length > 0 && (
+              <div className="absolute bottom-full mb-1 left-0 z-50 w-48 rounded-md border bg-popover p-1 shadow-lg max-h-40 overflow-y-auto">
+                {collections.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className="w-full text-left rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                    onClick={() => {
+                      onAddToCollection(c.id);
+                      setShowCollectionPicker(false);
+                    }}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           <Button
             variant="outline"
@@ -425,6 +467,21 @@ export function LibraryPage() {
     },
   });
 
+  const { data: collections } = useQuery({
+    queryKey: ['collections'],
+    queryFn: () => api.get<{ id: number; name: string }[]>('/collections'),
+    enabled: selectMode,
+  });
+
+  const bulkCollection = useMutation({
+    mutationFn: ({ bookIds, collectionId }: { bookIds: number[]; collectionId: number }) =>
+      api.post('/books/bulk/collection', { bookIds, collectionId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['books'] });
+      exitSelectMode();
+    },
+  });
+
   const bulkTag = useMutation({
     mutationFn: ({ bookIds, addTags }: { bookIds: number[]; addTags: string[] }) =>
       api.post('/books/bulk/tag', { bookIds, addTags }),
@@ -435,7 +492,7 @@ export function LibraryPage() {
   });
 
   const selectedArray = Array.from(selectedIds);
-  const isBulkLoading = bulkDelete.isPending || bulkMatch.isPending || bulkTag.isPending;
+  const isBulkLoading = bulkDelete.isPending || bulkMatch.isPending || bulkTag.isPending || bulkCollection.isPending;
 
   const handleBulkDelete = () => {
     if (selectedArray.length === 0) return;
@@ -454,6 +511,11 @@ export function LibraryPage() {
   const handleBulkTag = (tags: string[]) => {
     if (selectedArray.length === 0) return;
     bulkTag.mutate({ bookIds: selectedArray, addTags: tags });
+  };
+
+  const handleBulkCollection = (collectionId: number) => {
+    if (selectedArray.length === 0) return;
+    bulkCollection.mutate({ bookIds: selectedArray, collectionId });
   };
 
   const showBulkBar = selectMode && selectedIds.size > 0;
@@ -713,6 +775,8 @@ export function LibraryPage() {
           onDelete={handleBulkDelete}
           onMatch={handleBulkMatch}
           onTag={handleBulkTag}
+          onAddToCollection={handleBulkCollection}
+          collections={collections || []}
           isBulkLoading={isBulkLoading}
         />
       )}

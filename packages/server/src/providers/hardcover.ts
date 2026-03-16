@@ -54,6 +54,26 @@ const BOOK_BY_PK_QUERY = gql`
   }
 `;
 
+const USER_BOOKS_QUERY = gql`
+  query GetUserBooks {
+    me {
+      user_books {
+        status_id
+        rating
+        book {
+          id
+          title
+          slug
+          pages
+          release_date
+          cached_image
+          contributions { author { name } }
+        }
+      }
+    }
+  }
+`;
+
 const SERIES_BY_PK_QUERY = gql`
   query GetSeries($id: Int!) {
     series_by_pk(id: $id) {
@@ -262,6 +282,28 @@ export class HardcoverProvider implements MetadataProvider {
       return matchingAuthors;
     } catch (err: any) {
       console.error('[Hardcover] Author search error:', err.message);
+      return [];
+    }
+  }
+
+  async getUserBooks(): Promise<{ hardcoverId: number; title: string; slug: string | null; imageUrl: string | null; authorNames: string[]; statusId: number }[]> {
+    try {
+      const data = await this.requestWithRetry<{
+        me: { user_books: { status_id: number; rating: number | null; book: { id: number; title: string; slug: string | null; cached_image: string | null; contributions: { author: { name: string } }[] } }[] };
+      }>(USER_BOOKS_QUERY, {});
+
+      return data.me.user_books
+        .filter(ub => ub.status_id >= 1 && ub.status_id <= 5)
+        .map(ub => ({
+          hardcoverId: ub.book.id,
+          title: ub.book.title,
+          slug: ub.book.slug,
+          imageUrl: ub.book.cached_image,
+          authorNames: ub.book.contributions.map(c => c.author.name),
+          statusId: ub.status_id,
+        }));
+    } catch (err: any) {
+      console.error('[Hardcover] User books fetch error:', err.message);
       return [];
     }
   }
