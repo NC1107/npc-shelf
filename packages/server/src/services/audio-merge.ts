@@ -74,7 +74,10 @@ export async function mergeAudiobook(bookId: number): Promise<string> {
   try {
     // Write concat list
     const concatContent = trackFiles
-      .map(tf => `file '${tf.path.replaceAll("'", String.raw`'\''`)}'`)
+      .map(tf => {
+        const escaped = tf.path.replaceAll("'", "'\\''");
+        return `file '${escaped}'`;
+      })
       .join('\n');
     fs.writeFileSync(concatListPath, concatContent, 'utf-8');
 

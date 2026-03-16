@@ -261,6 +261,20 @@ function resolveBestCandidate(sources: { value: string; confidence: number }[]):
   return sources[0].value;
 }
 
+function resolveSeriesList(
+  sidecar: SidecarMetadata | null,
+  series: string | null,
+  seriesPosition: number | null,
+): { name: string; position: number | null }[] {
+  if (sidecar?.seriesList && sidecar.seriesList.length > 0) {
+    return sidecar.seriesList;
+  }
+  if (series) {
+    return [{ name: series, position: seriesPosition }];
+  }
+  return [];
+}
+
 function resolveMetadata(
   dirHints: DirectoryHints,
   fnHints: FilenameHints,
@@ -287,15 +301,7 @@ function resolveMetadata(
   const series = resolveBestCandidate(seriesSources);
 
   const seriesPosition = fnHints.seriesPosition ?? null;
-
-  let seriesList: { name: string; position: number | null }[];
-  if (sidecar?.seriesList && sidecar.seriesList.length > 0) {
-    seriesList = sidecar.seriesList;
-  } else if (series) {
-    seriesList = [{ name: series, position: seriesPosition }];
-  } else {
-    seriesList = [];
-  }
+  const seriesList = resolveSeriesList(sidecar, series, seriesPosition);
 
   return { title, author, series, seriesPosition, seriesList };
 }

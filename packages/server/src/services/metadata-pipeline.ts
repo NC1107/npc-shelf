@@ -434,7 +434,8 @@ function buildEnrichmentUpdates(
 }
 
 async function downloadMatchCover(match: MetadataMatchResult, bookId: number): Promise<void> {
-  const coverPath = await downloadAndResizeCover(match.coverUrl!, bookId);
+  if (!match.coverUrl) return;
+  const coverPath = await downloadAndResizeCover(match.coverUrl, bookId);
   if (coverPath) {
     db.update(schema.books).set({ coverPath }).where(eq(schema.books.id, bookId)).run();
   }

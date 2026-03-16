@@ -57,6 +57,33 @@ function computeAuthorSimilarity(
   return Math.max(sim, flipSim);
 }
 
+function findSimilarAuthors(
+  allAuthors: { id: number; name: string; sortName: string }[],
+  i: number,
+  seen: Set<number>,
+): { group: typeof allAuthors; maxSim: number } {
+  const group = [allAuthors[i]];
+  let maxSim = 0;
+  const nameA = allAuthors[i].name.toLowerCase().trim();
+  const flipA = flipSortName(allAuthors[i].sortName);
+
+  for (let j = i + 1; j < allAuthors.length; j++) {
+    if (seen.has(allAuthors[j].id)) continue;
+
+    const nameB = allAuthors[j].name.toLowerCase().trim();
+    const flipB = flipSortName(allAuthors[j].sortName);
+    const best = computeAuthorSimilarity(nameA, flipA, nameB, flipB);
+
+    if (best >= 0.8) {
+      group.push(allAuthors[j]);
+      seen.add(allAuthors[j].id);
+      maxSim = Math.max(maxSim, best);
+    }
+  }
+
+  return { group, maxSim };
+}
+
 function buildDuplicateGroups(
   allAuthors: { id: number; name: string; sortName: string }[],
 ): Array<{ authors: typeof allAuthors; similarity: number }> {
@@ -65,25 +92,8 @@ function buildDuplicateGroups(
 
   for (let i = 0; i < allAuthors.length; i++) {
     if (seen.has(allAuthors[i].id)) continue;
-    const group = [allAuthors[i]];
-    let maxSim = 0;
 
-    const nameA = allAuthors[i].name.toLowerCase().trim();
-    const flipA = flipSortName(allAuthors[i].sortName);
-
-    for (let j = i + 1; j < allAuthors.length; j++) {
-      if (seen.has(allAuthors[j].id)) continue;
-
-      const nameB = allAuthors[j].name.toLowerCase().trim();
-      const flipB = flipSortName(allAuthors[j].sortName);
-      const best = computeAuthorSimilarity(nameA, flipA, nameB, flipB);
-
-      if (best >= 0.8) {
-        group.push(allAuthors[j]);
-        seen.add(allAuthors[j].id);
-        maxSim = Math.max(maxSim, best);
-      }
-    }
+    const { group, maxSim } = findSimilarAuthors(allAuthors, i, seen);
 
     if (group.length > 1) {
       seen.add(allAuthors[i].id);
