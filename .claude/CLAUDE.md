@@ -23,8 +23,31 @@ NPC-Shelf is a **self-hosted personal book library manager**. Think Calibre meet
 - **No co-author lines.** Do not append `Co-Authored-By` to commits. Ever.
 - **Every commit gets a version bump.** When you commit, bump the patch version in all 4 `package.json` files (root, shared, client, server) and tag it `vX.Y.Z`. This is the release process — there is no separate release step.
 - **Always push after completing a task.** After a successful build, test, commit, and tag, run `git push && git push --tags` to deploy. The release pipeline is tag-driven — nothing ships until the tag is pushed.
-- **Commit message style**: Lowercase prefix (`fix:`, `feat:`, `chore:`, `docs:`), concise subject line, bullet-point body if needed. No emoji.
 - **Tag format**: `vX.Y.Z` (e.g., `v0.5.1`)
+- **Exception**: Pure non-code changes (docs, screenshots, gitignore) skip version bump and tag.
+
+### Commit Message Format
+
+```
+<type>: <subject>
+
+<optional body>
+```
+
+**Rules:**
+- Subject line: lowercase, imperative mood, no period, max ~72 chars
+- Type prefix is always lowercase — one of:
+  - `feat:` — new feature or capability
+  - `fix:` — bug fix
+  - `chore:` — maintenance, cleanup, deps, CI, config
+  - `docs:` — documentation only
+  - `refactor:` — code restructuring with no behavior change
+  - `test:` — adding or updating tests
+  - `perf:` — performance improvement
+- No emoji in commit messages
+- Body (optional): bullet points with `-`, explaining *why* not *what*
+- When a commit covers multiple changes, use `feat: vX.Y.Z — brief summary` as subject, then list changes as bullets in the body
+- One logical change per commit when possible; batch related changes into a single versioned commit when they ship together
 
 ### Version Bumping
 - **Patch** (`0.5.x`): Bug fixes, code cleanup, dependency updates, SonarLint fixes
