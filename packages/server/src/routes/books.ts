@@ -60,6 +60,12 @@ function filterBookIdsByReview(bookIds: number[] | undefined): number[] {
   return bookIds ? bookIds.filter((id) => reviewBookIds.includes(id)) : reviewBookIds;
 }
 
+function filterBookIdsByReadingStatus(bookIds: number[] | undefined, status: string): number[] {
+  const statusResults = db.all<{ id: number }>(sql`SELECT id FROM books WHERE reading_status = ${status}`);
+  const statusBookIds = statusResults.map((r) => r.id);
+  return bookIds ? bookIds.filter((id) => statusBookIds.includes(id)) : statusBookIds;
+}
+
 function syncBookAuthors(bookId: number, authors: { name: string; role?: string }[]): void {
   db.delete(schema.bookAuthors).where(eq(schema.bookAuthors.bookId, bookId)).run();
   for (const a of authors) {
@@ -129,6 +135,22 @@ booksRouter.get('/stats', (_req, res) => {
         sql`SELECT COUNT(*) as count FROM books WHERE needs_review = 1`,
       )[0]?.count ?? 0;
 
+    const statusReading = db
+      .all<{ count: number }>(
+        sql`SELECT COUNT(*) as count FROM books WHERE reading_status = 'reading'`,
+      )[0]?.count ?? 0;
+
+    const statusFinished = db
+      .all<{ count: number }>(
+        sql`SELECT COUNT(*) as count FROM books WHERE reading_status = 'finished'`,
+      )[0]?.count ?? 0;
+
+    const lastScannedRow = db
+      .all<{ last_scanned: string | null }>(
+        sql`SELECT MAX(last_scanned_at) as last_scanned FROM libraries WHERE last_scanned_at IS NOT NULL`,
+      )[0];
+    const lastScannedAt = lastScannedRow?.last_scanned ?? null;
+
     res.json({
       totalBooks,
       totalAuthors,
@@ -136,6 +158,9 @@ booksRouter.get('/stats', (_req, res) => {
       audiobookCount,
       inProgress: readingCount + listeningCount,
       needsReviewCount,
+      readingCount: statusReading,
+      finishedCount: statusFinished,
+      lastScannedAt,
     });
   } catch (error) {
     console.error('[Books] Stats error:', error);
@@ -186,6 +211,40 @@ booksRouter.get('/in-progress', (req, res) => {
   }
 });
 
+// Recently active books — books with recent progress updates
+booksRouter.get('/recently-active', (req, res) => {
+  try {
+    const userId = req.user!.userId;
+
+    // Get books that have any progress, ordered by most recent activity
+    const rows = db.all<{ book_id: number; updated_at: string }>(sql`
+      SELECT book_id, updated_at FROM (
+        SELECT book_id, updated_at FROM reading_progress WHERE user_id = ${userId} AND progress_percent > 0
+        UNION ALL
+        SELECT book_id, updated_at FROM audio_progress WHERE user_id = ${userId} AND total_elapsed_seconds > 0
+      ) ORDER BY updated_at DESC LIMIT 12
+    `);
+
+    // Deduplicate by book_id, keeping most recent
+    const seen = new Set<number>();
+    const unique = rows.filter((r) => {
+      if (seen.has(r.book_id)) return false;
+      seen.add(r.book_id);
+      return true;
+    });
+
+    const enriched = unique.map((item) => {
+      const book = db.select().from(schema.books).where(eq(schema.books.id, item.book_id)).get();
+      return book || null;
+    }).filter(Boolean);
+
+    res.json(enriched);
+  } catch (error) {
+    console.error('[Books] Recently active error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // List books (paginated, filterable, searchable)
 booksRouter.get('/', (req, res) => {
   try {
@@ -199,6 +258,7 @@ booksRouter.get('/', (req, res) => {
     const seriesId = req.query.seriesId as string | undefined;
     const needsReview = req.query.needsReview as string | undefined;
     const narratorId = req.query.narratorId as string | undefined;
+    const readingStatus = req.query.readingStatus as string | undefined;
 
     let bookIds: number[] | undefined;
 
@@ -226,6 +286,9 @@ booksRouter.get('/', (req, res) => {
     if (narratorId) bookIds = filterBookIdsByNarrator(bookIds, narratorId);
     if (seriesId) bookIds = filterBookIdsBySeries(bookIds, seriesId);
     if (needsReview === 'true') bookIds = filterBookIdsByReview(bookIds);
+    if (readingStatus && ['unread', 'reading', 'finished'].includes(readingStatus)) {
+      bookIds = filterBookIdsByReadingStatus(bookIds, readingStatus);
+    }
 
     // Default: only show books that have at least one file
     if (bookIds === undefined) {
@@ -542,7 +605,7 @@ booksRouter.put('/:id', (req, res) => {
 
     const allowedFields = [
       'title', 'subtitle', 'description', 'publisher',
-      'publishDate', 'language', 'pageCount', 'isbn10', 'isbn13', 'needsReview',
+      'publishDate', 'language', 'pageCount', 'isbn10', 'isbn13', 'needsReview', 'readingStatus',
     ] as const;
 
     const updates: Record<string, any> = { updatedAt: new Date().toISOString() };

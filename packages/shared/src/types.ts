@@ -40,6 +40,8 @@ export interface CreateLibraryRequest {
 }
 
 // ===== Book =====
+export type ReadingStatus = 'unread' | 'reading' | 'finished';
+
 export type FileFormat = 'epub' | 'pdf' | 'mobi' | 'azw3' | 'm4b' | 'mp3';
 
 export interface Book {
@@ -59,6 +61,7 @@ export interface Book {
   coverPath: string | null;
   blurhash: string | null;
   audioSeconds: number | null;
+  readingStatus: ReadingStatus;
   needsReview: number;
   createdAt: string;
   updatedAt: string;

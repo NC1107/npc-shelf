@@ -124,6 +124,9 @@ readerRouter.put('/books/:id/progress', (req, res) => {
         .run();
     }
 
+    // Auto-derive reading status
+    db.run(sql`UPDATE books SET reading_status = 'reading' WHERE id = ${bookId} AND reading_status = 'unread'`);
+
     res.json({ message: 'Progress updated' });
   } catch (error) {
     console.error('[Reader] Update progress error:', error);

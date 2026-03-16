@@ -17,6 +17,7 @@ import {
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Select } from '../components/ui/select';
+
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent } from '../components/ui/card';
 import { Combobox } from '../components/ui/combobox';
@@ -342,6 +343,7 @@ export function LibraryPage() {
     libraryAuthorId: authorId,
     librarySeriesId: seriesId,
     libraryNeedsReview: needsReview,
+    libraryReadingStatus: readingStatus,
     libraryView,
     setLibraryFilters,
     clearLibraryFilters,
@@ -354,7 +356,7 @@ export function LibraryPage() {
 
   const queryClient = useQueryClient();
 
-  const activeFilterCount = [format, authorId, seriesId, needsReview].filter(Boolean).length;
+  const activeFilterCount = [format, authorId, seriesId, needsReview, readingStatus].filter(Boolean).length;
   const hasAnyFilter = !!search || activeFilterCount > 0;
 
   const { data: filters } = useQuery({
@@ -372,9 +374,10 @@ export function LibraryPage() {
   if (authorId) queryParams.set('authorId', authorId);
   if (seriesId) queryParams.set('seriesId', seriesId);
   if (needsReview) queryParams.set('needsReview', 'true');
+  if (readingStatus) queryParams.set('readingStatus', readingStatus);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['books', { page, sortBy, sortOrder, q: search, format, authorId, seriesId, needsReview }],
+    queryKey: ['books', { page, sortBy, sortOrder, q: search, format, authorId, seriesId, needsReview, readingStatus }],
     queryFn: () => api.get<PaginatedResponse<Book>>(`/books?${queryParams.toString()}`),
   });
 
@@ -558,6 +561,17 @@ export function LibraryPage() {
                 Needs Review
               </label>
 
+              {/* Reading Status */}
+              <div className="space-y-1">
+                <label htmlFor="filter-status" className="text-xs font-medium text-muted-foreground">Status</label>
+                <Select id="filter-status" value={readingStatus} onChange={(e) => { setLibraryFilters({ libraryReadingStatus: e.target.value, libraryPage: 1 }); }}>
+                  <option value="">All statuses</option>
+                  <option value="unread">Unread</option>
+                  <option value="reading">Reading</option>
+                  <option value="finished">Finished</option>
+                </Select>
+              </div>
+
               {/* Format */}
               {filters?.formats && filters.formats.length > 0 && (
                 <div className="space-y-1">
@@ -601,7 +615,7 @@ export function LibraryPage() {
 
               {activeFilterCount > 0 && (
                 <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={() => {
-                  setLibraryFilters({ libraryFormat: '', libraryAuthorId: '', librarySeriesId: '', libraryNeedsReview: false, libraryPage: 1 });
+                  setLibraryFilters({ libraryFormat: '', libraryAuthorId: '', librarySeriesId: '', libraryNeedsReview: false, libraryReadingStatus: '', libraryPage: 1 });
                 }}>
                   <X className="h-3 w-3 mr-1" />
                   Clear all filters
@@ -622,6 +636,14 @@ export function LibraryPage() {
       {/* Active filter chips */}
       {activeFilterCount > 0 && (
         <div className="flex flex-wrap gap-1.5">
+          {readingStatus && (
+            <Badge variant="secondary" className="gap-1 pr-1">
+              {readingStatus.charAt(0).toUpperCase() + readingStatus.slice(1)}
+              <button onClick={() => setLibraryFilters({ libraryReadingStatus: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
           {needsReview && (
             <Badge variant="secondary" className="gap-1 pr-1">
               Needs Review

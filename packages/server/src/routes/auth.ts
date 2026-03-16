@@ -6,6 +6,7 @@ import {
   generateAccessToken,
   generateRefreshToken,
   verifyRefreshToken,
+  authMiddleware,
   type JwtPayload,
 } from '../middleware/auth.js';
 import { authRateLimit } from '../middleware/rate-limit.js';
@@ -156,4 +157,36 @@ authRouter.post('/auth/refresh', (req, res) => {
 authRouter.post('/auth/logout', (_req, res) => {
   res.clearCookie('refreshToken', { path: '/api/auth' });
   res.json({ message: 'Logged out' });
+});
+
+// Change password (protected)
+authRouter.put('/auth/password', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: 'Current and new password are required' });
+      return;
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < AUTH.MIN_PASSWORD_LENGTH) {
+      res.status(400).json({ error: `New password must be at least ${AUTH.MIN_PASSWORD_LENGTH} characters` });
+      return;
+    }
+
+    const user = db.select().from(schema.users).where(eq(schema.users.id, req.user!.userId)).get();
+    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      res.status(401).json({ error: 'Current password is incorrect' });
+      return;
+    }
+
+    const newHash = await bcrypt.hash(newPassword, AUTH.BCRYPT_ROUNDS);
+    db.update(schema.users)
+      .set({ passwordHash: newHash, updatedAt: new Date().toISOString() })
+      .where(eq(schema.users.id, user.id))
+      .run();
+
+    res.json({ message: 'Password changed' });
+  } catch (error) {
+    console.error('[Auth] Password change error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });

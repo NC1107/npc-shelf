@@ -20,6 +20,7 @@ export const books = sqliteTable('books', {
   audioSeconds: real('audio_seconds'),
   matchBreakdown: text('match_breakdown'),
   needsReview: integer('needs_review').notNull().default(0),
+  readingStatus: text('reading_status').notNull().default('unread'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });

@@ -37,6 +37,10 @@ installLogCapture();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Read version from package.json
+const pkgPath = path.join(__dirname, '../../package.json');
+const appVersion = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version as string;
+
 const app = express();
 const PORT = Number.parseInt(process.env.PORT || '3001', 10);
 
@@ -143,7 +147,7 @@ app.get('/api/health', (_req, res) => {
 
     res.json({
       status: 'ok',
-      version: '0.10.2',
+      version: appVersion,
       uptime: process.uptime(),
       calibreAvailable: isCalibreAvailable(),
       convertAvailable: isConvertAvailable(),
@@ -361,7 +365,7 @@ app.get('*', (_req, res) => {
 });
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Server] NPC-Shelf running on http://0.0.0.0:${PORT}`);
+  console.log(`[Server] NPC-Shelf v${appVersion} running on http://0.0.0.0:${PORT}`);
   if (!isFfmpegAvailable()) {
     console.warn('[Server] ffmpeg not found — audiobook merge will be unavailable');
   }

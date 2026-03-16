@@ -69,4 +69,16 @@ const DropdownItem = React.forwardRef<
 ));
 DropdownItem.displayName = 'DropdownItem';
 
-export { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem };
+const DropdownSeparator = React.forwardRef<
+  React.ComponentRef<typeof DropdownMenuPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.Separator
+    ref={ref}
+    className={cn('-mx-1 my-1 h-px bg-border', className)}
+    {...props}
+  />
+));
+DropdownSeparator.displayName = 'DropdownSeparator';
+
+export { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem, DropdownSeparator };

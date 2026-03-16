@@ -13,7 +13,7 @@ import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
 import { Separator } from '../components/ui/separator';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/tooltip';
-import { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem } from '../components/ui/dropdown-menu';
+import { DropdownMenu, DropdownTrigger, DropdownContent, DropdownItem, DropdownSeparator } from '../components/ui/dropdown-menu';
 import { api } from '../lib/api';
 import { FORMAT_COLORS } from '../lib/format-colors';
 import { ComparePanel } from '../components/book/ComparePanel';
@@ -350,6 +350,15 @@ function BookDetailContent({
 }: any) {
   const [activeFormat, setActiveFormat] = useState<'ebook' | 'audiobook'>(hasAudio ? 'audiobook' : 'ebook');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const statusQueryClient = useQueryClient();
+
+  const cycleReadingStatus = useMutation({
+    mutationFn: () => {
+      const next = book.readingStatus === 'unread' ? 'reading' : book.readingStatus === 'reading' ? 'finished' : 'unread';
+      return api.put(`/books/${bookId}`, { readingStatus: next });
+    },
+    onSuccess: () => statusQueryClient.invalidateQueries({ queryKey: ['book', bookId] }),
+  });
 
   const coverFallbackIcon = hasAudio
     ? <Headphones className="h-16 w-16 text-muted-foreground" aria-hidden="true" />
@@ -606,6 +615,20 @@ function BookDetailContent({
             )
           )}
 
+          {/* Reading status badge */}
+          {book.readingStatus && book.readingStatus !== 'unread' && (
+            <button onClick={() => cycleReadingStatus.mutate()} className="inline-flex" disabled={cycleReadingStatus.isPending}>
+              <Badge
+                variant="outline"
+                className={book.readingStatus === 'reading'
+                  ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-300 cursor-pointer'
+                  : 'border-green-300 bg-green-50 text-green-700 dark:border-green-700 dark:bg-green-950 dark:text-green-300 cursor-pointer'}
+              >
+                {book.readingStatus === 'reading' ? 'Reading' : 'Finished'}
+              </Badge>
+            </button>
+          )}
+
           {/* Progress */}
           {(!hasBothFormats || activeFormat === 'ebook') && readingProgress && readingProgress.progressPercent > 0 && (
             <div className="space-y-1">
@@ -716,95 +739,100 @@ function BookDetailContent({
                 Edit
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => matchMetadata.mutate()}
-              disabled={matchMetadata.isPending || matchPolling}
-            >
-              {(matchMetadata.isPending || matchPolling) ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              {(() => { if (matchMetadata.isPending || matchPolling) return 'Matching...'; if (matchMetadata.isError) return 'Failed'; if (book.hardcoverId) return 'Re-match'; return 'Match'; })()}
-            </Button>
             {/* Tools dropdown */}
-            {book.files && book.files.length > 0 && (
-              <DropdownMenu>
-                <DropdownTrigger>
-                  <Button variant="outline">
-                    <Wrench className="h-4 w-4" />
-                    Tools
-                    <ChevronDown className="h-3 w-3" />
-                  </Button>
-                </DropdownTrigger>
-                <DropdownContent>
-                  {hasAudio && book.audioTrackCount > 1 && (
-                    <DropdownItem
-                      onClick={() => mergeAudiobook.mutate()}
-                      disabled={mergeAudiobook.isPending || mergeJob?.status === 'pending' || mergeJob?.status === 'processing'}
-                    >
-                      {mergeAudiobook.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Merge className="h-4 w-4" />
-                      )}
-                      {mergeAudiobook.isSuccess ? 'Queued!' : 'Merge Audio Tracks'}
-                    </DropdownItem>
+            <DropdownMenu>
+              <DropdownTrigger>
+                <Button variant="outline" size="sm">
+                  <Wrench className="h-4 w-4" />
+                  Tools
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+              </DropdownTrigger>
+              <DropdownContent>
+                <DropdownItem
+                  onClick={() => matchMetadata.mutate()}
+                  disabled={matchMetadata.isPending || matchPolling}
+                >
+                  {(matchMetadata.isPending || matchPolling) ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
                   )}
-                  {book.files && book.files.length > 1 && (
-                    <DropdownItem
-                      onClick={() => { setSplitMode(true); setShowFiles(true); }}
-                    >
-                      <Scissors className="h-4 w-4" />
-                      Split Files into New Book
-                    </DropdownItem>
-                  )}
+                  {(() => { if (matchMetadata.isPending || matchPolling) return 'Matching...'; if (matchMetadata.isError) return 'Failed'; if (book.hardcoverId) return 'Re-match'; return 'Match Metadata'; })()}
+                </DropdownItem>
+                {hasAudio && book.audioTrackCount > 1 && (
                   <DropdownItem
-                    onClick={() => previewRename.mutate()}
-                    disabled={previewRename.isPending}
+                    onClick={() => mergeAudiobook.mutate()}
+                    disabled={mergeAudiobook.isPending || mergeJob?.status === 'pending' || mergeJob?.status === 'processing'}
                   >
-                    <FolderSync className="h-4 w-4" />
-                    {previewRename.isPending ? 'Loading...' : 'Rename Files'}
+                    {mergeAudiobook.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Merge className="h-4 w-4" />
+                    )}
+                    {mergeAudiobook.isSuccess ? 'Queued!' : 'Merge Audio Tracks'}
                   </DropdownItem>
+                )}
+                {book.files && book.files.length > 1 && (
                   <DropdownItem
-                    onClick={() => writeMetadata.mutate()}
-                    disabled={writeMetadata.isPending}
+                    onClick={() => { setSplitMode(true); setShowFiles(true); }}
                   >
-                    <PenLine className="h-4 w-4" />
-                    {(() => { if (writeMetadata.isPending) return 'Writing...'; if (writeMetadata.isSuccess) return 'Done!'; return 'Write Metadata to Files'; })()}
+                    <Scissors className="h-4 w-4" />
+                    Split Files into New Book
                   </DropdownItem>
-                  {book.files?.some((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format)) && (
-                    <DropdownItem
-                      onClick={() => {
-                        const file = book.files.find((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format));
-                        if (!file) return;
-                        const conversions: Record<string, string[]> = {
-                          epub: ['mobi', 'azw3', 'pdf'], mobi: ['epub'], azw3: ['epub'], pdf: ['epub'],
-                        };
-                        const targets = conversions[file.format] || [];
-                        const target = targets[0];
-                        if (target) convertFormat.mutate({ fileId: file.id, targetFormat: target });
-                      }}
-                      disabled={convertFormat.isPending}
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      {(() => { if (convertFormat.isPending) return 'Converting...'; if (convertFormat.isSuccess) return 'Queued!'; return 'Convert Format'; })()}
-                    </DropdownItem>
-                  )}
-                  {book.hardcoverId && (
-                    <DropdownItem
-                      onClick={() => clearMatch.mutate()}
-                      disabled={clearMatch.isPending}
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                      {clearMatch.isSuccess ? 'Cleared!' : 'Clear Metadata Match'}
-                    </DropdownItem>
-                  )}
-                </DropdownContent>
-              </DropdownMenu>
-            )}
+                )}
+                <DropdownItem
+                  onClick={() => previewRename.mutate()}
+                  disabled={previewRename.isPending}
+                >
+                  <FolderSync className="h-4 w-4" />
+                  {previewRename.isPending ? 'Loading...' : 'Rename Files'}
+                </DropdownItem>
+                <DropdownItem
+                  onClick={() => writeMetadata.mutate()}
+                  disabled={writeMetadata.isPending}
+                >
+                  <PenLine className="h-4 w-4" />
+                  {(() => { if (writeMetadata.isPending) return 'Writing...'; if (writeMetadata.isSuccess) return 'Done!'; return 'Write Metadata to Files'; })()}
+                </DropdownItem>
+                {book.files?.some((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format)) && (
+                  <DropdownItem
+                    onClick={() => {
+                      const file = book.files.find((f: any) => ['epub', 'mobi', 'azw3', 'pdf'].includes(f.format));
+                      if (!file) return;
+                      const conversions: Record<string, string[]> = {
+                        epub: ['mobi', 'azw3', 'pdf'], mobi: ['epub'], azw3: ['epub'], pdf: ['epub'],
+                      };
+                      const targets = conversions[file.format] || [];
+                      const target = targets[0];
+                      if (target) convertFormat.mutate({ fileId: file.id, targetFormat: target });
+                    }}
+                    disabled={convertFormat.isPending}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    {(() => { if (convertFormat.isPending) return 'Converting...'; if (convertFormat.isSuccess) return 'Queued!'; return 'Convert Format'; })()}
+                  </DropdownItem>
+                )}
+                {book.hardcoverId && (
+                  <DropdownItem
+                    onClick={() => clearMatch.mutate()}
+                    disabled={clearMatch.isPending}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    {clearMatch.isSuccess ? 'Cleared!' : 'Clear Metadata Match'}
+                  </DropdownItem>
+                )}
+                <DropdownSeparator />
+                <DropdownItem
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={deleteBook.isPending}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete Book
+                </DropdownItem>
+              </DropdownContent>
+            </DropdownMenu>
             {/* Merge job status banner */}
             {mergeJob && (mergeJob.status === 'pending' || mergeJob.status === 'processing') && (
               <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
@@ -830,18 +858,6 @@ function BookDetailContent({
                 Metadata written to files
               </div>
             )}
-            <Button
-              variant="destructive"
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={deleteBook.isPending}
-            >
-              {deleteBook.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-              Delete
-            </Button>
             <ConfirmDialog
               open={showDeleteConfirm}
               onOpenChange={setShowDeleteConfirm}

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { BookOpen, Library, Headphones, Clock, Users, ArrowRight, Play, AlertCircle } from 'lucide-react';
+import { BookOpen, Library, Headphones, Clock, Users, ArrowRight, Play, AlertCircle, FileText } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Progress } from '../components/ui/progress';
 import { BookCard } from '../components/books/BookCard';
@@ -27,6 +27,9 @@ interface LibraryStats {
   audiobookCount: number;
   inProgress: number;
   needsReviewCount: number;
+  readingCount: number;
+  finishedCount: number;
+  lastScannedAt: string | null;
 }
 
 export function DashboardPage() {
@@ -45,11 +48,27 @@ export function DashboardPage() {
     queryFn: () => api.get<PaginatedResponse<BookListItem>>('/books?sortBy=createdAt&sortOrder=desc&pageSize=12'),
   });
 
+  const { data: recentlyActive } = useQuery({
+    queryKey: ['books', 'recently-active'],
+    queryFn: () => api.get<BookListItem[]>('/books/recently-active'),
+  });
+
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Welcome to NPC-Shelf</p>
+        <p className="text-muted-foreground mt-1">
+          {stats ? (
+            <>
+              {stats.totalBooks} book{stats.totalBooks !== 1 ? 's' : ''}
+              {stats.lastScannedAt
+                ? ` · Last scan: ${formatRelativeTime(stats.lastScannedAt)}`
+                : ' · Last scan: Never'}
+            </>
+          ) : (
+            '\u00A0'
+          )}
+        </p>
       </div>
 
       {/* Stats */}
@@ -62,7 +81,7 @@ export function DashboardPage() {
         <StatCard
           title="Ebooks"
           value={stats?.ebookCount ?? 0}
-          icon={BookOpen}
+          icon={FileText}
         />
         <StatCard
           title="Audiobooks"
@@ -134,6 +153,18 @@ export function DashboardPage() {
         </section>
       )}
 
+      {/* Recently Read */}
+      {recentlyActive && recentlyActive.length > 0 && (
+        <section>
+          <h2 className="mb-4 text-xl font-semibold">Recently Read</h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            {recentlyActive.map((book) => (
+              <BookCard key={book.id} book={book} view="grid" />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Recently Added */}
       <section>
         <div className="flex items-center justify-between mb-4">
@@ -173,6 +204,20 @@ export function DashboardPage() {
 
     </div>
   );
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
 }
 
 function StatCard({ title, value, icon: Icon }: { title: string; value: number; icon: LucideIcon }) {

@@ -213,6 +213,13 @@ audioRouter.put('/:id/progress', (req, res) => {
         .run();
     }
 
+    // Auto-derive reading status
+    if (isFinished) {
+      db.run(sql`UPDATE books SET reading_status = 'finished' WHERE id = ${bookId} AND reading_status != 'finished'`);
+    } else {
+      db.run(sql`UPDATE books SET reading_status = 'reading' WHERE id = ${bookId} AND reading_status = 'unread'`);
+    }
+
     res.json({ message: 'Progress updated' });
   } catch (error) {
     console.error('[Audio] Update progress error:', error);

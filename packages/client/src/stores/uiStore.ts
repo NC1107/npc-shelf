@@ -13,6 +13,7 @@ interface LibraryFilters {
   libraryAuthorId: string;
   librarySeriesId: string;
   libraryNeedsReview: boolean;
+  libraryReadingStatus: string;
 }
 
 interface UiState extends LibraryFilters {
@@ -36,6 +37,7 @@ const defaultFilters: LibraryFilters = {
   libraryAuthorId: '',
   librarySeriesId: '',
   libraryNeedsReview: false,
+  libraryReadingStatus: '',
 };
 
 export const useUiStore = create<UiState>()(
@@ -74,6 +76,7 @@ export const useUiStore = create<UiState>()(
         libraryAuthorId: state.libraryAuthorId,
         librarySeriesId: state.librarySeriesId,
         libraryNeedsReview: state.libraryNeedsReview,
+        libraryReadingStatus: state.libraryReadingStatus,
       }),
     },
   ),

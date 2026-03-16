@@ -302,6 +302,7 @@ export function initializeDatabase() {
   try { sqlite.exec(`ALTER TABLE books ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0`); } catch { /* column already exists */ }
   try { sqlite.exec(`ALTER TABLE series ADD COLUMN description TEXT`); } catch { /* column already exists */ }
   try { sqlite.exec(`ALTER TABLE files ADD COLUMN is_companion INTEGER NOT NULL DEFAULT 0`); } catch { /* column already exists */ }
+  try { sqlite.exec(`ALTER TABLE books ADD COLUMN reading_status TEXT NOT NULL DEFAULT 'unread'`); } catch { /* column already exists */ }
 
   // Match corrections table — stores human corrections for future auto-matching
   sqlite.exec(`
