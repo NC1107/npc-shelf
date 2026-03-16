@@ -133,17 +133,24 @@ export class HardcoverProvider implements MetadataProvider {
   private client: GraphQLClient;
   private readonly bucket = new TokenBucket(60, 1); // 60 tokens, refill 1/sec
   private readonly queryCache = new QueryCache();
+  private tokenSet = false;
 
   constructor(apiToken?: string) {
+    this.tokenSet = !!apiToken;
     this.client = new GraphQLClient('https://api.hardcover.app/v1/graphql', {
       headers: apiToken ? { Authorization: `Bearer ${apiToken}` } : {},
     });
   }
 
   setToken(token: string) {
+    this.tokenSet = !!token;
     this.client = new GraphQLClient('https://api.hardcover.app/v1/graphql', {
       headers: { Authorization: `Bearer ${token}` },
     });
+  }
+
+  hasToken(): boolean {
+    return this.tokenSet;
   }
 
   private async requestWithRetry<T>(query: any, variables: any, maxRetries = 3): Promise<T> {
@@ -287,25 +294,20 @@ export class HardcoverProvider implements MetadataProvider {
   }
 
   async getUserBooks(): Promise<{ hardcoverId: number; title: string; slug: string | null; imageUrl: string | null; authorNames: string[]; statusId: number }[]> {
-    try {
-      const data = await this.requestWithRetry<{
-        me: { user_books: { status_id: number; rating: number | null; book: { id: number; title: string; slug: string | null; cached_image: string | null; contributions: { author: { name: string } }[] } }[] };
-      }>(USER_BOOKS_QUERY, {});
+    const data = await this.requestWithRetry<{
+      me: { user_books: { status_id: number; rating: number | null; book: { id: number; title: string; slug: string | null; cached_image: string | null; contributions: { author: { name: string } }[] } }[] };
+    }>(USER_BOOKS_QUERY, {});
 
-      return data.me.user_books
-        .filter(ub => ub.status_id >= 1 && ub.status_id <= 5)
-        .map(ub => ({
-          hardcoverId: ub.book.id,
-          title: ub.book.title,
-          slug: ub.book.slug,
-          imageUrl: ub.book.cached_image,
-          authorNames: ub.book.contributions.map(c => c.author.name),
-          statusId: ub.status_id,
-        }));
-    } catch (err: any) {
-      console.error('[Hardcover] User books fetch error:', err.message);
-      return [];
-    }
+    return data.me.user_books
+      .filter(ub => ub.status_id >= 1 && ub.status_id <= 5)
+      .map(ub => ({
+        hardcoverId: ub.book.id,
+        title: ub.book.title,
+        slug: ub.book.slug,
+        imageUrl: ub.book.cached_image,
+        authorNames: ub.book.contributions.map(c => c.author.name),
+        statusId: ub.status_id,
+      }));
   }
 
   async getSeriesDetails(seriesId: string): Promise<{ id: number; name: string; description: string | null } | null> {

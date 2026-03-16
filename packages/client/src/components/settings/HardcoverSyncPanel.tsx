@@ -111,6 +111,12 @@ export function HardcoverSyncPanel() {
         </Button>
       </div>
 
+      {syncNow.isError && (
+        <p className="text-sm text-red-600 dark:text-red-400">
+          {(syncNow.error as any)?.message || 'Failed to fetch Hardcover library'}
+        </p>
+      )}
+
       {syncResult && (
         <div className="space-y-4">
           {/* Stats bar */}

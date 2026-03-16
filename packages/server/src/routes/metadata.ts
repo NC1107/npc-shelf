@@ -169,7 +169,21 @@ metadataRouter.get('/hardcover-library', async (req, res) => {
       res.status(400).json({ error: 'Hardcover provider does not support user book fetching' });
       return;
     }
-    const userBooks = await (provider as any).getUserBooks();
+    const hcProvider = provider as any;
+    if (typeof hcProvider.hasToken === 'function' && !hcProvider.hasToken()) {
+      res.status(400).json({ error: 'No Hardcover API token configured. Add your token in Settings → Metadata.' });
+      return;
+    }
+
+    let userBooks;
+    try {
+      userBooks = await hcProvider.getUserBooks();
+    } catch (error: any) {
+      const msg = error.response?.errors?.[0]?.message || error.message || 'Unknown error';
+      console.error('[Metadata] Hardcover API error:', msg);
+      res.status(502).json({ error: `Hardcover API error: ${msg}` });
+      return;
+    }
     if (!userBooks || userBooks.length === 0) {
       res.json({ matched: [], missing: [], stats: { total: 0, matched: 0, missing: 0 } });
       return;
