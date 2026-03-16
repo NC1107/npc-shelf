@@ -12,6 +12,12 @@ const SUPPORTED_CONVERSIONS: Record<string, string[]> = {
   pdf: ['epub'],
 };
 
+const CONVERSION_CACHE_DIR = path.join(
+  process.env.COVER_CACHE_PATH || './cache/covers',
+  '..',
+  'conversions',
+);
+
 /**
  * Convert a book file to a different format using Calibre's ebook-convert.
  * Returns the new file record ID.
@@ -30,11 +36,12 @@ export async function convertBook(fileId: number, targetFormat: string): Promise
     throw new Error(`Conversion from ${file.format} to ${targetFormat} is not supported`);
   }
 
-  // Build output path next to the source file
-  const dir = path.dirname(file.path);
+  // Build output path in cache dir (avoids writing to read-only library mounts)
+  const bookCacheDir = path.join(CONVERSION_CACHE_DIR, String(file.bookId));
+  fs.mkdirSync(bookCacheDir, { recursive: true });
   const baseName = path.basename(file.filename, path.extname(file.filename));
   const outputFilename = `${baseName}.${targetFormat}`;
-  const outputPath = path.join(dir, outputFilename);
+  const outputPath = path.join(bookCacheDir, outputFilename);
 
   if (fs.existsSync(outputPath)) {
     throw new Error(`Output file already exists: ${outputFilename}`);

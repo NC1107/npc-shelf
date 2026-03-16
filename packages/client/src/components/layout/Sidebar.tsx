@@ -113,21 +113,22 @@ export function Sidebar() {
         {/* Bottom */}
         <div className="border-t px-3 py-3">
           {bottomItems.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                currentPath === item.to
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-              )}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </Link>
+            <div key={item.to} className="flex items-center justify-between">
+              <Link
+                to={item.to}
+                className={cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  currentPath === item.to
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </Link>
+              <span className="pr-3 text-[10px] text-sidebar-foreground/30">v{__APP_VERSION__}</span>
+            </div>
           ))}
-          <span className="block px-3 pt-2 text-[10px] text-sidebar-foreground/30">v{__APP_VERSION__}</span>
         </div>
       </aside>
     </>

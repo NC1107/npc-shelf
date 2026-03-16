@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { AudioChapter } from '@npc-shelf/shared';
 
 interface AudioState {
   bookId: number | null;
@@ -14,6 +15,8 @@ interface AudioState {
   isPlaying: boolean;
   isMinimized: boolean;
   sleepTimerMinutes: number | null;
+  chapters: AudioChapter[];
+  trackCount: number;
 
   setBook: (book: {
     bookId: number;
@@ -29,6 +32,8 @@ interface AudioState {
   setPlaying: (playing: boolean) => void;
   setMinimized: (minimized: boolean) => void;
   setSleepTimer: (minutes: number | null) => void;
+  setChapters: (chapters: AudioChapter[]) => void;
+  setTrackCount: (count: number) => void;
   stop: () => void;
 }
 
@@ -47,6 +52,8 @@ export const useAudioStore = create<AudioState>()(
       isPlaying: false,
       isMinimized: true,
       sleepTimerMinutes: null,
+      chapters: [],
+      trackCount: 0,
 
       setBook: (book) =>
         set({
@@ -58,6 +65,8 @@ export const useAudioStore = create<AudioState>()(
           currentTrackIndex: 0,
           positionSeconds: 0,
           isPlaying: false,
+          chapters: [],
+          trackCount: 0,
         }),
       setTrack: (trackIndex) => set({ currentTrackIndex: trackIndex, positionSeconds: 0 }),
       setPosition: (seconds) => set({ positionSeconds: seconds }),
@@ -66,6 +75,8 @@ export const useAudioStore = create<AudioState>()(
       setPlaying: (playing) => set({ isPlaying: playing }),
       setMinimized: (minimized) => set({ isMinimized: minimized }),
       setSleepTimer: (minutes) => set({ sleepTimerMinutes: minutes }),
+      setChapters: (chapters) => set({ chapters }),
+      setTrackCount: (count) => set({ trackCount: count }),
       stop: () =>
         set({
           bookId: null,
@@ -76,6 +87,8 @@ export const useAudioStore = create<AudioState>()(
           positionSeconds: 0,
           totalDurationSeconds: 0,
           isPlaying: false,
+          chapters: [],
+          trackCount: 0,
         }),
     }),
     {

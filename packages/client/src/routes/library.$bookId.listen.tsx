@@ -69,6 +69,13 @@ export function ListenPage() {
     enabled: !!bookId,
   });
 
+  // Sync chapters to audio store for mini player access
+  useEffect(() => {
+    if (chapters && chapters.length > 0) {
+      store.setChapters(chapters);
+    }
+  }, [chapters]);
+
   const { data: savedProgress } = useQuery({
     queryKey: ['audio-progress', bookId],
     queryFn: () => api.get<AudioProgress | null>(`/audiobooks/${bookId}/progress`),
@@ -112,7 +119,14 @@ export function ListenPage() {
     const position = savedProgress?.positionSeconds || 0;
 
     store.setTrack(trackIdx);
+    store.setTrackCount(tracks.length);
     loadTrack(numericBookId, trackIdx, position);
+
+    // Autoplay when loading a new book
+    setTimeout(() => {
+      AudioEngine.play();
+      store.setPlaying(true);
+    }, 500);
   }, [book, tracks, savedProgress]);
 
   function loadTrack(bId: number, trackIndex: number, seekTo?: number) {

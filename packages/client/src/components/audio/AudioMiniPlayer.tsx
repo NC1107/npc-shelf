@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, SkipForward, SkipBack, X, Maximize2 } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, X, Maximize2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { Button } from '../ui/button';
 import { useAudioStore } from '../../stores/audioStore';
@@ -7,7 +7,7 @@ import { AudioEngine } from '../../lib/AudioEngine';
 import { formatTime } from '../../lib/format';
 
 export function AudioMiniPlayer() {
-  const { bookId, bookTitle, bookAuthor, coverUrl, positionSeconds, totalDurationSeconds, isPlaying, setPlaying, stop, currentTrackIndex } =
+  const { bookId, bookTitle, bookAuthor, coverUrl, positionSeconds, totalDurationSeconds, isPlaying, setPlaying, stop, currentTrackIndex, chapters } =
     useAudioStore();
   const reloadedRef = useRef(false);
   const progressBarRef = useRef<HTMLDivElement>(null);
@@ -51,6 +51,19 @@ export function AudioMiniPlayer() {
     AudioEngine.seek(pct * totalDurationSeconds);
   }, [totalDurationSeconds]);
 
+  const prevChapter = useCallback(() => {
+    if (!chapters || chapters.length === 0) return;
+    const current = [...chapters].reverse().find(c => c.startTime < positionSeconds - 2);
+    if (current) AudioEngine.seek(current.startTime);
+    else AudioEngine.seek(0);
+  }, [chapters, positionSeconds]);
+
+  const nextChapter = useCallback(() => {
+    if (!chapters || chapters.length === 0) return;
+    const next = chapters.find(c => c.startTime > positionSeconds + 1);
+    if (next) AudioEngine.seek(next.startTime);
+  }, [chapters, positionSeconds]);
+
   // Round to nearest second so progress bar re-renders ~1/s instead of every frame
   const roundedPosition = Math.floor(positionSeconds);
   const progress = totalDurationSeconds > 0 ? (roundedPosition / totalDurationSeconds) * 100 : 0;
@@ -67,11 +80,13 @@ export function AudioMiniPlayer() {
       </div>
 
       <div className="flex items-center gap-3 px-4 py-2">
-        {/* Cover thumbnail */}
-        {coverUrl && (
-          <div className="hidden h-10 w-10 shrink-0 overflow-hidden rounded sm:block">
-            <img src={coverUrl} alt="" className="h-full w-full object-cover" />
-          </div>
+        {/* Cover thumbnail — click to open listen page */}
+        {coverUrl && bookId && (
+          <Link to="/library/$bookId/listen" params={{ bookId: String(bookId) }} className="hidden sm:block">
+            <div className="h-10 w-10 shrink-0 overflow-hidden rounded cursor-pointer">
+              <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+            </div>
+          </Link>
         )}
 
         {/* Book info */}
@@ -87,6 +102,11 @@ export function AudioMiniPlayer() {
 
         {/* Controls */}
         <div className="flex items-center gap-1">
+          {chapters.length > 0 && (
+            <Button variant="ghost" size="icon" className="hidden h-8 w-8 sm:inline-flex" onClick={prevChapter}>
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+          )}
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => AudioEngine.seek(Math.max(0, AudioEngine.currentTime - 30))}>
             <SkipBack className="h-3.5 w-3.5" />
           </Button>
@@ -96,6 +116,11 @@ export function AudioMiniPlayer() {
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => AudioEngine.seek(AudioEngine.currentTime + 30)}>
             <SkipForward className="h-3.5 w-3.5" />
           </Button>
+          {chapters.length > 0 && (
+            <Button variant="ghost" size="icon" className="hidden h-8 w-8 sm:inline-flex" onClick={nextChapter}>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          )}
           {bookId && (
             <Link to="/library/$bookId/listen" params={{ bookId: String(bookId) }}>
               <Button variant="ghost" size="icon" className="h-8 w-8">

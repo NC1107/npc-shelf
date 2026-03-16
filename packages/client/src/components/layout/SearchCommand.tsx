@@ -76,105 +76,106 @@ export function SearchCommand() {
         </kbd>
       </button>
 
-      <Command.Dialog
-        open={open}
-        onOpenChange={setOpen}
-        label="Search"
-        className="fixed inset-0 z-50"
-        overlayClassName="fixed inset-0 bg-black/50"
-        contentClassName="fixed left-1/2 top-[20%] z-50 w-full max-w-lg -translate-x-1/2 rounded-xl border bg-background shadow-2xl"
-      >
-        <Command.Input
-          value={query}
-          onValueChange={setQuery}
-          placeholder="Search books, authors, series..."
-          className="w-full border-b bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground"
-        />
-        <Command.List className="max-h-80 overflow-y-auto p-2">
-          <Command.Empty className="px-4 py-6 text-center text-sm text-muted-foreground">
-            No results found.
-          </Command.Empty>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setOpen(false)} />
+          <div className="fixed left-1/2 top-[20%] z-50 w-full max-w-lg -translate-x-1/2 rounded-xl border bg-popover shadow-2xl">
+            <Command label="Search" onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
+              <Command.Input
+                value={query}
+                onValueChange={setQuery}
+                placeholder="Search books, authors, series..."
+                className="w-full border-b bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground"
+                autoFocus
+              />
+              <Command.List className="max-h-80 overflow-y-auto p-2">
+                <Command.Empty className="px-4 py-6 text-center text-sm text-muted-foreground">
+                  No results found.
+                </Command.Empty>
 
-          {/* Navigation shortcuts — show when no search query */}
-          {query.length < 2 && (
-            <Command.Group heading="Navigate" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
-              {NAV_ITEMS.map((item) => (
-                <Command.Item
-                  key={item.to}
-                  value={item.label}
-                  onSelect={() => go(item.to)}
-                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm aria-selected:bg-accent"
-                >
-                  <item.icon className="h-4 w-4 text-muted-foreground" />
-                  {item.label}
-                </Command.Item>
-              ))}
-            </Command.Group>
-          )}
+                {/* Navigation shortcuts — show when no search query */}
+                {query.length < 2 && (
+                  <Command.Group heading="Navigate" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
+                    {NAV_ITEMS.map((item) => (
+                      <Command.Item
+                        key={item.to}
+                        value={item.label}
+                        onSelect={() => go(item.to)}
+                        className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm aria-selected:bg-accent"
+                      >
+                        <item.icon className="h-4 w-4 text-muted-foreground" />
+                        {item.label}
+                      </Command.Item>
+                    ))}
+                  </Command.Group>
+                )}
 
-          {/* Books */}
-          {data && data.books.length > 0 && (
-            <Command.Group heading="Books" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
-              {data.books.slice(0, 8).map((book) => (
-                <Command.Item
-                  key={book.id}
-                  value={`book-${book.id}-${book.title}`}
-                  onSelect={() => go(`/library/${book.id}`)}
-                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm aria-selected:bg-accent"
-                >
-                  {hasAudio(book) ? (
-                    <Headphones className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{book.title}</p>
-                    {book.authors && book.authors.length > 0 && (
-                      <p className="truncate text-xs text-muted-foreground">
-                        {book.authors.map((a) => a.author.name).join(', ')}
-                      </p>
-                    )}
-                  </div>
-                </Command.Item>
-              ))}
-            </Command.Group>
-          )}
+                {/* Books */}
+                {data && data.books.length > 0 && (
+                  <Command.Group heading="Books" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
+                    {data.books.slice(0, 8).map((book) => (
+                      <Command.Item
+                        key={book.id}
+                        value={`book-${book.id}-${book.title}`}
+                        onSelect={() => go(`/library/${book.id}`)}
+                        className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm aria-selected:bg-accent"
+                      >
+                        {hasAudio(book) ? (
+                          <Headphones className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium">{book.title}</p>
+                          {book.authors && book.authors.length > 0 && (
+                            <p className="truncate text-xs text-muted-foreground">
+                              {book.authors.map((a) => a.author.name).join(', ')}
+                            </p>
+                          )}
+                        </div>
+                      </Command.Item>
+                    ))}
+                  </Command.Group>
+                )}
 
-          {/* Authors */}
-          {data && data.authors.length > 0 && (
-            <Command.Group heading="Authors" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
-              {data.authors.slice(0, 5).map((author) => (
-                <Command.Item
-                  key={author.id}
-                  value={`author-${author.id}-${author.name}`}
-                  onSelect={() => go(`/authors`)}
-                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm aria-selected:bg-accent"
-                >
-                  <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{author.name}</span>
-                </Command.Item>
-              ))}
-            </Command.Group>
-          )}
+                {/* Authors */}
+                {data && data.authors.length > 0 && (
+                  <Command.Group heading="Authors" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
+                    {data.authors.slice(0, 5).map((author) => (
+                      <Command.Item
+                        key={author.id}
+                        value={`author-${author.id}-${author.name}`}
+                        onSelect={() => go(`/authors/${author.id}`)}
+                        className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm aria-selected:bg-accent"
+                      >
+                        <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{author.name}</span>
+                      </Command.Item>
+                    ))}
+                  </Command.Group>
+                )}
 
-          {/* Series */}
-          {data && data.series.length > 0 && (
-            <Command.Group heading="Series" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
-              {data.series.slice(0, 5).map((s) => (
-                <Command.Item
-                  key={s.id}
-                  value={`series-${s.id}-${s.name}`}
-                  onSelect={() => go(`/series/${s.id}`)}
-                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm aria-selected:bg-accent"
-                >
-                  <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{s.name}</span>
-                </Command.Item>
-              ))}
-            </Command.Group>
-          )}
-        </Command.List>
-      </Command.Dialog>
+                {/* Series */}
+                {data && data.series.length > 0 && (
+                  <Command.Group heading="Series" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
+                    {data.series.slice(0, 5).map((s) => (
+                      <Command.Item
+                        key={s.id}
+                        value={`series-${s.id}-${s.name}`}
+                        onSelect={() => go(`/series/${s.id}`)}
+                        className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm aria-selected:bg-accent"
+                      >
+                        <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{s.name}</span>
+                      </Command.Item>
+                    ))}
+                  </Command.Group>
+                )}
+              </Command.List>
+            </Command>
+          </div>
+        </>
+      )}
     </>
   );
 }
