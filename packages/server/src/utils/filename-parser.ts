@@ -103,14 +103,14 @@ export function parseFilename(filename: string, dirPath?: string): ParsedFilenam
   if (seriesMatch) {
     seriesName = seriesMatch[1].trim();
     seriesPosition = Number.parseFloat(seriesMatch[2]);
-    title = name.replace(seriesMatch[0], '').trim();
+    title = name.replace(seriesMatch[0], '').replace(/^[\s-]+|[\s-]+$/g, '').trim();
   }
 
   // Extract year: "Title (2023)"
   const yearMatch = YEAR_PATTERN.exec(title);
   if (yearMatch) {
     year = yearMatch[1];
-    title = title.replace(YEAR_PATTERN, '').trim();
+    title = title.replace(YEAR_PATTERN, '').replace(/^[\s-]+|[\s-]+$/g, '').trim();
   }
 
   // "Author - Title" or "Title - Author" pattern
@@ -127,8 +127,8 @@ export function parseFilename(filename: string, dirPath?: string): ParsedFilenam
     if (dirHint) author = dirHint;
   }
 
-  // Clean up underscores and extra whitespace
-  title = title.replaceAll('_', ' ').replaceAll(/\s+/g, ' ').trim();
+  // Clean up underscores, extra whitespace, and leading/trailing dashes
+  title = title.replaceAll('_', ' ').replaceAll(/\s+/g, ' ').replace(/^[\s-]+|[\s-]+$/g, '').trim();
   if (author) author = author.replaceAll('_', ' ').replaceAll(/\s+/g, ' ').trim();
 
   return { title, author, year, seriesName, seriesPosition };

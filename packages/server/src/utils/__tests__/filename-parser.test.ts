@@ -63,6 +63,25 @@ describe('parseFilename', () => {
     expect(result.title).toBe('Elantris');
     expect(result.author).toBeNull();
   });
+
+  it('strips leading dashes after series removal', () => {
+    const result = parseFilename('Brandon Sanderson - Mistborn the final empire (Mistborn #1).epub',
+      '/library/Brandon Sanderson/Books');
+    expect(result.title).not.toMatch(/^[\s-]/);
+    expect(result.title).toBe('Mistborn the final empire');
+  });
+
+  it('strips leading dashes after year removal', () => {
+    const result = parseFilename('Brandon Sanderson - (2006) - Mistborn the final empire.epub',
+      '/library/Brandon Sanderson/Books');
+    expect(result.title).not.toMatch(/^[\s-]/);
+    expect(result.title).toBe('Mistborn the final empire');
+  });
+
+  it('strips trailing dashes from title', () => {
+    const result = parseFilename('Shadows of Self -.epub');
+    expect(result.title).toBe('Shadows of Self');
+  });
 });
 
 describe('cleanTitle', () => {

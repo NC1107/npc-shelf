@@ -48,10 +48,6 @@ export function DashboardPage() {
     queryFn: () => api.get<PaginatedResponse<BookListItem>>('/books?sortBy=createdAt&sortOrder=desc&pageSize=12'),
   });
 
-  const { data: recentlyActive } = useQuery({
-    queryKey: ['books', 'recently-active'],
-    queryFn: () => api.get<BookListItem[]>('/books/recently-active'),
-  });
 
   return (
     <div className="space-y-8">
@@ -153,18 +149,6 @@ export function DashboardPage() {
                   </p>
                 </div>
               </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Recently Read */}
-      {recentlyActive && recentlyActive.length > 0 && (
-        <section>
-          <h2 className="mb-4 text-xl font-semibold">Recently Read</h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-            {recentlyActive.map((book) => (
-              <BookCard key={book.id} book={book} view="grid" />
             ))}
           </div>
         </section>

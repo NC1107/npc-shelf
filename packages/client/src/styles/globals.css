@@ -74,3 +74,12 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+@media (max-width: 640px) {
+  * {
+    scrollbar-width: none;
+  }
+  *::-webkit-scrollbar {
+    display: none;
+  }
+}

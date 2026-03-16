@@ -19,6 +19,19 @@ interface BookWithAuthors {
   normalizedKey: string;
   titlePrefix: string;
   authorIds: number[];
+  hasAudio: boolean;
+  hasEbook: boolean;
+}
+
+const AUDIO_FORMATS = new Set(['m4b', 'mp3']);
+const EBOOK_FORMATS = new Set(['epub', 'pdf', 'mobi', 'azw3']);
+
+function areComplementaryFormats(a: BookWithAuthors, b: BookWithAuthors): boolean {
+  const aOnlyAudio = a.hasAudio && !a.hasEbook;
+  const aOnlyEbook = a.hasEbook && !a.hasAudio;
+  const bOnlyAudio = b.hasAudio && !b.hasEbook;
+  const bOnlyEbook = b.hasEbook && !b.hasAudio;
+  return (aOnlyAudio && bOnlyEbook) || (aOnlyEbook && bOnlyAudio);
 }
 
 /**
@@ -36,6 +49,26 @@ function loadBooksWithAuthors(): BookWithAuthors[] {
     .all();
 
   if (allBooks.length === 0) return [];
+
+  // Load all files to determine format types per book
+  const allFiles = db
+    .select({
+      bookId: schema.files.bookId,
+      format: schema.files.format,
+    })
+    .from(schema.files)
+    .all();
+
+  const formatsByBook = new Map<number, { hasAudio: boolean; hasEbook: boolean }>();
+  for (const file of allFiles) {
+    let entry = formatsByBook.get(file.bookId);
+    if (!entry) {
+      entry = { hasAudio: false, hasEbook: false };
+      formatsByBook.set(file.bookId, entry);
+    }
+    if (AUDIO_FORMATS.has(file.format)) entry.hasAudio = true;
+    if (EBOOK_FORMATS.has(file.format)) entry.hasEbook = true;
+  }
 
   // Load all book-author relationships in one query
   const allBookAuthors = db
@@ -73,6 +106,8 @@ function loadBooksWithAuthors(): BookWithAuthors[] {
     const normalizedKey = `${normalizedTitle} ${firstAuthor}`;
     const titlePrefix = normalizedTitle.substring(0, 3);
 
+    const formats = formatsByBook.get(book.id);
+
     return {
       id: book.id,
       title: book.title,
@@ -82,6 +117,8 @@ function loadBooksWithAuthors(): BookWithAuthors[] {
       normalizedKey,
       titlePrefix,
       authorIds,
+      hasAudio: formats?.hasAudio ?? false,
+      hasEbook: formats?.hasEbook ?? false,
     };
   });
 }
@@ -203,6 +240,8 @@ function detectTitleAuthorDuplicates(allBooks: BookWithAuthors[]): DuplicateGrou
     const bookA = allBooks[i];
     const bookB = allBooks[j];
 
+    if (areComplementaryFormats(bookA, bookB)) continue;
+
     const sim = stringSimilarity(bookA.normalizedKey, bookB.normalizedKey);
     if (sim >= FUZZY_THRESHOLD) {
       groups.push({
@@ -249,8 +288,12 @@ function detectIsbnDuplicates(allBooks: BookWithAuthors[]): DuplicateGroup[] {
   const seen = new Set<string>();
 
   function addGroup(books: BookWithAuthors[]) {
-    if (books.length < 2) return;
-    const key = books
+    // Filter out complementary format pairs (audio-only + ebook-only)
+    const nonComplementary = books.filter((b, i) =>
+      books.some((other, j) => i !== j && !areComplementaryFormats(b, other))
+    );
+    if (nonComplementary.length < 2) return;
+    const key = nonComplementary
       .map((b) => b.id)
       .sort((a, b) => a - b)
       .join(',');
@@ -258,7 +301,7 @@ function detectIsbnDuplicates(allBooks: BookWithAuthors[]): DuplicateGroup[] {
     seen.add(key);
 
     groups.push({
-      books: books.map((b) => ({ id: b.id, title: b.title, authors: b.authors })),
+      books: nonComplementary.map((b) => ({ id: b.id, title: b.title, authors: b.authors })),
       method: 'isbn',
       similarity: 1,
     });
