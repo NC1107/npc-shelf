@@ -14,3 +14,4 @@ test-library/
 test-cache/
 test-results/
 .vscode/
+.playwright-mcp/
