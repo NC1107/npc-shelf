@@ -80,15 +80,16 @@ librariesRouter.post('/', (req, res) => {
       return;
     }
 
-    // Verify path exists
-    if (!fs.existsSync(libPath)) {
+    // Resolve to canonical absolute path to prevent path traversal
+    const canonicalPath = path.resolve(libPath);
+    if (!fs.existsSync(canonicalPath)) {
       res.status(400).json({ error: 'Path does not exist' });
       return;
     }
 
     const library = db
       .insert(schema.libraries)
-      .values({ name, path: libPath, type: type || 'mixed' })
+      .values({ name, path: canonicalPath, type: type || 'mixed' })
       .returning()
       .get();
 
