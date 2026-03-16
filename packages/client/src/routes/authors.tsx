@@ -44,6 +44,7 @@ interface DuplicateGroup {
 export function AuthorsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [roleTab, setRoleTab] = useState<'author' | 'narrator'>('author');
   const [showDedupConfirm, setShowDedupConfirm] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -54,8 +55,8 @@ export function AuthorsPage() {
   const [linkSearch, setLinkSearch] = useState('');
 
   const { data: authors, isLoading } = useQuery({
-    queryKey: ['authors'],
-    queryFn: () => api.get<Author[]>('/authors'),
+    queryKey: ['authors', roleTab],
+    queryFn: () => api.get<Author[]>(`/authors?role=${roleTab}`),
   });
 
   const { data: duplicates, isLoading: duplicatesLoading } = useQuery({
@@ -202,6 +203,22 @@ export function AuthorsPage() {
           confirmLabel="Merge"
           onConfirm={() => autoDedup.mutate()}
         />
+      </div>
+
+      {/* Role tabs */}
+      <div className="flex gap-1 rounded-lg bg-muted p-1">
+        <button
+          className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${roleTab === 'author' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          onClick={() => setRoleTab('author')}
+        >
+          Authors
+        </button>
+        <button
+          className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${roleTab === 'narrator' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          onClick={() => setRoleTab('narrator')}
+        >
+          Narrators
+        </button>
       </div>
 
       {/* Search */}

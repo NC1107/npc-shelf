@@ -8,22 +8,24 @@ import { toSortName } from '../utils/filename-parser.js';
 
 export const authorsRouter = Router();
 
-// List all authors with book counts, optional ?q= search
+// List all authors with book counts, optional ?q= search, ?role= filter
 authorsRouter.get('/', (req, res) => {
   try {
     const q = (req.query.q as string)?.trim().toLowerCase();
+    const role = req.query.role as string | undefined;
     const allAuthors = db.select().from(schema.authors).orderBy(schema.authors.sortName).all();
 
-    // Single GROUP BY query for all book counts
-    const bookCountRows = db
-      .all<{ authorId: number; count: number }>(
-        sql`SELECT author_id as authorId, COUNT(*) as count FROM book_authors GROUP BY author_id`,
-      );
+    // Book counts — optionally filtered by role
+    const countQuery = role
+      ? sql`SELECT author_id as authorId, COUNT(*) as count FROM book_authors WHERE role = ${role} GROUP BY author_id`
+      : sql`SELECT author_id as authorId, COUNT(*) as count FROM book_authors GROUP BY author_id`;
+    const bookCountRows = db.all<{ authorId: number; count: number }>(countQuery);
     const bookCountMap = new Map(bookCountRows.map((r) => [r.authorId, r.count]));
 
     const results = allAuthors
       .filter((a) => !q || a.name.toLowerCase().includes(q) || a.sortName.toLowerCase().includes(q))
-      .map((a) => ({ ...a, bookCount: bookCountMap.get(a.id) || 0 }));
+      .map((a) => ({ ...a, bookCount: bookCountMap.get(a.id) || 0 }))
+      .filter((a) => !role || a.bookCount > 0); // When filtering by role, hide authors with 0 books in that role
 
     res.json(results);
   } catch (error) {

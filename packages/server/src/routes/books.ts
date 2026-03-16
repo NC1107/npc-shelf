@@ -78,6 +78,7 @@ booksRouter.get('/', (req, res) => {
     const authorId = req.query.authorId as string | undefined;
     const seriesId = req.query.seriesId as string | undefined;
     const needsReview = req.query.needsReview as string | undefined;
+    const narratorId = req.query.narratorId as string | undefined;
 
     let bookIds: number[] | undefined;
 
@@ -124,6 +125,19 @@ booksRouter.get('/', (req, res) => {
       bookIds = bookIds
         ? bookIds.filter((id) => authorBookIds.includes(id))
         : authorBookIds;
+    }
+
+    // Filter by narrator
+    if (narratorId) {
+      const narratorResults = db
+        .select({ bookId: schema.bookAuthors.bookId })
+        .from(schema.bookAuthors)
+        .where(sql`${schema.bookAuthors.authorId} = ${Number.parseInt(narratorId)} AND ${schema.bookAuthors.role} = 'narrator'`)
+        .all();
+      const narratorBookIds = narratorResults.map((r) => r.bookId);
+      bookIds = bookIds
+        ? bookIds.filter((id) => narratorBookIds.includes(id))
+        : narratorBookIds;
     }
 
     // Filter by series
