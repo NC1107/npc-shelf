@@ -66,6 +66,49 @@ booksRouter.get('/stats', (_req, res) => {
   }
 });
 
+// In-progress books — for Continue Reading/Listening
+booksRouter.get('/in-progress', (req, res) => {
+  try {
+    const userId = req.user!.userId;
+
+    // Books with reading progress
+    const readingRows = db.all<{ book_id: number; progress_percent: number; updated_at: string }>(
+      sql`SELECT book_id, progress_percent, updated_at FROM reading_progress WHERE user_id = ${userId} AND progress_percent > 0 AND progress_percent < 1 ORDER BY updated_at DESC LIMIT 12`,
+    );
+
+    // Books with listening progress
+    const listeningRows = db.all<{ book_id: number; total_elapsed_seconds: number; total_duration_seconds: number; updated_at: string }>(
+      sql`SELECT book_id, total_elapsed_seconds, total_duration_seconds, updated_at FROM audio_progress WHERE user_id = ${userId} AND is_finished = 0 AND total_elapsed_seconds > 0 ORDER BY updated_at DESC LIMIT 12`,
+    );
+
+    // Combine and sort by updated_at
+    const items: { bookId: number; type: 'reading' | 'listening'; progress: number; updatedAt: string }[] = [];
+
+    for (const r of readingRows) {
+      items.push({ bookId: r.book_id, type: 'reading', progress: r.progress_percent, updatedAt: r.updated_at });
+    }
+    for (const r of listeningRows) {
+      const progress = r.total_duration_seconds > 0 ? r.total_elapsed_seconds / r.total_duration_seconds : 0;
+      items.push({ bookId: r.book_id, type: 'listening', progress, updatedAt: r.updated_at });
+    }
+
+    // Sort by most recent activity
+    items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+    // Enrich with book data
+    const enriched = items.slice(0, 12).map((item) => {
+      const book = db.select().from(schema.books).where(eq(schema.books.id, item.bookId)).get();
+      if (!book) return null;
+      return { ...book, progressType: item.type, progressPercent: item.progress };
+    }).filter(Boolean);
+
+    res.json(enriched);
+  } catch (error) {
+    console.error('[Books] In-progress error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // List books (paginated, filterable, searchable)
 booksRouter.get('/', (req, res) => {
   try {
@@ -480,7 +523,7 @@ booksRouter.put('/:id', (req, res) => {
 
     const allowedFields = [
       'title', 'subtitle', 'description', 'publisher',
-      'publishDate', 'language', 'pageCount', 'isbn10', 'isbn13',
+      'publishDate', 'language', 'pageCount', 'isbn10', 'isbn13', 'needsReview',
     ] as const;
 
     const updates: Record<string, any> = { updatedAt: new Date().toISOString() };

@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { BookOpen, Library, Headphones, Clock, Users, ArrowRight } from 'lucide-react';
+import { BookOpen, Library, Headphones, Clock, Users, ArrowRight, Play } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Progress } from '../components/ui/progress';
 import { BookCard } from '../components/books/BookCard';
 import { api } from '../lib/api';
 import type { PaginatedResponse, Book } from '@npc-shelf/shared';
@@ -12,6 +13,11 @@ interface BookListItem extends Book {
   authors?: { author: { name: string } }[];
   formats?: string[];
   progressPercent?: number;
+}
+
+interface InProgressBook extends Book {
+  progressType: 'reading' | 'listening';
+  progressPercent: number;
 }
 
 interface LibraryStats {
@@ -26,6 +32,11 @@ export function DashboardPage() {
   const { data: stats } = useQuery({
     queryKey: ['book-stats'],
     queryFn: () => api.get<LibraryStats>('/books/stats'),
+  });
+
+  const { data: inProgress } = useQuery({
+    queryKey: ['books', 'in-progress'],
+    queryFn: () => api.get<InProgressBook[]>('/books/in-progress'),
   });
 
   const { data: recentBooks } = useQuery({
@@ -68,6 +79,47 @@ export function DashboardPage() {
           icon={Clock}
         />
       </div>
+
+      {/* Continue Reading/Listening */}
+      {inProgress && inProgress.length > 0 && (
+        <section>
+          <h2 className="mb-4 text-xl font-semibold">Continue</h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            {inProgress.map((book) => (
+              <Link key={book.id} to="/library/$bookId" params={{ bookId: String(book.id) }} className="group block">
+                <div className="relative overflow-hidden rounded-lg bg-muted aspect-[2/3]">
+                  {book.coverPath ? (
+                    <img
+                      src={`/api/books/${book.id}/cover/thumb?v=${book.updatedAt}`}
+                      alt={book.title}
+                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      {book.progressType === 'listening' ? (
+                        <Headphones className="h-8 w-8 text-muted-foreground" />
+                      ) : (
+                        <BookOpen className="h-8 w-8 text-muted-foreground" />
+                      )}
+                    </div>
+                  )}
+                  {/* Resume overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
+                    <Play className="h-10 w-10 text-white" />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <Progress value={book.progressPercent * 100} className="h-1.5" />
+                  <p className="mt-1 truncate text-sm font-medium">{book.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {Math.round(book.progressPercent * 100)}% {book.progressType === 'listening' ? 'listened' : 'read'}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Recently Added */}
       <section>

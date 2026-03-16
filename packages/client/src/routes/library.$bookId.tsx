@@ -132,6 +132,11 @@ export function BookDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['book', bookId] }),
   });
 
+  const acceptMatch = useMutation({
+    mutationFn: () => api.put(`/books/${bookId}`, { needsReview: 0 }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['book', bookId] }),
+  });
+
   const [renamePreview, setRenamePreview] = useState<RenamePreviewItem[] | null>(null);
   const [renameBannerDismissed, setRenameBannerDismissed] = useState(false);
 
@@ -308,6 +313,7 @@ export function BookDetailPage() {
       uploadCover={uploadCover}
       splitFiles={splitFiles}
       clearMatch={clearMatch}
+      acceptMatch={acceptMatch}
       previewRename={previewRename}
       executeRename={executeRename}
       writeMetadata={writeMetadata}
@@ -337,7 +343,7 @@ function BookDetailContent({
   isEditing, editData, setEditData, showFiles, setShowFiles,
   navigate, startEditing, cancelEditing, saveEdit,
   sendToKindle, matchMetadata, matchPolling, deleteBook, mergeAudiobook, mergeJob, uploadCover,
-  splitFiles, clearMatch, previewRename, executeRename, writeMetadata, renamePreview, setRenamePreview,
+  splitFiles, clearMatch, acceptMatch, previewRename, executeRename, writeMetadata, renamePreview, setRenamePreview,
   hasRenameSuggestion, onDismissRenameBanner,
   splitMode, setSplitMode, selectedFileIds, setSelectedFileIds,
   convertFormat, hardcoverDetails, chapters, editingChapters, setEditingChapters, chapterData, setChapterData, saveChapters,
@@ -358,6 +364,26 @@ function BookDetailContent({
         <ArrowLeft className="h-4 w-4" />
         Back to Library
       </Link>
+
+      {/* Needs Review banner */}
+      {book.needsReview === 1 && book.hardcoverId && (
+        <div className="flex items-center justify-between rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm dark:border-yellow-800 dark:bg-yellow-950">
+          <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>Low confidence metadata match ({book.matchConfidence ? `${Math.round(book.matchConfidence * 100)}%` : 'unknown'}). Review and accept or reject.</span>
+          </div>
+          <div className="flex items-center gap-2 ml-4">
+            <Button size="sm" variant="outline" onClick={() => acceptMatch.mutate()} disabled={acceptMatch.isPending}>
+              <Check className="h-3 w-3 mr-1" />
+              Accept
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => clearMatch.mutate()} disabled={clearMatch.isPending}>
+              <X className="h-3 w-3 mr-1" />
+              Reject
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
         {/* Cover */}
