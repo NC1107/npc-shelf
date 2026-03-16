@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isCalibreAvailable } from './metadata-writer.js';
@@ -73,6 +74,12 @@ export async function convertBook(fileId: number, targetFormat: string): Promise
 
   const stat = fs.statSync(outputPath);
 
+  // Compute SHA-256 hash of the converted file
+  const hashSum = crypto.createHash('sha256');
+  const fileStream = fs.readFileSync(outputPath);
+  hashSum.update(fileStream);
+  const fileHash = hashSum.digest('hex');
+
   // Insert new file record
   const newFile = db.insert(schema.files).values({
     bookId: file.bookId,
@@ -82,7 +89,7 @@ export async function convertBook(fileId: number, targetFormat: string): Promise
     format: targetFormat as any,
     mimeType: mimeTypes[targetFormat] || 'application/octet-stream',
     sizeBytes: stat.size,
-    hashSha256: '',
+    hashSha256: fileHash,
     lastModified: stat.mtime.toISOString(),
   }).returning().get();
 

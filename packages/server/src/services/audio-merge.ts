@@ -1,6 +1,6 @@
 import { eq, inArray, asc } from 'drizzle-orm';
 import { db, schema, sqlite } from '../db/index.js';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -84,13 +84,13 @@ export async function mergeAudiobook(bookId: number): Promise<string> {
     console.log(`[AudioMerge] Merging ${trackFiles.length} tracks for "${book.title}" → ${outputPath}`);
 
     // Run ffmpeg concat
-    execSync(
-      `ffmpeg -f concat -safe 0 -i "${concatListPath}" -c copy -y "${outputPath}"`,
-      {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 600000, // 10 min timeout
-      },
-    );
+    execFileSync('ffmpeg', [
+      '-f', 'concat', '-safe', '0', '-i', concatListPath,
+      '-c', 'copy', '-y', outputPath,
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 600000, // 10 min timeout
+    });
 
     if (!fs.existsSync(outputPath)) {
       throw new Error('ffmpeg completed but output file not found');

@@ -288,7 +288,13 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_books_hardcover_id ON books(hardcover_id);
     CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status, scheduled_for);
     CREATE INDEX IF NOT EXISTS idx_book_authors_author ON book_authors(author_id);
+    CREATE INDEX IF NOT EXISTS idx_book_authors_book_id ON book_authors(book_id);
     CREATE INDEX IF NOT EXISTS idx_book_series_series ON book_series(series_id);
+    CREATE INDEX IF NOT EXISTS idx_book_series_book_id ON book_series(book_id);
+    CREATE INDEX IF NOT EXISTS idx_authors_name ON authors(name);
+    CREATE INDEX IF NOT EXISTS idx_series_name ON series(name);
+    CREATE INDEX IF NOT EXISTS idx_books_created_at ON books(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_files_format ON files(format);
 
     -- Default settings
     INSERT OR IGNORE INTO settings (key, value) VALUES ('setupComplete', 'false');

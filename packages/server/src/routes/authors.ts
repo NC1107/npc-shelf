@@ -9,11 +9,13 @@ import { enrichBooksWithMeta } from '../utils/book-enricher.js';
 
 export const authorsRouter = Router();
 
-// List all authors with book counts, optional ?q= search, ?role= filter
+// List all authors with book counts, optional ?q= search, ?role= filter, ?page= & ?limit= pagination
 authorsRouter.get('/', (req, res) => {
   try {
     const q = (req.query.q as string)?.trim().toLowerCase();
     const role = req.query.role as string | undefined;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
     const allAuthors = db.select().from(schema.authors).orderBy(schema.authors.sortName).all();
 
     // Book counts — optionally filtered by role
@@ -28,7 +30,12 @@ authorsRouter.get('/', (req, res) => {
       .map((a) => ({ ...a, bookCount: bookCountMap.get(a.id) || 0 }))
       .filter((a) => !role || a.bookCount > 0); // When filtering by role, hide authors with 0 books in that role
 
-    res.json(results);
+    const total = results.length;
+    const totalPages = Math.ceil(total / limit);
+    const offset = (page - 1) * limit;
+    const paged = results.slice(offset, offset + limit);
+
+    res.json({ data: paged, total, page, limit, totalPages });
   } catch (error) {
     console.error('[Authors] List error:', error);
     res.status(500).json({ error: 'Internal server error' });

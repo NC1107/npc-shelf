@@ -33,7 +33,7 @@ interface LibraryStats {
 }
 
 export function DashboardPage() {
-  const { data: stats } = useQuery({
+  const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['book-stats'],
     queryFn: () => api.get<LibraryStats>('/books/stats'),
   });
@@ -77,26 +77,31 @@ export function DashboardPage() {
           title="Total Books"
           value={stats?.totalBooks ?? 0}
           icon={BookOpen}
+          loading={statsLoading}
         />
         <StatCard
           title="Ebooks"
           value={stats?.ebookCount ?? 0}
           icon={FileText}
+          loading={statsLoading}
         />
         <StatCard
           title="Audiobooks"
           value={stats?.audiobookCount ?? 0}
           icon={Headphones}
+          loading={statsLoading}
         />
         <StatCard
           title="Authors"
           value={stats?.totalAuthors ?? 0}
           icon={Users}
+          loading={statsLoading}
         />
         <StatCard
           title="In Progress"
           value={stats?.inProgress ?? 0}
           icon={Clock}
+          loading={statsLoading}
         />
       </div>
 
@@ -220,7 +225,7 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-function StatCard({ title, value, icon: Icon }: Readonly<{ title: string; value: number; icon: LucideIcon }>) {
+function StatCard({ title, value, icon: Icon, loading }: Readonly<{ title: string; value: number; icon: LucideIcon; loading?: boolean }>) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -228,7 +233,11 @@ function StatCard({ title, value, icon: Icon }: Readonly<{ title: string; value:
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
+        {loading ? (
+          <div className="h-8 w-16 animate-pulse rounded bg-muted" />
+        ) : (
+          <div className="text-2xl font-bold">{value}</div>
+        )}
       </CardContent>
     </Card>
   );

@@ -8,45 +8,73 @@ export const seriesRouter = Router();
 // List all series with book counts and cover previews
 seriesRouter.get('/', (_req, res) => {
   try {
-    const seriesList = db
+    // Query 1: all series
+    const allSeries = db
       .select()
       .from(schema.series)
       .orderBy(schema.series.name)
-      .all()
-      .map((s) => {
-        const bookEntries = db
-          .select({
-            bookId: schema.bookSeries.bookId,
-            position: schema.bookSeries.position,
-          })
-          .from(schema.bookSeries)
-          .where(eq(schema.bookSeries.seriesId, s.id))
-          .all();
+      .all();
 
-        const bookCount = bookEntries.length;
+    if (allSeries.length === 0) {
+      res.json([]);
+      return;
+    }
 
-        // Get first 4 books with covers for preview thumbnails
-        const bookIds = bookEntries
-          .sort((a, b) => (a.position || 999) - (b.position || 999))
-          .map((e) => e.bookId);
+    const seriesIds = allSeries.map((s) => s.id);
 
-        const coverBookIds: number[] = [];
-        if (bookIds.length > 0) {
-          const idPlaceholders = sql.join(bookIds.map((id) => sql`${id}`), sql`, `);
-          const booksWithCovers = db
-            .all<{ id: number }>(
-              sql`SELECT id FROM books WHERE id IN (${idPlaceholders}) AND cover_path IS NOT NULL LIMIT 4`,
-            );
-          // Preserve series position order
-          const coverSet = new Set(booksWithCovers.map((b) => b.id));
-          for (const id of bookIds) {
-            if (coverSet.has(id)) coverBookIds.push(id);
-            if (coverBookIds.length >= 4) break;
-          }
-        }
+    // Query 2: all bookSeries for these series
+    const allBookSeries = db
+      .select({
+        seriesId: schema.bookSeries.seriesId,
+        bookId: schema.bookSeries.bookId,
+        position: schema.bookSeries.position,
+      })
+      .from(schema.bookSeries)
+      .where(inArray(schema.bookSeries.seriesId, seriesIds))
+      .all();
 
-        return { ...s, bookCount, coverBookIds };
-      });
+    // Group by seriesId
+    const bookSeriesBySeriesId = new Map<number, { bookId: number; position: number | null }[]>();
+    for (const bs of allBookSeries) {
+      let list = bookSeriesBySeriesId.get(bs.seriesId);
+      if (!list) {
+        list = [];
+        bookSeriesBySeriesId.set(bs.seriesId, list);
+      }
+      list.push({ bookId: bs.bookId, position: bs.position });
+    }
+
+    // Query 3: all books with covers (just IDs)
+    const allBookIds = [...new Set(allBookSeries.map((bs) => bs.bookId))];
+    const booksWithCoverSet = new Set<number>();
+    if (allBookIds.length > 0) {
+      const coverBooks = db
+        .select({ id: schema.books.id })
+        .from(schema.books)
+        .where(
+          sql`${schema.books.id} IN (${sql.join(allBookIds.map((id) => sql`${id}`), sql`, `)}) AND ${schema.books.coverPath} IS NOT NULL`,
+        )
+        .all();
+      for (const b of coverBooks) booksWithCoverSet.add(b.id);
+    }
+
+    const seriesList = allSeries.map((s) => {
+      const bookEntries = bookSeriesBySeriesId.get(s.id) || [];
+      const bookCount = bookEntries.length;
+
+      const bookIds = bookEntries
+        .sort((a, b) => (a.position || 999) - (b.position || 999))
+        .map((e) => e.bookId);
+
+      const coverBookIds: number[] = [];
+      for (const id of bookIds) {
+        if (booksWithCoverSet.has(id)) coverBookIds.push(id);
+        if (coverBookIds.length >= 4) break;
+      }
+
+      return { ...s, bookCount, coverBookIds };
+    });
+
     res.json(seriesList);
   } catch (error) {
     console.error('[Series] List error:', error);

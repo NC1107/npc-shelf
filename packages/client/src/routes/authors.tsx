@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useDeferredValue } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
@@ -36,6 +36,14 @@ interface Author {
   photoUrl: string | null;
   hardcoverId: string | null;
   bookCount: number;
+}
+
+interface PaginatedAuthors {
+  data: Author[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 interface DuplicateGroup {
@@ -385,8 +393,73 @@ function AuthorListContent({
   );
 }
 
+function generatePageNumbers(current: number, total: number): (number | '...')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | '...')[] = [1];
+  if (current > 3) pages.push('...');
+  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) {
+    pages.push(i);
+  }
+  if (current < total - 2) pages.push('...');
+  pages.push(total);
+  return pages;
+}
+
+function AuthorPagination({
+  page,
+  totalPages,
+  onPageChange,
+}: Readonly<{
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}>) {
+  const pageNumbers = generatePageNumbers(page, totalPages);
+
+  return (
+    <nav aria-label="Authors pagination" className="flex items-center justify-center gap-2 pt-4">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={page <= 1}
+        onClick={() => onPageChange(page - 1)}
+      >
+        Previous
+      </Button>
+      <div className="flex items-center gap-1">
+        {pageNumbers.map((p, idx) => {
+          if (p === '...') {
+            return <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">...</span>;
+          }
+          return (
+            <Button
+              key={`page-${p}`}
+              variant={p === page ? 'default' : 'outline'}
+              size="sm"
+              className="w-9"
+              onClick={() => onPageChange(p)}
+              {...(p === page ? { 'aria-current': 'page' as const } : {})}
+            >
+              {p}
+            </Button>
+          );
+        })}
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={page >= totalPages}
+        onClick={() => onPageChange(page + 1)}
+      >
+        Next
+      </Button>
+    </nav>
+  );
+}
+
 export function AuthorsPage() {
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [roleTab, setRoleTab] = useState<'author' | 'narrator'>('author');
   const [showDedupConfirm, setShowDedupConfirm] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
@@ -397,14 +470,27 @@ export function AuthorsPage() {
   const [linkingAuthorId, setLinkingAuthorId] = useState<number | null>(null);
   const [linkSearch, setLinkSearch] = useState('');
 
+  const deferredSearch = useDeferredValue(search);
+
   const { editAuthor, mergeAuthors, autoDedup, linkHardcover } = useAuthorMutations({
     setEditingId, setConfirmingMergeGroup, setMergeTargetId, setLinkingAuthorId, setLinkSearch,
   });
 
-  const { data: authors, isLoading } = useQuery({
-    queryKey: ['authors', roleTab],
-    queryFn: () => api.get<Author[]>(`/authors?role=${roleTab}`),
+  const { data: authorsData, isLoading } = useQuery({
+    queryKey: ['authors', roleTab, page, deferredSearch],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      params.set('role', roleTab);
+      params.set('page', String(page));
+      params.set('limit', '50');
+      if (deferredSearch) params.set('q', deferredSearch);
+      return api.get<PaginatedAuthors>(`/authors?${params.toString()}`);
+    },
   });
+
+  const authors = authorsData?.data ?? [];
+  const totalPages = authorsData?.totalPages ?? 1;
+  const totalCount = authorsData?.total ?? 0;
 
   const { data: duplicates, isLoading: duplicatesLoading } = useQuery({
     queryKey: ['author-duplicates'],
@@ -417,17 +503,6 @@ export function AuthorsPage() {
     queryFn: () => api.get<HardcoverAuthor[]>(`/authors/search-hardcover?q=${encodeURIComponent(linkSearch)}`),
     enabled: !!linkSearch && linkSearch.length >= 2 && linkingAuthorId !== null,
   });
-
-  const filteredAuthors = useMemo(() => {
-    if (!authors) return [];
-    if (!search.trim()) return authors;
-    const q = search.toLowerCase();
-    return authors.filter(
-      (a) =>
-        a.name.toLowerCase().includes(q) ||
-        a.sortName.toLowerCase().includes(q),
-    );
-  }, [authors, search]);
 
   const startEdit = (author: Author) => {
     setEditingId(author.id);
@@ -473,8 +548,8 @@ export function AuthorsPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">Authors</h1>
-          {authors && (
-            <Badge variant="secondary">{authors.length}</Badge>
+          {authorsData && (
+            <Badge variant="secondary">{totalCount}</Badge>
           )}
         </div>
         <Button
@@ -506,13 +581,13 @@ export function AuthorsPage() {
       <div className="flex gap-1 rounded-lg bg-muted p-1">
         <button
           className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${roleTab === 'author' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-          onClick={() => setRoleTab('author')}
+          onClick={() => { setRoleTab('author'); setPage(1); }}
         >
           Authors
         </button>
         <button
           className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${roleTab === 'narrator' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-          onClick={() => setRoleTab('narrator')}
+          onClick={() => { setRoleTab('narrator'); setPage(1); }}
         >
           Narrators
         </button>
@@ -524,7 +599,7 @@ export function AuthorsPage() {
         <Input
           placeholder="Search authors..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           className="pl-9"
         />
       </div>
@@ -593,7 +668,7 @@ export function AuthorsPage() {
       {/* Author List */}
       <AuthorListContent
         isLoading={isLoading}
-        filteredAuthors={filteredAuthors}
+        filteredAuthors={authors}
         search={search}
         editingId={editingId}
         editData={editData}
@@ -605,6 +680,11 @@ export function AuthorsPage() {
         setLinkingAuthorId={setLinkingAuthorId}
         setLinkSearch={setLinkSearch}
       />
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <AuthorPagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      )}
 
       {/* Hardcover link dialog */}
       <Dialog open={linkingAuthorId !== null} onOpenChange={(open) => { if (!open) { setLinkingAuthorId(null); setLinkSearch(''); } }}>

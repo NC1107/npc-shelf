@@ -10,6 +10,7 @@ import { cleanupDirtyTitles } from '../services/metadata-pipeline.js';
 import { isConvertAvailable, SUPPORTED_CONVERSIONS } from '../services/format-converter.js';
 import { enrichBooksWithMeta } from '../utils/book-enricher.js';
 import { parseFilename, cleanTitle } from '../utils/filename-parser.js';
+import { sanitizeContentDisposition } from '../utils/sanitize-filename.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const { files } = schema;
@@ -21,7 +22,8 @@ function filterBookIdsByFormat(bookIds: number[] | undefined, format: string): n
     .where(eq(schema.files.format, format as 'epub' | 'pdf' | 'mobi' | 'azw3' | 'm4b' | 'mp3'))
     .all();
   const formatBookIds = fileResults.map((r) => r.bookId);
-  return bookIds ? bookIds.filter((id) => formatBookIds.includes(id)) : formatBookIds;
+  const formatSet = new Set(formatBookIds);
+  return bookIds ? bookIds.filter((id) => formatSet.has(id)) : formatBookIds;
 }
 
 function filterBookIdsByAuthor(bookIds: number[] | undefined, authorId: string): number[] {
@@ -31,7 +33,8 @@ function filterBookIdsByAuthor(bookIds: number[] | undefined, authorId: string):
     .where(eq(schema.bookAuthors.authorId, Number.parseInt(authorId)))
     .all();
   const authorBookIds = authorResults.map((r) => r.bookId);
-  return bookIds ? bookIds.filter((id) => authorBookIds.includes(id)) : authorBookIds;
+  const authorSet = new Set(authorBookIds);
+  return bookIds ? bookIds.filter((id) => authorSet.has(id)) : authorBookIds;
 }
 
 function filterBookIdsByNarrator(bookIds: number[] | undefined, narratorId: string): number[] {
@@ -41,7 +44,8 @@ function filterBookIdsByNarrator(bookIds: number[] | undefined, narratorId: stri
     .where(sql`${schema.bookAuthors.authorId} = ${Number.parseInt(narratorId)} AND ${schema.bookAuthors.role} = 'narrator'`)
     .all();
   const narratorBookIds = narratorResults.map((r) => r.bookId);
-  return bookIds ? bookIds.filter((id) => narratorBookIds.includes(id)) : narratorBookIds;
+  const narratorSet = new Set(narratorBookIds);
+  return bookIds ? bookIds.filter((id) => narratorSet.has(id)) : narratorBookIds;
 }
 
 function filterBookIdsBySeries(bookIds: number[] | undefined, seriesId: string): number[] {
@@ -51,19 +55,22 @@ function filterBookIdsBySeries(bookIds: number[] | undefined, seriesId: string):
     .where(eq(schema.bookSeries.seriesId, Number.parseInt(seriesId)))
     .all();
   const seriesBookIds = seriesResults.map((r) => r.bookId);
-  return bookIds ? bookIds.filter((id) => seriesBookIds.includes(id)) : seriesBookIds;
+  const seriesSet = new Set(seriesBookIds);
+  return bookIds ? bookIds.filter((id) => seriesSet.has(id)) : seriesBookIds;
 }
 
 function filterBookIdsByReview(bookIds: number[] | undefined): number[] {
   const reviewResults = db.all<{ id: number }>(sql`SELECT id FROM books WHERE needs_review = 1`);
   const reviewBookIds = reviewResults.map((r) => r.id);
-  return bookIds ? bookIds.filter((id) => reviewBookIds.includes(id)) : reviewBookIds;
+  const reviewSet = new Set(reviewBookIds);
+  return bookIds ? bookIds.filter((id) => reviewSet.has(id)) : reviewBookIds;
 }
 
 function filterBookIdsByReadingStatus(bookIds: number[] | undefined, status: string): number[] {
   const statusResults = db.all<{ id: number }>(sql`SELECT id FROM books WHERE reading_status = ${status}`);
   const statusBookIds = statusResults.map((r) => r.id);
-  return bookIds ? bookIds.filter((id) => statusBookIds.includes(id)) : statusBookIds;
+  const statusSet = new Set(statusBookIds);
+  return bookIds ? bookIds.filter((id) => statusSet.has(id)) : statusBookIds;
 }
 
 function syncBookAuthors(bookId: number, authors: { name: string; role?: string }[]): void {
@@ -496,7 +503,7 @@ booksRouter.get('/:id', (req, res) => {
 });
 
 // Get cover image
-booksRouter.get('/:id/cover/:size', (req, res) => {
+booksRouter.get('/:id/cover/:size', async (req, res) => {
   try {
     const bookId = Number.parseInt(req.params.id);
     if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
@@ -517,14 +524,33 @@ booksRouter.get('/:id/cover/:size', (req, res) => {
 
     res.setHeader('Cache-Control', 'public, max-age=86400');
 
-    if (fs.existsSync(coverFile)) {
-      res.setHeader('Content-Type', 'image/webp');
-      res.sendFile(coverFile, { root: process.cwd() });
-    } else if (book.coverPath && fs.existsSync(book.coverPath)) {
+    const sendWithEtag = async (filePath: string, contentType?: string) => {
+      const stat = await fs.promises.stat(filePath);
+      const etag = `"${stat.mtimeMs}-${stat.size}"`;
+      if (req.headers['if-none-match'] === etag) {
+        res.status(304).end();
+        return;
+      }
+      res.setHeader('ETag', etag);
+      if (contentType) res.setHeader('Content-Type', contentType);
+      res.sendFile(filePath, { root: process.cwd() });
+    };
+
+    try {
+      await fs.promises.access(coverFile);
+      await sendWithEtag(coverFile, 'image/webp');
+    } catch {
       // Fallback to original
-      res.sendFile(book.coverPath, { root: process.cwd() });
-    } else {
-      res.status(404).json({ error: 'Cover not found' });
+      if (book.coverPath) {
+        try {
+          await fs.promises.access(book.coverPath);
+          await sendWithEtag(book.coverPath);
+        } catch {
+          res.status(404).json({ error: 'Cover not found' });
+        }
+      } else {
+        res.status(404).json({ error: 'Cover not found' });
+      }
     }
   } catch (error) {
     console.error('[Books] Cover error:', error);
@@ -587,7 +613,7 @@ booksRouter.get('/:id/file', (req, res) => {
     }
 
     res.setHeader('Content-Type', file.mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('Content-Disposition', sanitizeContentDisposition('attachment', file.filename));
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.sendFile(file.path);
   } catch (error) {

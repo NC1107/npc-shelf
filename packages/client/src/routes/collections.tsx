@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Plus, Trash2, FolderOpen, BookOpen, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import { Input } from '../components/ui/input';
 import { api } from '../lib/api';
 import type { Collection } from '@npc-shelf/shared';
@@ -15,6 +16,7 @@ export function CollectionsPage() {
   const queryClient = useQueryClient();
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
 
   const { data: collections, isLoading } = useQuery({
     queryKey: ['collections'],
@@ -108,7 +110,7 @@ export function CollectionsPage() {
                   className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
                   onClick={(e) => {
                     e.preventDefault();
-                    deleteCollection.mutate(col.id);
+                    setDeleteTarget({ id: col.id, name: col.name });
                   }}
                 >
                   <Trash2 className="h-3.5 w-3.5 text-destructive" />
@@ -122,6 +124,16 @@ export function CollectionsPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title="Delete collection"
+        description={`Delete "${deleteTarget?.name}"? The books inside will not be removed from your library.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={() => { if (deleteTarget) deleteCollection.mutate(deleteTarget.id); }}
+      />
     </div>
   );
 }

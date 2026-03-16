@@ -233,7 +233,7 @@ export function groupIntoCandidates(
   files: FileCandidate[],
   directoryHintsMap: Map<string, DirectoryHints>,
   filenameHintsMap: Map<string, FilenameHints>,
-  libraryRoot: string,
+  _libraryRoot: string,
 ): BookCandidate[] {
   const consumed = new Set<string>();
   const audioFiles = files.filter((f) => f.isAudio);
@@ -342,10 +342,11 @@ function naturalCompare(a: string, b: string): number {
 
 /**
  * Run the full scan pipeline. Returns BookCandidate[] ready for DB persistence.
+ * Optionally accepts pre-discovered files to avoid a second filesystem walk.
  */
-export function runPipeline(libraryPath: string): BookCandidate[] {
-  // Pass 1: Discover files
-  const files = discoverFiles(libraryPath);
+export function runPipeline(libraryPath: string, preDiscoveredFiles?: FileCandidate[]): BookCandidate[] {
+  // Pass 1: Discover files (or reuse pre-discovered)
+  const files = preDiscoveredFiles ?? discoverFiles(libraryPath);
   if (files.length === 0) return [];
 
   // Pass 2: Directory context for each file

@@ -203,19 +203,31 @@ export function executeRename(bookId: number): RenameResult[] {
     if (dbError) return dbError;
   }
 
+  // Resolve library root to use as boundary for empty dir cleanup
+  const firstFile = db.select().from(schema.files).where(eq(schema.files.bookId, bookId)).limit(1).get();
+  const library = firstFile
+    ? db.select().from(schema.libraries).where(eq(schema.libraries.id, firstFile.libraryId)).get()
+    : null;
+  const libraryRoot = library ? path.resolve(library.path) : null;
+
   for (const { oldPath } of renamedPaths) {
-    cleanEmptyDirs(path.dirname(oldPath));
+    cleanEmptyDirs(path.dirname(oldPath), libraryRoot);
   }
 
   return results;
 }
 
-function cleanEmptyDirs(dirPath: string) {
+function cleanEmptyDirs(dirPath: string, libraryRoot: string | null) {
   try {
+    const resolved = path.resolve(dirPath);
+    // Stop if we've reached or gone above the library root
+    if (libraryRoot && (resolved === libraryRoot || !resolved.startsWith(libraryRoot + path.sep))) {
+      return;
+    }
     const entries = fs.readdirSync(dirPath);
     if (entries.length === 0) {
       fs.rmdirSync(dirPath);
-      cleanEmptyDirs(path.dirname(dirPath));
+      cleanEmptyDirs(path.dirname(dirPath), libraryRoot);
     }
   } catch { /* ignore */ }
 }

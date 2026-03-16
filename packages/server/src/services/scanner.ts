@@ -44,9 +44,10 @@ async function processCandidateBatch(
   batch: BookCandidate[],
   libraryId: number,
   status: ScanStatus,
+  authorCache?: AuthorCache,
 ): Promise<void> {
   const results = await Promise.allSettled(
-    batch.map(c => persistCandidate(c, libraryId, status)),
+    batch.map(c => persistCandidate(c, libraryId, status, authorCache)),
   );
   for (const [idx, result] of results.entries()) {
     if (result.status === 'fulfilled') {
@@ -102,14 +103,15 @@ export async function scanLibrary(libraryId: number): Promise<ScanStatus> {
 
     detectAndRemoveDeletedFiles(libraryId, diskPathSet);
 
-    const candidates = runPipeline(library.path);
+    const candidates = runPipeline(library.path, diskFiles);
     status.filesFound = diskFiles.length;
     activeScanStatuses.set(libraryId, { ...status });
 
+    const authorCache = loadAuthorCache();
     const SCAN_CONCURRENCY = 5;
     for (let i = 0; i < candidates.length; i += SCAN_CONCURRENCY) {
       const batch = candidates.slice(i, i + SCAN_CONCURRENCY);
-      await processCandidateBatch(batch, libraryId, status);
+      await processCandidateBatch(batch, libraryId, status, authorCache);
     }
 
     db.update(schema.libraries)
@@ -238,9 +240,9 @@ function markCompanionFiles(candidate: BookCandidate, fileRecords: { fileId: num
   }
 }
 
-function linkAuthors(bookId: number, authorName: string | null, embedded: EmbeddedMetadata, candidate: BookCandidate): void {
+function linkAuthors(bookId: number, authorName: string | null, embedded: EmbeddedMetadata, candidate: BookCandidate, authorCache?: AuthorCache): void {
   if (authorName) {
-    for (const authorId of findOrCreateAuthors(authorName)) {
+    for (const authorId of findOrCreateAuthors(authorName, authorCache)) {
       db.insert(schema.bookAuthors).values({ bookId, authorId, role: 'author' }).onConflictDoNothing().run();
     }
   }
@@ -248,7 +250,7 @@ function linkAuthors(bookId: number, authorName: string | null, embedded: Embedd
   if (embedded.creators) {
     for (const creator of embedded.creators) {
       if (creator.name === authorName) continue;
-      for (const creatorId of findOrCreateAuthors(creator.name)) {
+      for (const creatorId of findOrCreateAuthors(creator.name, authorCache)) {
         db.insert(schema.bookAuthors)
           .values({ bookId, authorId: creatorId, role: creator.role as 'author' | 'narrator' | 'editor' })
           .onConflictDoNothing().run();
@@ -257,7 +259,7 @@ function linkAuthors(bookId: number, authorName: string | null, embedded: Embedd
   }
 
   if (candidate.sidecarMeta?.narrator) {
-    for (const narratorId of findOrCreateAuthors(candidate.sidecarMeta.narrator)) {
+    for (const narratorId of findOrCreateAuthors(candidate.sidecarMeta.narrator, authorCache)) {
       db.insert(schema.bookAuthors).values({ bookId, authorId: narratorId, role: 'narrator' }).onConflictDoNothing().run();
     }
   }
@@ -339,6 +341,7 @@ async function persistCandidate(
   candidate: BookCandidate,
   libraryId: number,
   _status: ScanStatus,
+  authorCache?: AuthorCache,
 ): Promise<PersistResult> {
   const { existingBookId, allSkipped } = checkExistingFiles(candidate);
   if (existingBookId && allSkipped) return 'skipped';
@@ -376,7 +379,7 @@ async function persistCandidate(
 
   const fileRecords = await createFileRecords(candidate, book.id, libraryId);
   markCompanionFiles(candidate, fileRecords);
-  linkAuthors(book.id, meta.authorName, meta.embedded, candidate);
+  linkAuthors(book.id, meta.authorName, meta.embedded, candidate, authorCache);
   linkSeries(book.id, candidate);
   linkTags(book.id, meta.subjects, candidate);
 
@@ -551,36 +554,72 @@ async function extractEmbeddedMetadata(filePath: string, format: string): Promis
   return empty;
 }
 
+/** In-memory author cache used during scans to avoid repeated DB reads. */
+export type AuthorCache = Map<string, number>;
+
+/** Load all authors into a cache map (name -> id). */
+export function loadAuthorCache(): AuthorCache {
+  const allAuthors = db.select({ id: schema.authors.id, name: schema.authors.name }).from(schema.authors).all();
+  const cache: AuthorCache = new Map();
+  for (const a of allAuthors) {
+    cache.set(a.name, a.id);
+  }
+  return cache;
+}
+
 /**
  * Split multi-author strings, normalize each name, fuzzy-match against existing
  * authors (0.9 threshold), and return all author IDs.
  */
-export function findOrCreateAuthors(name: string): number[] {
+export function findOrCreateAuthors(name: string, cache?: AuthorCache): number[] {
   const names = splitMultiAuthor(name);
-  return names.map((n) => findOrCreateAuthor(normalizeAuthorName(n)));
+  return names.map((n) => findOrCreateAuthor(normalizeAuthorName(n), cache));
 }
 
-export function findOrCreateAuthor(name: string): number {
-  // Exact match first
-  const existing = db.select().from(schema.authors).where(eq(schema.authors.name, name)).get();
-  if (existing) return existing.id;
+export function findOrCreateAuthor(name: string, cache?: AuthorCache): number {
+  // Exact match from cache (if provided)
+  if (cache) {
+    const cachedId = cache.get(name);
+    if (cachedId !== undefined) return cachedId;
+  } else {
+    // Fallback: exact match from DB
+    const existing = db.select().from(schema.authors).where(eq(schema.authors.name, name)).get();
+    if (existing) return existing.id;
+  }
 
-  // Fuzzy match against all existing authors at 0.9 threshold
-  const allAuthors = db.select({ id: schema.authors.id, name: schema.authors.name }).from(schema.authors).all();
+  // Fuzzy match against cache or DB
   const normalized = name.toLowerCase();
   let bestMatch: { id: number; sim: number } | null = null;
-  for (const a of allAuthors) {
-    const sim = stringSimilarity(normalized, a.name.toLowerCase());
-    if (sim >= 0.9 && (!bestMatch || sim > bestMatch.sim)) {
-      bestMatch = { id: a.id, sim };
+
+  if (cache) {
+    for (const [authorName, authorId] of cache) {
+      const sim = stringSimilarity(normalized, authorName.toLowerCase());
+      if (sim >= 0.9 && (!bestMatch || sim > bestMatch.sim)) {
+        bestMatch = { id: authorId, sim };
+      }
+    }
+  } else {
+    const allAuthors = db.select({ id: schema.authors.id, name: schema.authors.name }).from(schema.authors).all();
+    for (const a of allAuthors) {
+      const sim = stringSimilarity(normalized, a.name.toLowerCase());
+      if (sim >= 0.9 && (!bestMatch || sim > bestMatch.sim)) {
+        bestMatch = { id: a.id, sim };
+      }
     }
   }
   if (bestMatch) return bestMatch.id;
 
-  return db.insert(schema.authors)
+  const newId = db.insert(schema.authors)
     .values({ name, sortName: toSortName(name) })
     .returning()
     .get().id;
+
+  // Update cache if provided
+  if (cache) {
+    cache.set(name, newId);
+  }
+
+  return newId;
 }
 
 export function findOrCreateSeries(name: string): number {

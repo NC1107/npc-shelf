@@ -31,6 +31,7 @@ import { isCalibreAvailable } from './services/metadata-writer.js';
 import { convertBook, isConvertAvailable } from './services/format-converter.js';
 import { initializeWatchers, stopAllWatchers } from './services/file-watcher.js';
 import { installLogCapture } from './services/log-buffer.js';
+import { sanitizeContentDisposition } from './utils/sanitize-filename.js';
 
 // Capture console output into ring buffer for log viewer
 installLogCapture();
@@ -102,9 +103,6 @@ registerJobHandler('convert_format', async (payload) => {
 // Start background job processor
 startJobProcessor();
 
-// Backfill covers on startup (async, non-blocking)
-backfillCovers().catch((err) => console.error('[Startup] Cover backfill error:', err));
-
 // Start file watchers for all enabled libraries
 initializeWatchers();
 
@@ -165,7 +163,7 @@ app.get('/api/health', (_req, res) => {
 
 // Public cover endpoint — <img> tags can't send Bearer tokens, so covers
 // are served without auth. This must be registered BEFORE the protected books router.
-app.get('/api/books/:id/cover/:size', (req, res) => {
+app.get('/api/books/:id/cover/:size', async (req, res) => {
   try {
     const bookId = Number.parseInt(req.params.id);
     if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
@@ -186,15 +184,28 @@ app.get('/api/books/:id/cover/:size', (req, res) => {
 
     res.setHeader('Cache-Control', 'public, max-age=86400');
 
-    if (fs.existsSync(webpFile)) {
-      res.setHeader('Content-Type', 'image/webp');
-      res.sendFile(path.resolve(webpFile));
-    } else {
+    const sendWithEtag = async (filePath: string, contentType?: string) => {
+      const stat = await fs.promises.stat(filePath);
+      const etag = `"${stat.mtimeMs}-${stat.size}"`;
+      if (req.headers['if-none-match'] === etag) {
+        res.status(304).end();
+        return;
+      }
+      res.setHeader('ETag', etag);
+      if (contentType) res.setHeader('Content-Type', contentType);
+      res.sendFile(path.resolve(filePath));
+    };
+
+    try {
+      await fs.promises.access(webpFile);
+      await sendWithEtag(webpFile, 'image/webp');
+    } catch {
       // Fallback to original binary
       const originalFile = path.join(coverDir, `${bookId}_original`);
-      if (fs.existsSync(originalFile)) {
-        res.sendFile(path.resolve(originalFile));
-      } else {
+      try {
+        await fs.promises.access(originalFile);
+        await sendWithEtag(originalFile);
+      } catch {
         res.status(404).json({ error: 'Cover file not found' });
       }
     }
@@ -226,7 +237,7 @@ app.get('/api/books/:id/file', (req, res) => {
     }
 
     res.setHeader('Content-Type', file.mime_type);
-    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('Content-Disposition', sanitizeContentDisposition('attachment', file.filename));
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.sendFile(path.resolve(file.path));
   } catch (error) {
@@ -329,7 +340,7 @@ app.get('/api/reader/books/:id/content', async (req, res) => {
 
     res.setHeader('Content-Security-Policy', "script-src 'none'; object-src 'none'");
     res.setHeader('Content-Type', file.mime_type);
-    res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
+    res.setHeader('Content-Disposition', sanitizeContentDisposition('inline', file.filename));
     res.sendFile(path.resolve(file.path));
   } catch (error) {
     console.error('[Reader] Content error:', error);
@@ -367,6 +378,9 @@ app.get('*', (_req, res) => {
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Server] NPC-Shelf v${appVersion} running on http://0.0.0.0:${PORT}`);
+  if (!process.env.JWT_SECRET) {
+    console.warn('[SECURITY] JWT_SECRET not set — using insecure default. Set JWT_SECRET in production.');
+  }
   if (!isFfmpegAvailable()) {
     console.warn('[Server] ffmpeg not found — audiobook merge will be unavailable');
   }

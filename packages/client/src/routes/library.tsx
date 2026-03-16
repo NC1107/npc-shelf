@@ -16,6 +16,7 @@ import {
   FolderPlus,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import { Input } from '../components/ui/input';
 import { Select } from '../components/ui/select';
 
@@ -26,7 +27,7 @@ import { BookCard } from '../components/books/BookCard';
 import { api } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 import type { PaginatedResponse, Book } from '@npc-shelf/shared';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect, useDeferredValue } from 'react';
 
 interface FilterOptions {
   authors: { id: number; name: string }[];
@@ -392,6 +393,7 @@ function useLibraryFilters() {
     setLibraryView,
   } = useUiStore();
 
+  const deferredSearch = useDeferredValue(search);
   const activeFilterCount = [format, authorId, seriesId, needsReview, readingStatus].filter(Boolean).length;
   const hasAnyFilter = !!search || activeFilterCount > 0;
 
@@ -405,7 +407,7 @@ function useLibraryFilters() {
   queryParams.set('pageSize', '24');
   queryParams.set('sortBy', sortBy);
   queryParams.set('sortOrder', sortOrder);
-  if (search) queryParams.set('q', search);
+  if (deferredSearch) queryParams.set('q', deferredSearch);
   if (format) queryParams.set('format', format);
   if (authorId) queryParams.set('authorId', authorId);
   if (seriesId) queryParams.set('seriesId', seriesId);
@@ -413,7 +415,7 @@ function useLibraryFilters() {
   if (readingStatus) queryParams.set('readingStatus', readingStatus);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['books', { page, sortBy, sortOrder, q: search, format, authorId, seriesId, needsReview, readingStatus }],
+    queryKey: ['books', { page, sortBy, sortOrder, q: deferredSearch, format, authorId, seriesId, needsReview, readingStatus }],
     queryFn: () => api.get<PaginatedResponse<Book>>(`/books?${queryParams.toString()}`),
   });
 
@@ -470,6 +472,28 @@ export function LibraryPage() {
   const { selectMode, setSelectMode, selectedIds, toggleSelection, selectAll, deselectAll, exitSelectMode } = useBookSelection(data);
 
   const [showFilters, setShowFilters] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  // Close filter popover on click-outside or Escape
+  useEffect(() => {
+    if (!showFilters) return;
+    const handleClick = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setShowFilters(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowFilters(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [showFilters]);
+
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const queryClient = useQueryClient();
 
   // Bulk mutations
@@ -518,11 +542,7 @@ export function LibraryPage() {
 
   const handleBulkDelete = () => {
     if (selectedArray.length === 0) return;
-    const count = selectedArray.length;
-    const noun = count === 1 ? 'book' : 'books';
-    if (globalThis.confirm(`Delete ${count} ${noun}? This cannot be undone.`)) {
-      bulkDelete.mutate(selectedArray);
-    }
+    setShowBulkDeleteConfirm(true);
   };
 
   const handleBulkMatch = () => {
@@ -616,7 +636,7 @@ export function LibraryPage() {
         </Button>
 
         {/* Filter dropdown */}
-        <div className="relative">
+        <div className="relative" ref={filterRef}>
           <Button
             variant={showFilters ? 'secondary' : 'outline'}
             size="sm"
@@ -723,7 +743,7 @@ export function LibraryPage() {
           {readingStatus && (
             <Badge variant="secondary" className="gap-1 pr-1">
               {readingStatus.charAt(0).toUpperCase() + readingStatus.slice(1)}
-              <button onClick={() => setLibraryFilters({ libraryReadingStatus: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+              <button onClick={() => setLibraryFilters({ libraryReadingStatus: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 -my-2">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -731,7 +751,7 @@ export function LibraryPage() {
           {needsReview && (
             <Badge variant="secondary" className="gap-1 pr-1">
               <span>Needs Review</span>
-              <button onClick={() => setLibraryFilters({ libraryNeedsReview: false, libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+              <button onClick={() => setLibraryFilters({ libraryNeedsReview: false, libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 -my-2">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -739,7 +759,7 @@ export function LibraryPage() {
           {format && (
             <Badge variant="secondary" className="gap-1 pr-1">
               {format.toUpperCase()}
-              <button onClick={() => setLibraryFilters({ libraryFormat: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+              <button onClick={() => setLibraryFilters({ libraryFormat: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 -my-2">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -747,7 +767,7 @@ export function LibraryPage() {
           {authorId && filters?.authors && (
             <Badge variant="secondary" className="gap-1 pr-1">
               {filters.authors.find(a => String(a.id) === authorId)?.name || 'Author'}
-              <button onClick={() => setLibraryFilters({ libraryAuthorId: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+              <button onClick={() => setLibraryFilters({ libraryAuthorId: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 -my-2">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -755,7 +775,7 @@ export function LibraryPage() {
           {seriesId && filters?.series && (
             <Badge variant="secondary" className="gap-1 pr-1">
               {filters.series.find(s => String(s.id) === seriesId)?.name || 'Series'}
-              <button onClick={() => setLibraryFilters({ librarySeriesId: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted p-0.5">
+              <button onClick={() => setLibraryFilters({ librarySeriesId: '', libraryPage: 1 })} className="ml-0.5 rounded-full hover:bg-muted min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 -my-2">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -802,6 +822,16 @@ export function LibraryPage() {
           isBulkLoading={isBulkLoading}
         />
       )}
+
+      <ConfirmDialog
+        open={showBulkDeleteConfirm}
+        onOpenChange={setShowBulkDeleteConfirm}
+        title="Delete books"
+        description={`Delete ${selectedArray.length} ${selectedArray.length === 1 ? 'book' : 'books'}? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={() => bulkDelete.mutate(selectedArray)}
+      />
     </div>
   );
 }

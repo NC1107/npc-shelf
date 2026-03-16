@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { eq, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { convertBook, isConvertAvailable } from '../services/format-converter.js';
+import { sanitizeContentDisposition } from '../utils/sanitize-filename.js';
 import fs from 'node:fs';
 
 export const readerRouter = Router();
@@ -54,7 +55,7 @@ readerRouter.get('/books/:id/content', async (req, res) => {
     // Security: set restrictive CSP for reader content
     res.setHeader('Content-Security-Policy', "script-src 'none'; object-src 'none'");
     res.setHeader('Content-Type', file.mimeType);
-    res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
+    res.setHeader('Content-Disposition', sanitizeContentDisposition('inline', file.filename));
     res.sendFile(file.path);
   } catch (error) {
     console.error('[Reader] Content error:', error);

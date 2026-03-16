@@ -82,16 +82,19 @@ export function Sidebar() {
         {/* Navigation */}
         <ScrollArea className="flex-1 px-3 py-4">
           <nav className="flex flex-col gap-1">
-            {navItems.map((item) => (
+            {navItems.map((item) => {
+              const isActive = item.to === '/' ? currentPath === '/' : currentPath.startsWith(item.to);
+              return (
               <Link
                 key={item.to}
                 to={item.to}
                 className={cn(
                   'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  currentPath === item.to
+                  isActive
                     ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                     : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                 )}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => {
                   if (window.innerWidth < 1024) setSidebarOpen(false);
                 }}
@@ -99,7 +102,8 @@ export function Sidebar() {
                 <item.icon className="h-4 w-4" />
                 {item.label}
               </Link>
-            ))}
+              );
+            })}
           </nav>
         </ScrollArea>
 
@@ -111,10 +115,11 @@ export function Sidebar() {
                 to={item.to}
                 className={cn(
                   'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  currentPath === item.to
+                  currentPath.startsWith(item.to)
                     ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                     : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                 )}
+                aria-current={currentPath.startsWith(item.to) ? 'page' : undefined}
               >
                 <item.icon className="h-4 w-4" />
                 {item.label}

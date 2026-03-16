@@ -17,27 +17,60 @@ opdsRouter.use(opdsAuthMiddleware);
 const PAGE_SIZE = 25;
 
 function getBookEntries(bookRows: any[]) {
-  return bookRows.map((book) => {
-    const authors = db
-      .select({ name: schema.authors.name, role: schema.bookAuthors.role })
-      .from(schema.bookAuthors)
-      .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
-      .where(eq(schema.bookAuthors.bookId, book.id))
-      .all();
+  if (bookRows.length === 0) return [];
 
-    const files = db
-      .select({
-        id: schema.files.id,
-        format: schema.files.format,
-        mimeType: schema.files.mimeType,
-        sizeBytes: schema.files.sizeBytes,
-      })
-      .from(schema.files)
-      .where(eq(schema.files.bookId, book.id))
-      .all();
+  const bookIds = bookRows.map((b) => b.id);
 
-    return { ...book, authors, files };
-  });
+  // Batch-fetch all authors for the book set
+  const allAuthors = db
+    .select({
+      bookId: schema.bookAuthors.bookId,
+      name: schema.authors.name,
+      role: schema.bookAuthors.role,
+    })
+    .from(schema.bookAuthors)
+    .innerJoin(schema.authors, eq(schema.bookAuthors.authorId, schema.authors.id))
+    .where(inArray(schema.bookAuthors.bookId, bookIds))
+    .all();
+
+  const authorsByBookId = new Map<number, { name: string; role: string }[]>();
+  for (const a of allAuthors) {
+    let list = authorsByBookId.get(a.bookId);
+    if (!list) {
+      list = [];
+      authorsByBookId.set(a.bookId, list);
+    }
+    list.push({ name: a.name, role: a.role });
+  }
+
+  // Batch-fetch all files for the book set
+  const allFiles = db
+    .select({
+      bookId: schema.files.bookId,
+      id: schema.files.id,
+      format: schema.files.format,
+      mimeType: schema.files.mimeType,
+      sizeBytes: schema.files.sizeBytes,
+    })
+    .from(schema.files)
+    .where(inArray(schema.files.bookId, bookIds))
+    .all();
+
+  const filesByBookId = new Map<number, { id: number; format: string; mimeType: string; sizeBytes: number }[]>();
+  for (const f of allFiles) {
+    let list = filesByBookId.get(f.bookId);
+    if (!list) {
+      list = [];
+      filesByBookId.set(f.bookId, list);
+    }
+    list.push({ id: f.id, format: f.format, mimeType: f.mimeType, sizeBytes: f.sizeBytes });
+  }
+
+  return bookRows.map((book) => ({
+    ...book,
+    authors: authorsByBookId.get(book.id) || [],
+    files: filesByBookId.get(book.id) || [],
+  }));
 }
 
 // Root navigation feed
@@ -215,7 +248,8 @@ opdsRouter.get('/search', (req, res) => {
       return;
     }
 
-    // Use FTS5 for search
+    // Use FTS5 for search — sanitize by quoting individual words
+    const ftsQuery = query.trim().split(/\s+/).filter(Boolean).map(w => `"${w}"*`).join(' ');
     const bookRows = db
       .select({
         id: schema.books.id,
@@ -230,7 +264,7 @@ opdsRouter.get('/search', (req, res) => {
       })
       .from(schema.books)
       .where(
-        sql`${schema.books.id} IN (SELECT rowid FROM books_fts WHERE books_fts MATCH ${query + '*'})`,
+        sql`${schema.books.id} IN (SELECT rowid FROM books_fts WHERE books_fts MATCH ${ftsQuery})`,
       )
       .limit(50)
       .all();

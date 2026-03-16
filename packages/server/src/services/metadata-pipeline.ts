@@ -535,9 +535,17 @@ export async function enrichAllUnmatched(force = false): Promise<{ matched: numb
       if (seen.has(key)) {
         // Copy match from previously matched book with same title+author
         const sourceId = seen.get(key)!;
-        const source = db.select({ hardcoverId: schema.books.hardcoverId }).from(schema.books).where(eq(schema.books.id, sourceId)).get();
+        const source = db.select({ hardcoverId: schema.books.hardcoverId, hardcoverSlug: schema.books.hardcoverSlug, matchConfidence: schema.books.matchConfidence }).from(schema.books).where(eq(schema.books.id, sourceId)).get();
         if (source?.hardcoverId) {
           console.log(`[Metadata] Dedup: book ${book.id} shares key with ${sourceId}, skipping API call`);
+          db.update(schema.books).set({
+            hardcoverId: source.hardcoverId,
+            hardcoverSlug: source.hardcoverSlug,
+            matchConfidence: source.matchConfidence,
+            updatedAt: new Date().toISOString(),
+          }).where(eq(schema.books.id, book.id)).run();
+          matched++;
+          continue;
         }
       }
 

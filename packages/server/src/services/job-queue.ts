@@ -1,5 +1,5 @@
 import { eq, sql, and, lte } from 'drizzle-orm';
-import { db, schema } from '../db/index.js';
+import { db, schema, sqlite } from '../db/index.js';
 import { JOB_QUEUE } from '@npc-shelf/shared';
 
 type JobHandler = (payload: Record<string, unknown>) => Promise<void>;
@@ -78,6 +78,19 @@ export function recoverStaleJobs() {
   console.log(`[JobQueue] Recovered ${staleJobs.length} stale job(s)`);
 }
 
+/**
+ * Delete completed/failed jobs older than 30 days.
+ */
+export function cleanupOldJobs() {
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const result = sqlite.prepare(
+    `DELETE FROM job_queue WHERE status IN ('completed', 'failed') AND updated_at < ?`,
+  ).run(cutoff);
+  if (result.changes > 0) {
+    console.log(`[JobQueue] Cleaned up ${result.changes} old job(s)`);
+  }
+}
+
 let pollInterval: NodeJS.Timeout | null = null;
 let stopping = false;
 let currentJobPromise: Promise<boolean> | null = null;
@@ -87,26 +100,32 @@ async function processNextJob(): Promise<boolean> {
 
   const now = new Date().toISOString();
 
-  // Find and claim the next pending job
-  const job = db
-    .select()
-    .from(schema.jobQueue)
-    .where(
-      and(
-        eq(schema.jobQueue.status, 'pending'),
-        lte(schema.jobQueue.scheduledFor, now),
-      ),
-    )
-    .limit(1)
-    .get();
+  // Atomically find and claim the next pending job
+  const claimJob = sqlite.transaction(() => {
+    const found = db
+      .select()
+      .from(schema.jobQueue)
+      .where(
+        and(
+          eq(schema.jobQueue.status, 'pending'),
+          lte(schema.jobQueue.scheduledFor, now),
+        ),
+      )
+      .limit(1)
+      .get();
 
+    if (!found) return null;
+
+    db.update(schema.jobQueue)
+      .set({ status: 'processing', attempts: found.attempts + 1, updatedAt: now })
+      .where(eq(schema.jobQueue.id, found.id))
+      .run();
+
+    return found;
+  });
+
+  const job = claimJob();
   if (!job) return false;
-
-  // Claim the job
-  db.update(schema.jobQueue)
-    .set({ status: 'processing', attempts: job.attempts + 1, updatedAt: now })
-    .where(eq(schema.jobQueue.id, job.id))
-    .run();
 
   const handler = handlers.get(job.jobType);
   if (!handler) {
@@ -126,13 +145,24 @@ async function processNextJob(): Promise<boolean> {
       .run();
   } catch (error: any) {
     const errorMsg = error?.message || String(error);
-    const newStatus = job.attempts + 1 >= job.maxAttempts ? 'failed' : 'pending';
+    const currentAttempts = job.attempts + 1;
+    const newStatus = currentAttempts >= job.maxAttempts ? 'failed' : 'pending';
+    const failedAt = new Date().toISOString();
+
+    // Exponential backoff: schedule retry at now + attempts * 60 seconds
+    const retryUpdate: Record<string, unknown> = {
+      status: newStatus,
+      error: errorMsg,
+      updatedAt: failedAt,
+    };
+    if (newStatus === 'pending') {
+      const backoffSeconds = currentAttempts * 60;
+      const scheduledFor = new Date(Date.now() + backoffSeconds * 1000).toISOString();
+      retryUpdate.scheduledFor = scheduledFor;
+    }
+
     db.update(schema.jobQueue)
-      .set({
-        status: newStatus,
-        error: errorMsg,
-        updatedAt: new Date().toISOString(),
-      })
+      .set(retryUpdate)
       .where(eq(schema.jobQueue.id, job.id))
       .run();
   }
@@ -144,6 +174,7 @@ export function startJobProcessor() {
   if (pollInterval) return;
   stopping = false;
 
+  cleanupOldJobs();
   console.log('[JobQueue] Starting job processor');
   pollInterval = setInterval(async () => {
     if (stopping) return;

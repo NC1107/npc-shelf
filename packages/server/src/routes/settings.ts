@@ -4,6 +4,18 @@ import { updateProviderToken } from '../services/metadata-pipeline.js';
 
 export const settingsRouter = Router();
 
+const ALLOWED_SETTINGS = new Set([
+  'setupComplete',
+  'metadataAutoMatch',
+  'scanIntervalMinutes',
+  'hardcoverApiToken',
+  'smtpHost',
+  'smtpPort',
+  'smtpUser',
+  'smtpPass',
+  'fromEmail',
+]);
+
 // Get settings
 settingsRouter.get('/', (_req, res) => {
   try {
@@ -29,6 +41,10 @@ settingsRouter.put('/', (req, res) => {
     }
 
     for (const [key, value] of Object.entries(updates)) {
+      if (!ALLOWED_SETTINGS.has(key)) {
+        res.status(400).json({ error: 'Unknown setting key' });
+        return;
+      }
       db.insert(schema.settings)
         .values({ key, value: String(value) })
         .onConflictDoUpdate({
