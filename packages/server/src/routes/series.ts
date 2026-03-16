@@ -5,7 +5,7 @@ import { enrichBooksWithMeta } from '../utils/book-enricher.js';
 
 export const seriesRouter = Router();
 
-// List all series with book counts
+// List all series with book counts and cover previews
 seriesRouter.get('/', (_req, res) => {
   try {
     const seriesList = db
@@ -14,12 +14,38 @@ seriesRouter.get('/', (_req, res) => {
       .orderBy(schema.series.name)
       .all()
       .map((s) => {
-        const bookCount = db
-          .select({ count: sql<number>`count(*)` })
+        const bookEntries = db
+          .select({
+            bookId: schema.bookSeries.bookId,
+            position: schema.bookSeries.position,
+          })
           .from(schema.bookSeries)
           .where(eq(schema.bookSeries.seriesId, s.id))
-          .get()?.count || 0;
-        return { ...s, bookCount };
+          .all();
+
+        const bookCount = bookEntries.length;
+
+        // Get first 4 books with covers for preview thumbnails
+        const bookIds = bookEntries
+          .sort((a, b) => (a.position || 999) - (b.position || 999))
+          .map((e) => e.bookId);
+
+        const coverBookIds: number[] = [];
+        if (bookIds.length > 0) {
+          const idPlaceholders = sql.join(bookIds.map((id) => sql`${id}`), sql`, `);
+          const booksWithCovers = db
+            .all<{ id: number }>(
+              sql`SELECT id FROM books WHERE id IN (${idPlaceholders}) AND cover_path IS NOT NULL LIMIT 4`,
+            );
+          // Preserve series position order
+          const coverSet = new Set(booksWithCovers.map((b) => b.id));
+          for (const id of bookIds) {
+            if (coverSet.has(id)) coverBookIds.push(id);
+            if (coverBookIds.length >= 4) break;
+          }
+        }
+
+        return { ...s, bookCount, coverBookIds };
       });
     res.json(seriesList);
   } catch (error) {

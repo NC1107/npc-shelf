@@ -22,6 +22,7 @@ import { Input } from '../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Separator } from '../components/ui/separator';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/tooltip';
 import { api } from '../lib/api';
 import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
@@ -447,18 +448,25 @@ export function AuthorsPage() {
                       </div>
                       <div className="flex gap-0.5">
                         {!author.hardcoverId && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0"
-                            onClick={() => {
-                              setLinkingAuthorId(author.id);
-                              setLinkSearch(author.name);
-                            }}
-                            aria-label="Link to Hardcover"
-                          >
-                            <Link2 className="h-3 w-3" />
-                          </Button>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 shrink-0"
+                                  onClick={() => {
+                                    setLinkingAuthorId(author.id);
+                                    setLinkSearch(author.name);
+                                  }}
+                                  aria-label="Link to Hardcover"
+                                >
+                                  <Link2 className="h-3 w-3" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Link to Hardcover</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
                         {author.hardcoverId && (
                           <a
@@ -512,8 +520,11 @@ export function AuthorsPage() {
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               )}
-              {hardcoverResults && hardcoverResults.length === 0 && (
-                <p className="py-4 text-center text-sm text-muted-foreground">No authors found</p>
+              {hardcoverResults && hardcoverResults.length === 0 && !hardcoverLoading && (
+                <div className="py-4 text-center">
+                  <p className="text-sm text-muted-foreground">No matching authors found on Hardcover</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Try adjusting the search term</p>
+                </div>
               )}
               {hardcoverResults?.map((hc) => (
                 <div
@@ -548,6 +559,11 @@ export function AuthorsPage() {
           {linkHardcover.isPending && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" /> Linking...
+            </div>
+          )}
+          {linkHardcover.isError && (
+            <div className="flex items-center gap-2 text-sm text-destructive">
+              <AlertTriangle className="h-3 w-3" /> Failed to link author. Try again.
             </div>
           )}
         </DialogContent>

@@ -711,7 +711,7 @@ function BookDetailContent({
                 </Button>
               </>
             ) : (
-              <Button variant="ghost" size="sm" onClick={startEditing}>
+              <Button variant="outline" size="sm" onClick={startEditing}>
                 <Edit className="h-4 w-4" />
                 Edit
               </Button>

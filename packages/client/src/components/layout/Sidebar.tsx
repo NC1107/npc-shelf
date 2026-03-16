@@ -127,6 +127,7 @@ export function Sidebar() {
               {item.label}
             </Link>
           ))}
+          <span className="block px-3 pt-2 text-[10px] text-sidebar-foreground/30">v{__APP_VERSION__}</span>
         </div>
       </aside>
     </>

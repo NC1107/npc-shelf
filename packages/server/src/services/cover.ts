@@ -76,8 +76,8 @@ async function resizeAndSave(buffer: Buffer, bookId: number): Promise<string | n
     const outPath = path.join(COVER_CACHE_DIR, `${bookId}_${sizeName}.webp`);
     try {
       await sharp(buffer)
-        .resize(dims.width, dims.height, { fit: 'cover', position: 'top' })
-        .webp({ quality: 80 })
+        .resize(dims.width, dims.height, { fit: 'inside' })
+        .webp({ quality: 85 })
         .toFile(outPath);
     } catch (err) {
       console.error(`[Cover] Resize error for ${sizeName}:`, err);

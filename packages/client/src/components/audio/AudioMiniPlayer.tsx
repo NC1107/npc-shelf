@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, SkipForward, SkipBack, X, Maximize2 } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { Button } from '../ui/button';
@@ -10,6 +10,7 @@ export function AudioMiniPlayer() {
   const { bookId, bookTitle, bookAuthor, coverUrl, positionSeconds, totalDurationSeconds, isPlaying, setPlaying, stop, currentTrackIndex } =
     useAudioStore();
   const reloadedRef = useRef(false);
+  const progressBarRef = useRef<HTMLDivElement>(null);
 
   // Reload audio source if store has persisted state but AudioEngine has no source
   // (happens after page refresh — store persists via localStorage, AudioEngine doesn't)
@@ -42,6 +43,14 @@ export function AudioMiniPlayer() {
     stop();
   };
 
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const bar = progressBarRef.current;
+    if (!bar || totalDurationSeconds <= 0) return;
+    const rect = bar.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    AudioEngine.seek(pct * totalDurationSeconds);
+  }, [totalDurationSeconds]);
+
   // Round to nearest second so progress bar re-renders ~1/s instead of every frame
   const roundedPosition = Math.floor(positionSeconds);
   const progress = totalDurationSeconds > 0 ? (roundedPosition / totalDurationSeconds) * 100 : 0;
@@ -49,8 +58,12 @@ export function AudioMiniPlayer() {
   return (
     <div className="border-t bg-card">
       {/* Progress bar */}
-      <div className="h-1 w-full bg-muted">
-        <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
+      <div
+        ref={progressBarRef}
+        className="h-1.5 w-full bg-muted cursor-pointer group"
+        onClick={handleProgressClick}
+      >
+        <div className="h-full bg-primary transition-all group-hover:bg-primary/80" style={{ width: `${progress}%` }} />
       </div>
 
       <div className="flex items-center gap-3 px-4 py-2">

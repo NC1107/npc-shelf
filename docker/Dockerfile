@@ -82,7 +82,8 @@ CMD ["node", "packages/server/dist/index.js"]
 FROM node:22-slim AS production-aio
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tini ffmpeg calibre wget \
+    tini ffmpeg wget \
+    && apt-get install -y calibre \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1001 npcshelf && useradd -u 1001 -g npcshelf -m -s /bin/sh npcshelf
