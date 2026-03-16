@@ -807,6 +807,134 @@ function BookActionButtons({
   );
 }
 
+function DescriptionSection({ isEditing, editData, setEditData, book }: any) {
+  if (isEditing) {
+    return (
+      <>
+        <Separator />
+        <div>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Description
+          </h2>
+          <textarea
+            className="w-full rounded border bg-background px-3 py-2 text-sm leading-relaxed min-h-[120px]"
+            value={editData.description || ''}
+            onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+            placeholder="Description"
+          />
+        </div>
+      </>
+    );
+  }
+
+  if (!book.description) return null;
+
+  return (
+    <>
+      <Separator />
+      <div>
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Description
+        </h2>
+        <div className="max-w-none text-sm leading-relaxed text-foreground whitespace-pre-line">
+          {book.description}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function FilesSection({
+  book, showFiles, setShowFiles, splitMode, setSplitMode, selectedFileIds, setSelectedFileIds, splitFiles,
+}: any) {
+  if (!book.files || book.files.length === 0) return null;
+
+  return (
+    <>
+      <Separator />
+      <div>
+        <button
+          onClick={() => setShowFiles(!showFiles)}
+          className="flex w-full items-center justify-between mb-3"
+        >
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Files ({book.files.length})
+          </h2>
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showFiles ? 'rotate-180' : ''}`} />
+        </button>
+        {showFiles && (
+          <>
+            {splitMode && (
+              <div className="mb-2 flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Select files to split into a new book:</span>
+                <Button
+                  size="sm"
+                  disabled={selectedFileIds.size === 0 || selectedFileIds.size >= book.files.length || splitFiles.isPending}
+                  onClick={() => splitFiles.mutate([...selectedFileIds])}
+                >
+                  {splitFiles.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Scissors className="h-3 w-3" />}
+                  Split ({selectedFileIds.size})
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setSplitMode(false); setSelectedFileIds(new Set()); }}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {book.files.map((file: any) => {
+                const fileContent = (
+                  <>
+                    <div className="flex items-center gap-2">
+                      {splitMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedFileIds.has(file.id)}
+                          readOnly
+                          className="h-3.5 w-3.5"
+                        />
+                      )}
+                      <Badge variant="outline" className={FORMAT_COLORS[file.format]}>
+                        {file.format.toUpperCase()}
+                      </Badge>
+                      {file.isCompanion === 1 && (
+                        <Badge variant="secondary" className="text-[10px]">Companion</Badge>
+                      )}
+                      <span className="font-medium truncate">{file.filename}</span>
+                      <span className="ml-auto shrink-0 text-muted-foreground">{formatBytes(file.sizeBytes)}</span>
+                    </div>
+                    <div className="text-muted-foreground truncate">{file.path}</div>
+                  </>
+                );
+                return splitMode ? (
+                  <button
+                    type="button"
+                    key={file.id}
+                    className={`rounded border bg-muted/50 p-2 text-xs space-y-1 text-left w-full cursor-pointer hover:border-primary ${selectedFileIds.has(file.id) ? 'border-primary bg-primary/5' : ''}`}
+                    onClick={() => {
+                      const next = new Set(selectedFileIds);
+                      if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
+                      setSelectedFileIds(next);
+                    }}
+                  >
+                    {fileContent}
+                  </button>
+                ) : (
+                  <div
+                    key={file.id}
+                    className="rounded border bg-muted/50 p-2 text-xs space-y-1"
+                  >
+                    {fileContent}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 function BookDetailContent({
   book, bookId, hasEbook, hasAudio, hasBothFormats,
   readingProgress, audioProgress,
@@ -1042,37 +1170,7 @@ function BookDetailContent({
             </div>
           )}
 
-          {/* Description */}
-          {isEditing ? (
-            <>
-              <Separator />
-              <div>
-                <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Description
-                </h2>
-                <textarea
-                  className="w-full rounded border bg-background px-3 py-2 text-sm leading-relaxed min-h-[120px]"
-                  value={editData.description || ''}
-                  onChange={(e) => setEditData({ ...editData, description: e.target.value })}
-                  placeholder="Description"
-                />
-              </div>
-            </>
-          ) : (
-            book.description && (
-              <>
-                <Separator />
-                <div>
-                  <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    Description
-                  </h2>
-                  <div className="max-w-none text-sm leading-relaxed text-foreground whitespace-pre-line">
-                    {book.description}
-                  </div>
-                </div>
-              </>
-            )
-          )}
+          <DescriptionSection isEditing={isEditing} editData={editData} setEditData={setEditData} book={book} />
 
           {/* Hardcover comparison panel — only when editing a matched book */}
           {isEditing && hardcoverDetails && (
@@ -1279,91 +1377,16 @@ function BookDetailContent({
             </>
           )}
 
-          {/* Files section */}
-          {book.files && book.files.length > 0 && (
-            <>
-              <Separator />
-              <div>
-                <button
-                  onClick={() => setShowFiles(!showFiles)}
-                  className="flex w-full items-center justify-between mb-3"
-                >
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    Files ({book.files.length})
-                  </h2>
-                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showFiles ? 'rotate-180' : ''}`} />
-                </button>
-                {showFiles && (
-                  <>
-                    {splitMode && (
-                      <div className="mb-2 flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Select files to split into a new book:</span>
-                        <Button
-                          size="sm"
-                          disabled={selectedFileIds.size === 0 || selectedFileIds.size >= book.files.length || splitFiles.isPending}
-                          onClick={() => splitFiles.mutate([...selectedFileIds])}
-                        >
-                          {splitFiles.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Scissors className="h-3 w-3" />}
-                          Split ({selectedFileIds.size})
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => { setSplitMode(false); setSelectedFileIds(new Set()); }}>
-                          Cancel
-                        </Button>
-                      </div>
-                    )}
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {book.files.map((file: any) => {
-                        const fileContent = (
-                          <>
-                            <div className="flex items-center gap-2">
-                              {splitMode && (
-                                <input
-                                  type="checkbox"
-                                  checked={selectedFileIds.has(file.id)}
-                                  readOnly
-                                  className="h-3.5 w-3.5"
-                                />
-                              )}
-                              <Badge variant="outline" className={FORMAT_COLORS[file.format]}>
-                                {file.format.toUpperCase()}
-                              </Badge>
-                              {file.isCompanion === 1 && (
-                                <Badge variant="secondary" className="text-[10px]">Companion</Badge>
-                              )}
-                              <span className="font-medium truncate">{file.filename}</span>
-                              <span className="ml-auto shrink-0 text-muted-foreground">{formatBytes(file.sizeBytes)}</span>
-                            </div>
-                            <div className="text-muted-foreground truncate">{file.path}</div>
-                          </>
-                        );
-                        return splitMode ? (
-                          <button
-                            type="button"
-                            key={file.id}
-                            className={`rounded border bg-muted/50 p-2 text-xs space-y-1 text-left w-full cursor-pointer hover:border-primary ${selectedFileIds.has(file.id) ? 'border-primary bg-primary/5' : ''}`}
-                            onClick={() => {
-                              const next = new Set(selectedFileIds);
-                              if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
-                              setSelectedFileIds(next);
-                            }}
-                          >
-                            {fileContent}
-                          </button>
-                        ) : (
-                          <div
-                            key={file.id}
-                            className="rounded border bg-muted/50 p-2 text-xs space-y-1"
-                          >
-                            {fileContent}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
-            </>
-          )}
+          <FilesSection
+            book={book}
+            showFiles={showFiles}
+            setShowFiles={setShowFiles}
+            splitMode={splitMode}
+            setSplitMode={setSplitMode}
+            selectedFileIds={selectedFileIds}
+            setSelectedFileIds={setSelectedFileIds}
+            splitFiles={splitFiles}
+          />
         </div>
       </div>
 

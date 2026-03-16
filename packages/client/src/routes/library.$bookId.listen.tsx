@@ -132,7 +132,7 @@ function useAudioQueries(bookId: string) {
   return { book, tracks, chapters, savedProgress, saveProgress };
 }
 
-function setupPlaybackEffects(
+function usePlaybackEffects(
   store: any,
   sleepTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
   book: BookDetail | undefined,
@@ -189,7 +189,7 @@ export function ListenPage() {
 
   const { book, tracks, chapters, savedProgress, saveProgress } = useAudioQueries(bookId);
 
-  setupPlaybackEffects(store, sleepTimerRef, book);
+  usePlaybackEffects(store, sleepTimerRef, book);
 
   const lastSaveTimeRef = useRef(0);
 

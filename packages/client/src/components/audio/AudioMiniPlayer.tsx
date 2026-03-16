@@ -10,7 +10,7 @@ export function AudioMiniPlayer() {
   const { bookId, bookTitle, bookAuthor, coverUrl, positionSeconds, totalDurationSeconds, isPlaying, setPlaying, stop, currentTrackIndex, chapters } =
     useAudioStore();
   const reloadedRef = useRef(false);
-  const progressBarRef = useRef<HTMLProgressElement>(null);
+  const progressBarRef = useRef<HTMLDivElement>(null);
 
   // Reload audio source if store has persisted state but AudioEngine has no source
   // (happens after page refresh — store persists via localStorage, AudioEngine doesn't)
@@ -43,7 +43,7 @@ export function AudioMiniPlayer() {
     stop();
   };
 
-  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLProgressElement>) => {
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const bar = progressBarRef.current;
     if (!bar || totalDurationSeconds <= 0) return;
     const rect = bar.getBoundingClientRect();
@@ -70,19 +70,26 @@ export function AudioMiniPlayer() {
   return (
     <div className="border-t bg-card">
       {/* Progress bar */}
-      <progress
+      <div
         ref={progressBarRef}
-        className="h-1.5 w-full cursor-pointer appearance-none [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-primary [&::-webkit-progress-value]:transition-all [&::-moz-progress-bar]:bg-primary"
+        role="slider"
         tabIndex={0}
-        value={roundedPosition}
-        max={totalDurationSeconds}
         aria-label="Audio progress"
+        aria-valuenow={roundedPosition}
+        aria-valuemin={0}
+        aria-valuemax={totalDurationSeconds}
+        className="h-1.5 w-full cursor-pointer bg-muted"
         onClick={handleProgressClick}
         onKeyDown={(e) => {
           if (e.key === 'ArrowRight') { e.preventDefault(); AudioEngine.seek(Math.min(positionSeconds + 10, totalDurationSeconds)); }
           else if (e.key === 'ArrowLeft') { e.preventDefault(); AudioEngine.seek(Math.max(positionSeconds - 10, 0)); }
         }}
-      />
+      >
+        <div
+          className="h-full bg-primary transition-all"
+          style={{ width: totalDurationSeconds > 0 ? `${(roundedPosition / totalDurationSeconds) * 100}%` : '0%' }}
+        />
+      </div>
 
       <div className="flex items-center gap-3 px-4 py-2">
         {/* Cover thumbnail — click to open listen page */}

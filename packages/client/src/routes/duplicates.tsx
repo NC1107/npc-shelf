@@ -109,25 +109,13 @@ export function DuplicatesPage() {
       </div>
 
       {/* Content */}
-      {isLoading && (
+      {isLoading ? (
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-36 animate-pulse rounded-xl bg-muted" />
           ))}
         </div>
-      )}
-      {!isLoading && (!filteredGroups || filteredGroups.length === 0) && (
-        <div className="py-12 text-center">
-          <Copy className="mx-auto h-12 w-12 text-muted-foreground" />
-          <p className="mt-3 text-lg font-medium">No duplicates detected</p>
-          <p className="text-sm text-muted-foreground">
-            {methodFilter !== 'all'
-              ? 'No duplicates found for this detection method. Try a different filter.'
-              : 'Your library looks clean. No duplicate books were found.'}
-          </p>
-        </div>
-      )}
-      {!isLoading && filteredGroups && filteredGroups.length > 0 && (
+      ) : filteredGroups && filteredGroups.length > 0 ? (
         <div className="space-y-4">
           {filteredGroups.map((group, groupIndex) => {
             const config = METHOD_CONFIG[group.method];
@@ -204,6 +192,16 @@ export function DuplicatesPage() {
               </Card>
             );
           })}
+        </div>
+      ) : (
+        <div className="py-12 text-center">
+          <Copy className="mx-auto h-12 w-12 text-muted-foreground" />
+          <p className="mt-3 text-lg font-medium">No duplicates detected</p>
+          <p className="text-sm text-muted-foreground">
+            {methodFilter === 'all'
+              ? 'Your library looks clean. No duplicate books were found.'
+              : 'No duplicates found for this detection method. Try a different filter.'}
+          </p>
         </div>
       )}
     </div>

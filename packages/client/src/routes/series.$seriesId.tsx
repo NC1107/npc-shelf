@@ -26,6 +26,24 @@ interface SeriesDetail {
 
 type OrderItem = { type: 'book'; book: SeriesBook } | { type: 'gap'; position: number };
 
+function buildPositionedItems(books: SeriesBook[], maxPosition: number, positionSet: Set<number>): OrderItem[] {
+  const items: OrderItem[] = [];
+  for (let pos = 1; pos <= maxPosition; pos++) {
+    const book = books.find((b) => b.position === pos);
+    if (book) {
+      items.push({ type: 'book', book });
+    } else if (!positionSet.has(pos)) {
+      items.push({ type: 'gap', position: pos });
+    }
+  }
+  for (const book of books) {
+    if (book.position === null || book.position === 0) {
+      items.push({ type: 'book', book });
+    }
+  }
+  return items;
+}
+
 function buildOrderedItems(books: SeriesBook[]): OrderItem[] {
   const positions = books
     .map((b) => b.position)
@@ -34,29 +52,11 @@ function buildOrderedItems(books: SeriesBook[]): OrderItem[] {
   const maxPosition = positions.length > 0 ? positions.at(-1)! : 0;
   const positionSet = new Set(positions);
 
-  const items: OrderItem[] = [];
-
   if (maxPosition > 0) {
-    for (let pos = 1; pos <= maxPosition; pos++) {
-      const book = books.find((b) => b.position === pos);
-      if (book) {
-        items.push({ type: 'book', book });
-      } else if (!positionSet.has(pos)) {
-        items.push({ type: 'gap', position: pos });
-      }
-    }
-    for (const book of books) {
-      if (book.position === null || book.position === 0) {
-        items.push({ type: 'book', book });
-      }
-    }
-  } else {
-    for (const book of books) {
-      items.push({ type: 'book', book });
-    }
+    return buildPositionedItems(books, maxPosition, positionSet);
   }
 
-  return items;
+  return books.map((book) => ({ type: 'book' as const, book }));
 }
 
 function GapRow({ position }: Readonly<{ position: number }>) {

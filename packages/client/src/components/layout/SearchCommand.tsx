@@ -78,7 +78,12 @@ export function SearchCommand() {
 
       {open && (
         <>
-          <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setOpen(false)} />
+          <button
+            type="button"
+            className="fixed inset-0 z-50 bg-black/50 cursor-default border-none p-0"
+            aria-label="Close search"
+            onClick={() => setOpen(false)}
+          />
           <div className="fixed left-1/2 top-[20%] z-50 w-full max-w-lg -translate-x-1/2 rounded-xl border bg-popover shadow-2xl">
             <Command label="Search" onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
               <Command.Input
