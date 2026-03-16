@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Play, Pause, SkipBack, SkipForward,
-  Volume2, VolumeX, Timer, ListMusic, Gauge,
+  Volume2, VolumeX, Timer, ListMusic, Gauge, Headphones,
+  SkipBack as ChapterBack, SkipForward as ChapterForward,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { api } from '../lib/api';
@@ -280,49 +281,96 @@ export function ListenPage() {
   const progressPercent = trackDuration > 0 ? (store.positionSeconds / trackDuration) * 100 : 0;
   const totalElapsed = calculateTotalElapsed(store.currentTrackIndex, store.positionSeconds);
 
-  return (
-    <div className="mx-auto max-w-lg space-y-6 pb-8">
-      {/* Back link */}
-      <Link
-        to="/library/$bookId"
-        params={{ bookId }}
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Book
-      </Link>
+  // Chapter navigation
+  const currentChapter = chapters?.find(
+    (ch) => ch.trackIndex === store.currentTrackIndex && store.positionSeconds >= ch.startTime && store.positionSeconds < ch.endTime,
+  );
+  const currentChapterIndex = currentChapter ? chapters!.indexOf(currentChapter) : -1;
 
-      {/* Cover */}
-      <div className="flex justify-center">
-        <div className="h-64 w-64 overflow-hidden rounded-xl bg-muted shadow-xl">
-          {book?.coverPath ? (
-            <img
-              src={`/api/books/${book.id}/cover/medium`}
-              alt={book.title}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              <Volume2 className="h-16 w-16" />
-            </div>
-          )}
-        </div>
-      </div>
+  const prevChapter = useCallback(() => {
+    if (!chapters || currentChapterIndex <= 0) return;
+    seekToChapter(chapters[currentChapterIndex - 1]!);
+  }, [chapters, currentChapterIndex]);
 
-      {/* Title & Author */}
-      <div className="text-center">
-        <h1 className="text-xl font-bold">{book?.title}</h1>
-        <p className="text-sm text-muted-foreground">
-          {book?.authors?.map((a) => a.author.name).join(', ')}
-        </p>
-        {tracks && tracks.length > 1 && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Track {store.currentTrackIndex + 1} of {tracks.length}
-            {tracks[store.currentTrackIndex]?.title && ` — ${tracks[store.currentTrackIndex]!.title}`}
-          </p>
+  const nextChapter = useCallback(() => {
+    if (!chapters || currentChapterIndex < 0 || currentChapterIndex >= chapters.length - 1) return;
+    seekToChapter(chapters[currentChapterIndex + 1]!);
+  }, [chapters, currentChapterIndex]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      switch (e.key) {
+        case ' ':
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          skipBack();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          skipForward();
+          break;
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [store.isPlaying]);
+
+  // Chapter/Track list component
+  const chapterList = (
+    <div className="flex flex-col overflow-hidden">
+      <h3 className="shrink-0 px-4 py-3 text-sm font-semibold text-muted-foreground border-b">
+        {chapters && chapters.length > 0 ? 'Chapters' : 'Tracks'}
+      </h3>
+      <div className="flex-1 overflow-y-auto">
+        {chapters && chapters.length > 0 ? (
+          chapters.map((ch, i) => (
+            <button
+              key={ch.id || i}
+              onClick={() => seekToChapter(ch)}
+              className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-muted/50 transition-colors ${
+                ch.trackIndex === store.currentTrackIndex &&
+                store.positionSeconds >= ch.startTime &&
+                store.positionSeconds < ch.endTime
+                  ? 'bg-primary/10 font-medium text-primary'
+                  : ''
+              }`}
+            >
+              <span className="truncate">{ch.title}</span>
+              <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+                {formatTime(ch.startTime)}
+              </span>
+            </button>
+          ))
+        ) : tracks && tracks.length > 1 ? (
+          tracks.map((track, i) => (
+            <button
+              key={track.id || i}
+              onClick={() => switchTrack(i)}
+              className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-muted/50 transition-colors ${
+                i === store.currentTrackIndex ? 'bg-primary/10 font-medium text-primary' : ''
+              }`}
+            >
+              <span className="truncate">{track.title || `Track ${i + 1}`}</span>
+              <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+                {formatTime(track.durationSeconds)}
+              </span>
+            </button>
+          ))
+        ) : (
+          <p className="p-4 text-center text-sm text-muted-foreground">No chapters available</p>
         )}
       </div>
+    </div>
+  );
 
+  // Transport controls (shared between mobile & desktop)
+  const transportControls = (
+    <>
       {/* Progress bar */}
       <div className="space-y-1">
         <div
@@ -343,10 +391,7 @@ export function ListenPage() {
             else if (e.key === 'ArrowLeft') AudioEngine.seek(Math.max(0, AudioEngine.currentTime - 5));
           }}
         >
-          <div
-            className="h-full rounded-full bg-primary transition-all"
-            style={{ width: `${progressPercent}%` }}
-          />
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progressPercent}%` }} />
         </div>
         <div className="flex justify-between text-xs text-muted-foreground">
           <span>{formatTime(store.positionSeconds)}</span>
@@ -355,25 +400,31 @@ export function ListenPage() {
       </div>
 
       {/* Main controls */}
-      <div className="flex items-center justify-center gap-4">
+      <div className="flex items-center justify-center gap-3">
+        {chapters && chapters.length > 0 && (
+          <Button variant="ghost" size="icon" className="h-10 w-10" onClick={prevChapter} disabled={currentChapterIndex <= 0}>
+            <ChapterBack className="h-4 w-4" />
+          </Button>
+        )}
         <Button variant="ghost" size="icon" className="relative h-12 w-12" onClick={skipBack}>
           <SkipBack className="h-5 w-5" />
           <span className="absolute -bottom-1 text-[10px] text-muted-foreground">-30s</span>
         </Button>
-        <Button
-          size="icon"
-          className="h-16 w-16 rounded-full"
-          onClick={togglePlay}
-        >
+        <Button size="icon" className="h-16 w-16 rounded-full" onClick={togglePlay}>
           {store.isPlaying ? <Pause className="h-7 w-7" /> : <Play className="h-7 w-7 ml-1" />}
         </Button>
         <Button variant="ghost" size="icon" className="relative h-12 w-12" onClick={skipForward}>
           <SkipForward className="h-5 w-5" />
           <span className="absolute -bottom-1 text-[10px] text-muted-foreground">+30s</span>
         </Button>
+        {chapters && chapters.length > 0 && (
+          <Button variant="ghost" size="icon" className="h-10 w-10" onClick={nextChapter} disabled={currentChapterIndex < 0 || currentChapterIndex >= chapters.length - 1}>
+            <ChapterForward className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
-      {/* Overall progress (text only) */}
+      {/* Overall progress */}
       <p className="text-center text-xs text-muted-foreground">
         Overall: {formatTime(totalElapsed)} / {formatTime(store.totalDurationSeconds)}
       </p>
@@ -385,7 +436,7 @@ export function ListenPage() {
           <Button
             variant={showSpeed ? 'secondary' : 'outline'}
             size="sm"
-            onClick={() => { setShowSpeed(!showSpeed); setShowChapters(false); setShowSleep(false); }}
+            onClick={() => { setShowSpeed(!showSpeed); setShowSleep(false); }}
           >
             <Gauge className="h-3.5 w-3.5 mr-1" />
             {store.playbackRate}x
@@ -411,16 +462,8 @@ export function ListenPage() {
 
         {/* Volume */}
         <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => store.setVolume(store.volume > 0 ? 0 : 1)}
-          >
-            {store.volume === 0 ? (
-              <VolumeX className="h-3.5 w-3.5" />
-            ) : (
-              <Volume2 className="h-3.5 w-3.5" />
-            )}
+          <Button variant="outline" size="sm" onClick={() => store.setVolume(store.volume > 0 ? 0 : 1)}>
+            {store.volume === 0 ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
           </Button>
           <input
             type="range"
@@ -438,7 +481,7 @@ export function ListenPage() {
           <Button
             variant={store.sleepTimerMinutes ? 'secondary' : 'outline'}
             size="sm"
-            onClick={() => { setShowSleep(!showSleep); setShowChapters(false); setShowSpeed(false); }}
+            onClick={() => { setShowSleep(!showSleep); setShowSpeed(false); }}
           >
             <Timer className="h-3.5 w-3.5 mr-1" />
             {store.sleepTimerMinutes ? `${store.sleepTimerMinutes}m` : 'Sleep'}
@@ -462,46 +505,129 @@ export function ListenPage() {
           )}
         </div>
 
-        {/* Chapters toggle */}
+        {/* Mobile chapters toggle */}
         <Button
           variant={showChapters ? 'secondary' : 'outline'}
           size="sm"
+          className="lg:hidden"
           onClick={() => { setShowChapters(!showChapters); setShowSpeed(false); setShowSleep(false); }}
         >
           <ListMusic className="h-3.5 w-3.5 mr-1" />
           Chapters
         </Button>
       </div>
+    </>
+  );
 
-      {/* Chapter / Track list */}
-      {showChapters && (
-        <div className="rounded-lg border bg-card">
-          {chapters && chapters.length > 0 ? (
-            <div className="max-h-64 overflow-y-auto">
-              {chapters.map((ch, i) => (
-                <button
-                  key={ch.id || i}
-                  onClick={() => seekToChapter(ch)}
-                  className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm hover:bg-muted/50 transition-colors ${
-                    ch.trackIndex === store.currentTrackIndex &&
-                    store.positionSeconds >= ch.startTime &&
-                    store.positionSeconds < ch.endTime
-                      ? 'bg-primary/10 font-medium'
-                      : ''
-                  }`}
-                >
-                  <span className="truncate">{ch.title}</span>
-                  <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-                    {formatTime(ch.startTime)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <TrackOrEmptyList tracks={tracks} currentTrackIndex={store.currentTrackIndex} onSwitchTrack={switchTrack} />
+  return (
+    <div className="flex h-full flex-col">
+      {/* Back link */}
+      <Link
+        to="/library/$bookId"
+        params={{ bookId }}
+        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to Book
+      </Link>
+
+      {/* Desktop: two-panel layout */}
+      <div className="hidden lg:flex lg:flex-1 lg:gap-6 lg:overflow-hidden">
+        {/* Left panel — cover + info + controls */}
+        <div className="flex flex-1 flex-col items-center justify-center space-y-6 px-4">
+          <div className="w-full max-w-sm overflow-hidden rounded-xl bg-muted shadow-xl aspect-square">
+            {book?.coverPath ? (
+              <img src={`/api/books/${book.id}/cover/full`} alt={book.title} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                <Headphones className="h-24 w-24" />
+              </div>
+            )}
+          </div>
+          <div className="w-full max-w-sm text-center">
+            <h1 className="text-xl font-bold">{book?.title}</h1>
+            <p className="text-sm text-muted-foreground">{book?.authors?.map((a) => a.author.name).join(', ')}</p>
+            {tracks && tracks.length > 1 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Track {store.currentTrackIndex + 1} of {tracks.length}
+                {tracks[store.currentTrackIndex]?.title && ` — ${tracks[store.currentTrackIndex]!.title}`}
+              </p>
+            )}
+          </div>
+          <div className="w-full max-w-sm space-y-4">
+            {transportControls}
+          </div>
+        </div>
+
+        {/* Right panel — persistent chapter list */}
+        <div className="flex w-80 shrink-0 flex-col rounded-lg border bg-card">
+          {chapterList}
+        </div>
+      </div>
+
+      {/* Mobile: full-screen immersive layout */}
+      <div className="flex flex-1 flex-col lg:hidden">
+        {/* Cover — responsive */}
+        <div className="flex justify-center py-4">
+          <div className="w-48 overflow-hidden rounded-xl bg-muted shadow-xl aspect-square sm:w-64">
+            {book?.coverPath ? (
+              <img src={`/api/books/${book.id}/cover/medium`} alt={book?.title || ''} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                <Headphones className="h-16 w-16" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Title & Author */}
+        <div className="px-4 text-center">
+          <h1 className="text-lg font-bold">{book?.title}</h1>
+          <p className="text-sm text-muted-foreground">{book?.authors?.map((a) => a.author.name).join(', ')}</p>
+          {tracks && tracks.length > 1 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Track {store.currentTrackIndex + 1} of {tracks.length}
+            </p>
           )}
         </div>
-      )}
+
+        {/* Controls */}
+        <div className="mt-auto space-y-4 px-4 pb-6">
+          {transportControls}
+        </div>
+
+        {/* Mobile chapter bottom sheet */}
+        {showChapters && (
+          <div className="fixed inset-x-0 bottom-0 z-40 max-h-[60vh] rounded-t-xl border-t bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h3 className="text-sm font-semibold">Chapters</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowChapters(false)}>Close</Button>
+            </div>
+            <div className="overflow-y-auto" style={{ maxHeight: 'calc(60vh - 52px)' }}>
+              {chapters && chapters.length > 0 ? (
+                chapters.map((ch, i) => (
+                  <button
+                    key={ch.id || i}
+                    onClick={() => seekToChapter(ch)}
+                    className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-muted/50 transition-colors ${
+                      ch.trackIndex === store.currentTrackIndex &&
+                      store.positionSeconds >= ch.startTime &&
+                      store.positionSeconds < ch.endTime
+                        ? 'bg-primary/10 font-medium text-primary'
+                        : ''
+                    }`}
+                  >
+                    <span className="truncate">{ch.title}</span>
+                    <span className="ml-2 shrink-0 text-xs text-muted-foreground">{formatTime(ch.startTime)}</span>
+                  </button>
+                ))
+              ) : (
+                <TrackOrEmptyList tracks={tracks} currentTrackIndex={store.currentTrackIndex} onSwitchTrack={switchTrack} />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
