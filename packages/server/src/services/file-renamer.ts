@@ -19,11 +19,9 @@ interface RenameResult {
   error?: string;
 }
 
-// Default templates
-const EBOOK_TEMPLATE = '{author}/{series_prefix}{title}/{title}.{ext}';
-const AUDIOBOOK_TEMPLATE = '{author}/{series_prefix}{title}/{title}.{ext}';
-
-const AUDIO_FORMATS = new Set(['m4b', 'mp3']);
+// Audiobookshelf-style templates
+const TEMPLATE_WITH_SERIES = '{author}/{series}/Book {series_index} - {title}/{title}.{ext}';
+const TEMPLATE_NO_SERIES = '{author}/{title}/{title}.{ext}';
 
 function getBookData(bookId: number) {
   const book = db.select().from(schema.books).where(eq(schema.books.id, bookId)).get();
@@ -55,7 +53,11 @@ function getBookData(bookId: number) {
 }
 
 function sanitizeSegment(s: string): string {
-  const cleaned = sanitize(s).replaceAll(/\s+/g, ' ').trim();
+  const cleaned = sanitize(s)
+    .replace(/^[\s-]+/, '')
+    .replace(/[\s-]+$/, '')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
   return cleaned.slice(0, 200) || 'Unknown';
 }
 
@@ -74,22 +76,14 @@ function resolveTemplate(
   if (!bookData) return file.filename;
 
   const ext = file.format;
-  const isAudio = AUDIO_FORMATS.has(ext);
-  const template = isAudio ? AUDIOBOOK_TEMPLATE : EBOOK_TEMPLATE;
-
-  let seriesPrefix = '';
-  if (bookData.series) {
-    seriesPrefix = bookData.seriesPosition
-      ? `${sanitizeSegment(bookData.series)} ${String(bookData.seriesPosition).padStart(2, '0')} - `
-      : `${sanitizeSegment(bookData.series)} - `;
-  }
+  const hasSeries = !!(bookData.series && bookData.seriesPosition);
+  const template = hasSeries ? TEMPLATE_WITH_SERIES : TEMPLATE_NO_SERIES;
 
   const vars: Record<string, string> = {
     author: sanitizeSegment(bookData.author),
     title: sanitizeSegment(bookData.title),
     series: bookData.series ? sanitizeSegment(bookData.series) : '',
     series_index: bookData.seriesPosition ? String(bookData.seriesPosition).padStart(2, '0') : '',
-    series_prefix: seriesPrefix,
     year: bookData.publishDate?.slice(0, 4) || '',
     isbn: bookData.isbn13 || '',
     ext,

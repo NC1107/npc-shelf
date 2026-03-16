@@ -77,3 +77,44 @@ VOLUME ["/data", "/config", "/cache"]
 
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "packages/server/dist/index.js"]
+
+# ===== Stage 5: All-in-one (Debian + Calibre + ffmpeg) =====
+FROM node:22-slim AS production-aio
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini ffmpeg calibre wget \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -g 1001 npcshelf && useradd -u 1001 -g npcshelf -m -s /bin/sh npcshelf
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/server/package.json packages/server/
+RUN npm install --workspace=packages/server --workspace=packages/shared --omit=dev && npm cache clean --force
+
+COPY --from=shared-build /app/packages/shared/dist packages/shared/dist
+COPY --from=shared-build /app/packages/shared/package.json packages/shared/
+COPY --from=server-build /app/packages/server/dist packages/server/dist
+COPY --from=server-build /app/packages/server/package.json packages/server/
+COPY --from=client-build /app/packages/client/dist packages/client/dist
+
+RUN mkdir -p /data /config /cache/covers && chown -R npcshelf:npcshelf /data /config /cache /app
+
+USER npcshelf
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV DATABASE_PATH=/data/npc-shelf.db
+ENV COVER_CACHE_PATH=/cache/covers
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+
+VOLUME ["/data", "/config", "/cache"]
+
+ENTRYPOINT ["tini", "--"]
+CMD ["node", "packages/server/dist/index.js"]

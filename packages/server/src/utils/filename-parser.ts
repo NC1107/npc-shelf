@@ -161,8 +161,10 @@ export function cleanTitle(title: string): string {
   cleaned = cleaned.replace(/\s+eBook-\w+$/i, '');
   // Strip standalone format/release words (not in parens)
   cleaned = cleaned.replace(/\b(?:RETAIL|EPUB|AZW3|MOBI|PDF)\b/gi, '');
-  // Detect omnibus/box set markers
+  // Collapse whitespace
   cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+  // Strip leading/trailing dashes and whitespace
+  cleaned = cleaned.replace(/^[\s-]+/, '').replace(/[\s-]+$/, '').trim();
   return cleaned || title;
 }
 

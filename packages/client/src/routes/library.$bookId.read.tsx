@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useParams, Link } from '@tanstack/react-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, Settings, Maximize, Minimize, Loader2 } from 'lucide-react';
+import { ArrowLeft, Settings, Maximize, Minimize, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { EpubReader } from '../components/reader/EpubReader';
 import { PdfReader } from '../components/reader/PdfReader';
@@ -104,10 +104,12 @@ export function ReadPage() {
   const { isError: contentError, error: contentErrorData } = useQuery({
     queryKey: ['reader-content-check', bookId, readerFormat],
     queryFn: async () => {
-      const res = await fetch(contentUrl!, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const res = await fetch(contentUrl!);
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(body.error || `HTTP ${res.status}`);
+        const err = new Error(body.error || `HTTP ${res.status}`);
+        (err as any).status = res.status;
+        throw err;
       }
       setContentReady(true);
       return true;
@@ -130,7 +132,19 @@ export function ReadPage() {
       <div className="flex h-full flex-col items-center justify-center gap-3">
         {contentError ? (
           <>
-            <p className="text-destructive">{(contentErrorData as Error)?.message || 'Conversion failed'}</p>
+            {(contentErrorData as any)?.status === 422 ? (
+              <>
+                <AlertTriangle className="h-8 w-8 text-amber-500" />
+                <p className="text-lg font-medium">Calibre Required</p>
+                <p className="max-w-md text-center text-sm text-muted-foreground">
+                  This book is in {convertibleFile?.format?.toUpperCase()} format. Install Calibre
+                  in the Docker container to read it, or switch to the AIO image
+                  (<code className="rounded bg-muted px-1">ghcr.io/nc1107/npc-shelf:aio</code>).
+                </p>
+              </>
+            ) : (
+              <p className="text-destructive">{(contentErrorData as Error)?.message || 'Conversion failed'}</p>
+            )}
             <Link to="/library/$bookId" params={{ bookId }}>
               <Button variant="outline">Back to Book</Button>
             </Link>

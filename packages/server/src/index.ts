@@ -28,7 +28,7 @@ import { enrichBook, enrichAllUnmatched, cleanupDirtyTitles } from './services/m
 import { backfillCovers } from './services/cover-backfill.js';
 import { mergeAudiobook, isFfmpegAvailable } from './services/audio-merge.js';
 import { isCalibreAvailable } from './services/metadata-writer.js';
-import { convertBook } from './services/format-converter.js';
+import { convertBook, isConvertAvailable } from './services/format-converter.js';
 import { initializeWatchers, stopAllWatchers } from './services/file-watcher.js';
 import { installLogCapture } from './services/log-buffer.js';
 
@@ -143,8 +143,10 @@ app.get('/api/health', (_req, res) => {
 
     res.json({
       status: 'ok',
-      version: '0.6.1',
+      version: '0.10.2',
       uptime: process.uptime(),
+      calibreAvailable: isCalibreAvailable(),
+      convertAvailable: isConvertAvailable(),
       database: 'connected',
       books: bookCount,
       jobs,
@@ -281,15 +283,39 @@ app.get('/api/audiobooks/:id/stream/:trackIndex', (req, res) => {
 });
 
 // Public reader content — ReactReader/pdfjs can't send Bearer tokens
-app.get('/api/reader/books/:id/content', (req, res) => {
+app.get('/api/reader/books/:id/content', async (req, res) => {
   try {
     const bookId = Number.parseInt(req.params.id);
     if (Number.isNaN(bookId)) { res.status(400).json({ error: 'Invalid book ID' }); return; }
     const formatPref = (req.query.format as string) || 'epub';
 
-    const file = sqlite.prepare(
+    let file = sqlite.prepare(
       'SELECT * FROM files WHERE book_id = ? AND format = ?',
     ).get(bookId, formatPref) as any;
+
+    // On-demand conversion: if epub requested but missing, convert from azw3/mobi
+    if (!file && formatPref === 'epub') {
+      const convertible = sqlite.prepare(
+        "SELECT * FROM files WHERE book_id = ? AND format IN ('azw3', 'mobi')",
+      ).get(bookId) as any;
+
+      if (convertible) {
+        if (!isConvertAvailable()) {
+          res.status(422).json({ error: 'Calibre is required to read AZW3/MOBI files. Use the AIO Docker image or install ebook-convert.' });
+          return;
+        }
+        try {
+          await convertBook(convertible.id, 'epub');
+          file = sqlite.prepare(
+            "SELECT * FROM files WHERE book_id = ? AND format = 'epub'",
+          ).get(bookId) as any;
+        } catch (err: any) {
+          console.error('[Reader] On-demand conversion failed:', err.message);
+          res.status(500).json({ error: `Conversion failed: ${err.message}` });
+          return;
+        }
+      }
+    }
 
     if (!file || !fs.existsSync(file.path)) {
       res.status(404).json({ error: 'Book file not found' });
